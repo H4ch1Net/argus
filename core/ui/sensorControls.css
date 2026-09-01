@@ -1,0 +1,38 @@
+/* Sensor shader controls: Normal / NVG / FLIR (single-select) + optional CRT. */
+.argus-sensors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.argus-sensors__btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(120, 140, 170, 0.3);
+  border-radius: 8px;
+  background: rgba(12, 20, 34, 0.5);
+  color: #8fa8c8;
+  font:
+    12px/1 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  cursor: pointer;
+}
+.argus-sensors__btn:hover {
+  background: rgba(95, 227, 255, 0.12);
+}
+.argus-sensors__btn.is-active {
+  background: #5fe3ff;
+  border-color: #5fe3ff;
+  color: #06101c;
+  font-weight: 600;
+}
+.argus-sensors__crt {
+  margin-left: auto;
+}
+.argus-sensors__crt.is-on {
+  background: rgba(227, 168, 87, 0.85);
+  border-color: rgba(227, 168, 87, 0.85);
+  color: #06101c;
+}

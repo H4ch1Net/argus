@@ -1,0 +1,79 @@
+/* Global search box + results dropdown. */
+.argus-search {
+  position: relative;
+}
+.argus-search__input {
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid rgba(95, 227, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(6, 12, 22, 0.75);
+  color: #e8f1ff;
+  font:
+    13px/1 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  outline: none;
+}
+.argus-search__input::placeholder {
+  color: #6f86a8;
+}
+.argus-search__input:focus {
+  border-color: rgba(95, 227, 255, 0.7);
+}
+
+.argus-search__results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  background: rgba(6, 12, 22, 0.96);
+  border: 1px solid rgba(95, 227, 255, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.argus-search__results[hidden] {
+  display: none;
+}
+.argus-search__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 13px;
+  border: 0;
+  border-bottom: 1px solid rgba(95, 227, 255, 0.1);
+  background: transparent;
+  color: #e8f1ff;
+  font:
+    13px/1.3 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  cursor: pointer;
+  text-align: left;
+}
+.argus-search__item:last-child {
+  border-bottom: 0;
+}
+.argus-search__item:hover {
+  background: rgba(95, 227, 255, 0.12);
+}
+.argus-search__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.argus-search__sub {
+  flex: 0 0 auto;
+  color: #7f97b8;
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 11px;
+}

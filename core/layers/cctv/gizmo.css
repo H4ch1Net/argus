@@ -1,0 +1,47 @@
+/* CCTV pose-calibration gizmo panel. */
+.argus-gizmo {
+  font:
+    12px/1.4 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #e8f1ff;
+  background: rgba(6, 12, 22, 0.9);
+  border: 1px solid rgba(95, 227, 255, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.argus-gizmo[hidden] {
+  display: none;
+}
+.argus-gizmo__title {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #5fe3ff;
+}
+.argus-gizmo__row {
+  display: grid;
+  grid-template-columns: 58px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+}
+.argus-gizmo__row > span:first-child {
+  color: #8fa8c8;
+}
+.argus-gizmo__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #cfe3ff;
+}
+.argus-gizmo input[type='range'] {
+  width: 100%;
+  accent-color: #5fe3ff;
+  touch-action: none;
+}

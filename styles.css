@@ -1,0 +1,69 @@
+/* Global base. Dark, full-viewport, no scroll. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #05070c;
+  color: #e8f1ff;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+/* Boot / fatal-error overlay, used when the scene cannot start (for example,
+   no WebGL or software-only rendering: see the Cesium hard-fail note). */
+.argus-fatal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: #05070c;
+  z-index: 10;
+}
+.argus-fatal h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #ff9d7a;
+}
+.argus-fatal p {
+  margin: 0;
+  max-width: 46ch;
+  color: #a9bbd6;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.argus-fatal code {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  color: #cfe3ff;
+  background: rgba(90, 140, 210, 0.16);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+/* Demo-data banner: shown when no proxy is configured, so simulated data is
+   never mistaken for live feeds. */
+.argus-demo-banner {
+  padding: 7px 10px;
+  border: 1px solid rgba(240, 180, 90, 0.55);
+  border-radius: 8px;
+  background: rgba(240, 180, 90, 0.14);
+  color: #ffd9a0;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 600;
+}

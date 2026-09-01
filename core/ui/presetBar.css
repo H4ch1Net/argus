@@ -1,0 +1,40 @@
+/* Preset scene buttons. Horizontal, scrollable on narrow screens. */
+.argus-presets {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.argus-presets::-webkit-scrollbar {
+  display: none;
+}
+
+.argus-presets__btn {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid rgba(95, 227, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(12, 20, 34, 0.6);
+  color: #cfe3ff;
+  font:
+    13px/1 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.argus-presets__btn:hover {
+  background: rgba(95, 227, 255, 0.14);
+}
+.argus-presets__btn.is-active {
+  background: #5fe3ff;
+  border-color: #5fe3ff;
+  color: #06101c;
+  font-weight: 600;
+}

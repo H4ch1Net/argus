@@ -1,0 +1,61 @@
+/* Time scrubber. Shared look; shells own placement. */
+.argus-scrub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font:
+    12px/1 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #cfe8ff;
+  background: rgba(6, 12, 22, 0.72);
+  border: 1px solid rgba(95, 227, 255, 0.22);
+  border-radius: 10px;
+}
+.argus-scrub--scrubbing {
+  border-color: rgba(255, 204, 85, 0.5);
+}
+
+.argus-scrub__btn {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 26px;
+  border: 1px solid rgba(95, 227, 255, 0.3);
+  border-radius: 7px;
+  background: transparent;
+  color: #9fb6d6;
+  font: inherit;
+  cursor: pointer;
+}
+.argus-scrub__btn:hover {
+  background: rgba(95, 227, 255, 0.14);
+  color: #e8f1ff;
+}
+.argus-scrub__live {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.argus-scrub__range {
+  flex: 1 1 auto;
+  min-width: 90px;
+  accent-color: #5fe3ff;
+}
+.argus-scrub--scrubbing .argus-scrub__range {
+  accent-color: #ffcc55;
+}
+
+.argus-scrub__label {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #7f97b8;
+}
+.argus-scrub--scrubbing .argus-scrub__label {
+  color: #ffcc55;
+}

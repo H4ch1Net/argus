@@ -1,0 +1,37 @@
+/* Desktop shell (Linux priority 2, Windows priority 3): full-bleed globe with a
+   side panel holding controls, the capability readout, and the metadata card. */
+
+.argus-shell-desktop {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #05070c;
+}
+
+.argus-shell-desktop .argus-globe {
+  position: absolute;
+  inset: 0;
+}
+
+/* Side panel: docked top-left, out of the way of globe interaction. */
+.argus-shell-desktop .argus-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+}
+.argus-shell-desktop .argus-panel > * {
+  pointer-events: auto;
+}
+.argus-shell-desktop .argus-panel__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

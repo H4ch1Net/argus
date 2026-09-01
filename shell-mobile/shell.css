@@ -1,0 +1,91 @@
+/* Mobile shell v1 (S25-tuned): full-bleed globe with a draggable bottom sheet
+   (master plan 6.7: snap points within thumb reach on a 6.9" panel). */
+
+.argus-shell-mobile {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  /* Kill browser gesture interception so Cesium gets the pointer stream. */
+  touch-action: none;
+  overscroll-behavior: none;
+  background: #05070c;
+}
+
+.argus-shell-mobile .argus-globe {
+  position: absolute;
+  inset: 0;
+}
+
+/* The sheet slides along translateY; it snaps between open (0) and peek. */
+.argus-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 10, 18, 0.92);
+  border-top: 1px solid rgba(90, 140, 210, 0.28);
+  border-radius: 18px 18px 0 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  padding-bottom: env(safe-area-inset-bottom);
+  will-change: transform;
+}
+.argus-sheet.is-animating {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The drag handle: a wide touch target with a centered grip. */
+.argus-sheet__handle {
+  flex: 0 0 auto;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+.argus-sheet__grip {
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(150, 175, 210, 0.5);
+}
+
+.argus-sheet__content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.argus-sheet__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* In the mobile sheet the readout is a plain block (the sheet is the chrome). */
+.argus-shell-mobile .argus-readout {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Tuck the Cesium attribution credit up out of the sheet's way. */
+.argus-shell-mobile .cesium-viewer-bottom {
+  bottom: auto;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 8px;
+  left: auto;
+}

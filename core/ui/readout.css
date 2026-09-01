@@ -1,0 +1,75 @@
+/* Capability readout panel. Shared look; shells own placement. */
+.argus-readout {
+  font:
+    12px/1.5 ui-monospace,
+    'SF Mono',
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  color: #cfe3ff;
+  background: rgba(6, 10, 18, 0.82);
+  border: 1px solid rgba(90, 140, 210, 0.28);
+  border-radius: 12px;
+  padding: 12px 14px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  user-select: none;
+}
+
+.argus-readout__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8fb4e8;
+}
+
+.argus-readout__badge {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #06101c;
+}
+.argus-readout__badge--full {
+  background: #57e39a;
+}
+.argus-readout__badge--balanced {
+  background: #57b6e3;
+}
+.argus-readout__badge--minimal {
+  background: #e3a857;
+}
+
+.argus-readout__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.argus-readout__row > span:first-child {
+  color: #7f97b8;
+}
+.argus-readout__row > span:last-child {
+  color: #e8f1ff;
+  text-align: right;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.argus-readout__status {
+  min-height: 0;
+  margin-top: 0;
+  color: #e3a857;
+  font-size: 11px;
+}
+.argus-readout__status--warn {
+  margin-top: 8px;
+}

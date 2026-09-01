@@ -1,0 +1,71 @@
+/* Certificate Transparency issuance ticker. Shared look; shells own placement. */
+.argus-ct {
+  font:
+    12px/1.4 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #e8f1ff;
+  background: rgba(6, 12, 22, 0.72);
+  border: 1px solid rgba(95, 227, 255, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.argus-ct__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.argus-ct__toggle {
+  border: 1px solid rgba(95, 227, 255, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #9fb6d6;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.argus-ct--on .argus-ct__toggle {
+  border-color: rgba(95, 227, 255, 0.7);
+  background: rgba(95, 227, 255, 0.14);
+  color: #d7ecff;
+}
+.argus-ct__rate {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #6f86a8;
+}
+.argus-ct--on .argus-ct__rate {
+  color: #5fe3ff;
+}
+
+.argus-ct__list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.argus-ct--on .argus-ct__list {
+  border-top: 1px solid rgba(95, 227, 255, 0.12);
+}
+.argus-ct__row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(95, 227, 255, 0.06);
+}
+.argus-ct__domain {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  color: #cfe8ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.argus-ct__meta {
+  color: #7f97b8;
+  font-size: 11px;
+}
