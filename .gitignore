@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vite/
+
+# Local env / secrets. Nothing browser-reachable should ever hold a secret;
+# server-side secrets live here and stay out of git.
+.env
+.env.local
+*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log

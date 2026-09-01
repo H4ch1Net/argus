@@ -1,0 +1,81 @@
+/* In-app terminal. Shared look; shells own placement. */
+.argus-term {
+  font:
+    12px/1.4 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  color: #cfe8ff;
+  background: rgba(6, 12, 22, 0.72);
+  border: 1px solid rgba(95, 227, 255, 0.22);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.argus-term__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.argus-term__toggle {
+  border: 1px solid rgba(95, 227, 255, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #9fb6d6;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.argus-term--on .argus-term__toggle {
+  border-color: rgba(95, 227, 255, 0.7);
+  background: rgba(95, 227, 255, 0.14);
+  color: #d7ecff;
+}
+.argus-term__hint {
+  font-size: 11px;
+  color: #6f86a8;
+}
+
+.argus-term__body[hidden] {
+  display: none;
+}
+.argus-term__out {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(95, 227, 255, 0.12);
+}
+.argus-term__line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #9fc4e6;
+}
+.argus-term__line--cmd {
+  color: #5fe3ff;
+}
+.argus-term__line--dim {
+  color: #6f86a8;
+}
+
+.argus-term__inrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(95, 227, 255, 0.12);
+}
+.argus-term__prompt {
+  color: #5fe3ff;
+}
+.argus-term__input {
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: #e8f1ff;
+  font: inherit;
+  outline: none;
+}

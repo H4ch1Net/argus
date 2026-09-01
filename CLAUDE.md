@@ -21,6 +21,7 @@ This project visualizes data that is already public. It never generates new surv
 Reading already-public data is in scope. Creating new tracking of individuals, or acting against a host, is out.
 
 **Never implement, even if asked mid-build:**
+
 - **ALPR / plate reading.** No computer vision on camera feeds to extract or track license plates or vehicles. Mapping where cameras/readers are located is fine; reading what they see is not.
 - **People-targeting OSINT.** No people-search, breach-data lookups on individuals, face/username-to-identity resolution, or social-media scraping to locate someone. Inputs are assets (IP, domain, cert, ASN, network), never people (name, username, face, phone).
 - **Active / offensive tooling.** The in-app terminal and OSINT console run passive public-index lookups only. No port scanning, nmap/masscan, exploit frameworks, packet crafting, or anything that sends traffic at a third-party host. It reads indexes (Shodan already scanned it, CT already logged it, RIPE already published it); it does not touch targets.
@@ -55,6 +56,7 @@ One repo. Roughly 80% of the code is shared; only input, layout, and quality div
 ```
 
 Rules:
+
 - **Nothing in `/core` may require a mouse, keyboard, or desktop GPU.** Mobile is the baseline; desktop unlocks upward from it. A feature that only works with a mouse belongs in a shell, not core.
 - **Sensors (geolocation, orientation) are shell inputs, not core.** Core exposes "set camera to X" and "track entity Y". The mobile shell translates GPS/compass into those calls. Desktop shell never imports sensor code.
 - **Capability is runtime state, not a build target.** Detect GPU limits, memory, touch-vs-pointer, network type, and screen size at load, then branch on a capability tier. Do not branch on "is mobile".
@@ -163,14 +165,35 @@ Not yet verified: GreyNoise, AbuseIPDB, CISA KEV, CT logs, RIPE RIS/BGP, honeypo
 
 ## Commands
 
-_Not yet scaffolded. Fill in as the project is set up._
+```
+npm install          # install dependencies
+
+npm run dev          # dev server (http, exposed on the LAN via host:true)
+npm run dev:https    # dev server over HTTPS: required to serve the phone over
+                     # LAN, or geolocation/orientation/service workers no-op
+npm run build        # production build to dist/ (Cesium assets copied in)
+npm run preview      # serve the production build locally
+
+npm test             # core pure-logic tests (node --test)
+npm run test:proxy   # proxy tests (relay, cors, config, oauth)
+
+npm run lint         # eslint
+npm run format       # prettier --write
+npm run format:check # prettier --check (CI-friendly)
+
+npm run proxy        # run the proxy (http on :8787)
+```
+
+Proxy (its own package in `proxy/`, run from there):
 
 ```
-# dev server
-# build
-# lint / format
-# serve to phone over LAN (HTTPS required)
+npm install          # installs selfsigned (only needed for --https)
+npm start            # http  on :8787
+npm run start:https  # https on :8787 (self-signed cert for phone-over-LAN)
+npm test             # node --test (relay, cors, config)
 ```
+
+Force a shell regardless of device with `?shell=mobile` or `?shell=desktop`.
 
 ---
 

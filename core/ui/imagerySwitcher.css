@@ -1,0 +1,35 @@
+/* Base-imagery segmented control. Shared look; shells own placement. */
+.argus-imagery {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(6, 12, 22, 0.72);
+  border: 1px solid rgba(95, 227, 255, 0.22);
+  border-radius: 10px;
+}
+.argus-imagery__btn {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #9fb6d6;
+  font:
+    12px/1 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+.argus-imagery__btn:hover {
+  color: #e8f1ff;
+  background: rgba(95, 227, 255, 0.1);
+}
+.argus-imagery__btn[aria-pressed='true'] {
+  color: #041018;
+  background: #5fe3ff;
+  border-color: #5fe3ff;
+}
