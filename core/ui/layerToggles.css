@@ -1,56 +1,95 @@
-/* Per-layer on/off pills. */
+/* Per-layer feed toggles, styled as ops-console channel selectors: a status LED,
+   a monospace channel label, and an ON/OFF state readout. */
 .argus-toggles {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 }
 
 .argus-toggles__btn {
-  padding: 6px 12px;
-  border: 1px solid rgba(120, 140, 170, 0.3);
-  border-radius: 8px;
-  background: rgba(12, 20, 34, 0.5);
-  color: #8fa8c8;
+  flex: 1 1 42%;
+  min-width: 88px;
+  padding: 5px 8px;
+  border: 1px solid rgba(70, 96, 108, 0.45);
+  border-radius: 2px;
+  background: rgba(10, 20, 26, 0.7);
+  color: #7c968f;
   font:
-    12px/1 ui-monospace,
+    11px/1 ui-monospace,
     'Cascadia Code',
     Menlo,
     Consolas,
     monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  transition:
+    border-color 0.12s,
+    color 0.12s,
+    background 0.12s;
+}
+.argus-toggles__btn:hover {
+  border-color: rgba(53, 224, 176, 0.5);
+  color: #b6ccc5;
 }
 .argus-toggles__btn::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #45516a;
+  background: #2c3a3a;
+  border: 1px solid rgba(120, 150, 145, 0.35);
+}
+/* Trailing ON/OFF flag pushed to the right edge. */
+.argus-toggles__btn::after {
+  content: 'OFF';
+  margin-left: auto;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: #55726c;
 }
 .argus-toggles__btn.is-on {
-  color: #e8f1ff;
-  border-color: rgba(87, 227, 154, 0.5);
+  color: #dff7ee;
+  border-color: rgba(53, 224, 176, 0.6);
+  background: rgba(20, 46, 40, 0.55);
 }
 .argus-toggles__btn.is-on::before {
-  background: #57e39a;
-  box-shadow: 0 0 6px rgba(87, 227, 154, 0.8);
+  background: #35e0b0;
+  border-color: #35e0b0;
+  box-shadow: 0 0 7px rgba(53, 224, 176, 0.9);
+}
+.argus-toggles__btn.is-on::after {
+  content: 'ON';
+  color: #35e0b0;
 }
 
-/* Demo layers (no verified real feed): dashed edge + an amber "demo" tag, so
-   synthetic data never reads as real. */
+/* Demo layers (no verified real feed): amber edge + a demo tag; state flag hidden
+   so the tag reads instead. Synthetic data must never look like a live feed. */
 .argus-toggles__btn.is-demo {
-  border-style: dashed;
   border-color: rgba(240, 180, 90, 0.5);
+  border-style: dashed;
+}
+.argus-toggles__btn.is-demo::after {
+  content: '';
+  margin: 0;
+}
+.argus-toggles__btn.is-demo.is-on::before {
+  background: #f0b45a;
+  border-color: #f0b45a;
+  box-shadow: 0 0 7px rgba(240, 180, 90, 0.9);
 }
 .argus-toggles__demo {
-  font-size: 9px;
+  margin-left: auto;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #0a0a0a;
   background: #f0b45a;
-  border-radius: 4px;
+  border-radius: 1px;
   padding: 1px 4px;
 }

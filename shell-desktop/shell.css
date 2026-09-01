@@ -1,5 +1,6 @@
 /* Desktop shell (Linux priority 2, Windows priority 3): full-bleed globe with a
-   side panel holding controls, the capability readout, and the metadata card. */
+   docked operations console holding the control modules, system status, and the
+   metadata card. The console reads as a single instrument, not a floating card. */
 
 .argus-shell-desktop {
   position: fixed;
@@ -13,25 +14,85 @@
   inset: 0;
 }
 
-/* Side panel: docked top-left, out of the way of globe interaction. */
+/* Side console: docked top-left, out of the way of globe interaction. */
 .argus-shell-desktop .argus-panel {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  width: 300px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
+  top: 14px;
+  left: 14px;
+  width: 312px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 28px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  pointer-events: none;
-}
-.argus-shell-desktop .argus-panel > * {
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(64, 122, 138, 0.4);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(6, 13, 18, 0.82), rgba(5, 9, 14, 0.82));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90, 160, 150, 0.5) transparent;
   pointer-events: auto;
 }
+.argus-shell-desktop .argus-panel::-webkit-scrollbar {
+  width: 8px;
+}
+.argus-shell-desktop .argus-panel::-webkit-scrollbar-thumb {
+  background: rgba(90, 160, 150, 0.4);
+  border-radius: 0;
+}
+
+/* Console header: product mark + designation, in a phosphor monospace. */
+.argus-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 9px;
+  border-bottom: 1px solid rgba(64, 122, 138, 0.4);
+}
+.argus-panel__mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #7ff2ff, #2b8fb0);
+  box-shadow: 0 0 8px rgba(95, 227, 255, 0.85);
+}
+.argus-panel__name {
+  font:
+    700 14px/1 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.34em;
+  color: #cdeeff;
+}
+.argus-panel__sub {
+  font:
+    9px/1 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.13em;
+  color: #5f8f87;
+  margin-left: auto;
+  text-transform: uppercase;
+}
+
 .argus-shell-desktop .argus-panel__controls {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Tuck the Cesium attribution credit into the bottom-right, dimmed. */
+.argus-shell-desktop .cesium-viewer-bottom {
+  right: 8px;
+  left: auto;
+  bottom: 6px;
+  opacity: 0.5;
 }

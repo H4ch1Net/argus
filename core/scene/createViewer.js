@@ -2,6 +2,7 @@ import * as Cesium from 'cesium';
 import { createBaseImageryLayer } from './imagery.js';
 import { createFreeTerrain } from './terrain.js';
 import { wireContextLossHandling } from './contextLoss.js';
+import { createOcclusionCuller } from './occlusion.js';
 
 // Build the Cesium Viewer for the bare globe, configured from a quality profile.
 //
@@ -71,11 +72,21 @@ export async function createViewer(container, { profile, onContextChange } = {})
   scene.globe.showGroundAtmosphere = profile.tier !== 'minimal';
   scene.skyAtmosphere.show = true;
 
+  // Occlusion: line features (arcs, trails) are depth-tested against the globe so
+  // the portion behind the limb is hidden by the planet instead of drawing
+  // through it. Point features (billboards/points/labels) opt out of depth
+  // testing for crispness and are instead horizon-culled below.
+  scene.globe.depthTestAgainstTerrain = true;
+
   // Hide the Cesium ion credit only if there is genuinely nothing to attribute;
   // Natural Earth II still carries attribution, so we leave the credit
   // container in place and just tuck it out of the way via shell CSS.
 
   const detachContext = wireContextLossHandling(viewer, onContextChange);
+
+  // Horizon culling for point features, so far-side markers do not show through
+  // the planet even though they ignore the depth buffer.
+  const occlusion = createOcclusionCuller(viewer);
 
   // requestRenderMode gotcha: the first frame draws before async terrain/imagery
   // tiles arrive, and with on-change rendering nothing asks for another frame,
@@ -90,6 +101,7 @@ export async function createViewer(container, { profile, onContextChange } = {})
   const detach = () => {
     removeProgress();
     detachContext();
+    occlusion.detach();
     if (!viewer.isDestroyed()) viewer.destroy();
   };
 

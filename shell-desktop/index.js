@@ -1,5 +1,6 @@
 import { bootGlobe } from '../core/index.js';
 import { locateAndFly } from '../core/geo/geolocate.js';
+import { buildControlModules, createModule } from '../core/ui/controlPanel.js';
 import '../core/ui/readout.css';
 import './shell.css';
 
@@ -24,23 +25,37 @@ export async function mountShell(root) {
 
   const app = await bootGlobe(globeEl);
 
-  // Panel order: controls, then readout, then the metadata card.
+  // Panel chrome: a titled terminal header, then the control modules, the SYSTEM
+  // STATUS readout, and the metadata card.
+  const header = document.createElement('div');
+  header.className = 'argus-panel__header';
+  header.innerHTML =
+    '<span class="argus-panel__mark"></span>' +
+    '<span class="argus-panel__name">ARGUS</span>' +
+    '<span class="argus-panel__sub">GLOBAL SIGNALS TERMINAL</span>';
+
   const controlsSlot = document.createElement('div');
   controlsSlot.className = 'argus-panel__controls';
+  const statusModule = createStatusModule(app.readout.el);
   const uiSlot = document.createElement('div');
-  panelEl.append(controlsSlot, app.readout.el, uiSlot);
+  panelEl.append(header, controlsSlot, statusModule, uiSlot);
 
   return {
     ...app,
     mountUi: (el) => uiSlot.appendChild(el),
     mountControls: (parts) => {
-      for (const el of Object.values(parts)) if (el) controlsSlot.append(el);
+      for (const el of buildControlModules(parts)) controlsSlot.append(el);
     },
     // "Around Me" preset fly-to (regional) and the locate-me button (city level).
     aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
     locate: (camera, report) =>
       locateAndFly(camera, { altitude: 12_000, onStatus: report }),
   };
+}
+
+// The capability readout, framed as a SYSTEM STATUS module to match the controls.
+function createStatusModule(readoutEl) {
+  return createModule('SYSTEM STATUS', readoutEl);
 }
 
 export const shellName = 'desktop';

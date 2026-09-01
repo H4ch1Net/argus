@@ -1,0 +1,97 @@
+/* Ops-terminal module frame. Each control group is a compact panel with a
+   labelled header bar, a status LED, corner ticks, and a faint scanline wash, so
+   the interface reads as instrument modules rather than a flat settings list. */
+.argus-module {
+  position: relative;
+  border: 1px solid rgba(64, 122, 138, 0.42);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(9, 17, 24, 0.94), rgba(6, 12, 18, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(10, 20, 26, 0.6),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+/* Faint horizontal scanlines across the whole module (restrained CRT wash). */
+.argus-module::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(120, 220, 200, 0.035) 0,
+    rgba(120, 220, 200, 0.035) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: screen;
+}
+
+.argus-module__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border-bottom: 1px solid rgba(64, 122, 138, 0.32);
+  background: rgba(18, 34, 40, 0.55);
+}
+.argus-module__led {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #35e0b0;
+  box-shadow: 0 0 6px rgba(53, 224, 176, 0.9);
+}
+.argus-module__title {
+  font:
+    10px/1 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7fdfc8;
+  white-space: nowrap;
+}
+.argus-module__rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(90, 160, 150, 0.5) 0,
+    rgba(90, 160, 150, 0.5) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+.argus-module__body {
+  padding: 10px 10px 11px;
+  position: relative;
+  z-index: 1;
+}
+.argus-module__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Top-of-panel alert row (demo-data / no-source notices) sits outside any
+   module, framed as a hazard strip. */
+.argus-alert {
+  padding: 7px 10px;
+  border: 1px solid rgba(240, 180, 90, 0.55);
+  border-left-width: 3px;
+  border-radius: 2px;
+  background: rgba(240, 180, 90, 0.1);
+  color: #ffd9a0;
+  font:
+    10px/1.45 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
