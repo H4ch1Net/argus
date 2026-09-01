@@ -408,3 +408,51 @@ Keyless feeds (earthquakes, satellites, overpass surveillance/landmarks,
 nominatim, BGP) return real data immediately. Keyed feeds (flights, fires, ships,
 shodan) need their secrets in the proxy environment; without them the layer shows
 an honest error rather than mock data.
+
+---
+
+## Phase B remediation summary
+
+What was **fake and is now real**:
+
+- Earthquakes verified rendering real USGS events; the OSINT asset console
+  (query/correlate) now returns real RIPEstat data and plots it (was 403 against
+  the proxy, mock-only before).
+- The globe itself: real Satellite imagery + real keyless 3D terrain by default,
+  instead of a coarse offline basemap on a flat ellipsoid.
+- Data that is still simulated is now clearly marked: CCTV/Threats carry a "demo"
+  badge, and a "DEMO DATA" banner shows when no proxy is configured. Nothing mock
+  is presented as real.
+
+What was **broken and is now fixed**:
+
+- Street-level view: real terrain + a working Flat/3D/Photoreal terrain toggle;
+  Satellite/Streets imagery gives street-level detail.
+- OSINT lookup/correlation path-doubling 403.
+- Dead controls: CCTV/Threats no longer silently fail with a proxy; the desktop
+  "Around Me" preset now flies; a proxy-less production build shows a clear notice.
+- Geolocation: "Around Me" works on desktop too and is framed sensibly; a new "My
+  location" button flies to the device position with graceful denial handling.
+- Flat point markers upgraded to glowing, distance-scaled markers; arcs and trails
+  gained depth-fail materials for the new 3D terrain.
+- `/health` now reports keyed-feed configuration truthfully.
+
+What **remains genuinely incomplete** (and why):
+
+- **Keyed live feeds** (OpenSky flights, FIRMS fires, AISStream ships, Shodan):
+  the real path is wired and correct, but not verified end-to-end because no API
+  keys were available in this environment. Each shows an honest error (or demo
+  fallback) until its secret is set on the proxy.
+- **Photorealistic 3D Tiles**: fully wired through the proxy broker, but the Google
+  happy path is unverified because no `GOOGLE_MAPS_API_KEY` was available. Degrades
+  honestly without one.
+- **CT firehose real data**: the ticker and socket work (verified with the mock
+  stream), but the public CertStream upstream is often silent; real issuance data
+  needs a working aggregator via `CT_STREAM_URL`.
+- **`raster` renderType** (weather / air-quality fields): still unimplemented. This
+  is a new layer type and feed, not geometry polish, so it stayed out of this pass.
+- **Compass / point-at-sky and cockpit**: implemented and unit-tested, but not
+  exercised with real device orientation in this desktop browser.
+- **Minor**: a small dark patch at the exact north pole (elevation tileset has no
+  coverage there); and the keyless Esri tile services can transiently 502 under
+  heavy rapid loads (proxy-side tile caching would harden this for production).
