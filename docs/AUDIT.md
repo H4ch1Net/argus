@@ -190,7 +190,22 @@ Original finding (kept for the record):
   entry point is the "Around Me" preset, and only on mobile. Confirmed by search
   (`grep locate` finds nothing) and by inspecting both shells.
 
-### 6. Arcs/lines/points look flat -> Partial (points flat; arcs and trails already styled)
+### 6. Arcs/lines/points look flat -> FIXED
+
+**Remediation (Phase B):** the flat `point` renderer is now a glowing,
+distance-scaled marker: a shared radial-glow sprite tinted per entity (bright core,
+soft halo), shrinking and fading with distance for depth. This lifts all seven
+point layers (earthquakes, fires, satellites, surveillance, landmarks, shodan, bgp)
+into one coherent look, verified over real California terrain. Arcs and the tracked
+trail already glowed and curved; they now also carry **depth-fail materials** so
+they stay visible (dimmed) where they pass behind the new 3D terrain, and the arc
+glow/width were nudged up. Verified: threat arcs render as glowing great-circle
+paths with travelling pulses; point layers render as glowing orbs. Files:
+`core/layers/sdk/renderers.js`, `core/interaction/tracker.js`. Still open: the
+`raster` renderType remains unimplemented (weather / air-quality fields are new
+layers, not geometry polish); documented as Missing below.
+
+Original finding (kept for the record):
 
 Per `core/layers/sdk/renderers.js` and each layer's `definition.js`:
 

@@ -75,6 +75,11 @@ export function createTracker(viewer, { resolve, card, onChange, onCockpit }) {
           taperPower: 0.4, // fades toward the oldest point
           color: Cesium.Color.fromCssColorString('#5fe3ff'),
         }),
+        // Keep the trail visible (dimmed) where it passes behind terrain.
+        depthFailMaterial: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.3,
+          color: Cesium.Color.fromCssColorString('#5fe3ff').withAlpha(0.3),
+        }),
       },
     });
     haloEntity = viewer.entities.add({
