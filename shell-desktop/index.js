@@ -1,10 +1,12 @@
 import { bootGlobe } from '../core/index.js';
+import { locateAndFly } from '../core/geo/geolocate.js';
 import '../core/ui/readout.css';
 import './shell.css';
 
-// Desktop shell (Linux / Windows). Side-panel layout, mouse/keyboard. No sensor
-// code (geolocation lives only in the mobile shell), so it exposes no aroundMe;
-// the "Around Me" preset still enables its layers, just without a fly-to.
+// Desktop shell (Linux / Windows). Side-panel layout, mouse/keyboard. It uses a
+// one-shot geolocation for "Around Me" and the locate-me button (the owner asked
+// for locate-me on desktop too); it deliberately still does NOT import the
+// continuous orientation/compass sensor, which stays mobile-only.
 
 /**
  * @param {HTMLElement} root
@@ -34,6 +36,10 @@ export async function mountShell(root) {
     mountControls: (parts) => {
       for (const el of Object.values(parts)) if (el) controlsSlot.append(el);
     },
+    // "Around Me" preset fly-to (regional) and the locate-me button (city level).
+    aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
+    locate: (camera, report) =>
+      locateAndFly(camera, { altitude: 12_000, onStatus: report }),
   };
 }
 

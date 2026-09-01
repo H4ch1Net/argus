@@ -100,7 +100,18 @@ Original finding (kept for the record):
   (default is coarse), missing 3D-tiles module, no terrain toggle in
   `shell-desktop` / `shell-mobile` / `main.js`.
 
-### 2. Many switches do nothing -> Working in dev-mock and dev+proxy; Broken in a bare production build
+### 2. Many switches do nothing -> FIXED (all controls verified; dead paths closed)
+
+**Remediation (Phase B):** every interactive control was exercised and works (layer
+toggles, imagery, the new terrain toggle, presets, search, sensor shaders, terminal,
+CT firehose ticker, and the time scrubber, which rewound to "-5:00" with the
+scrubbing state active). The genuinely dead paths were closed: CCTV/Threats no
+longer silently fail with a proxy set (item 3 mock fallback), the desktop "Around
+Me" preset now actually flies (item 4), and a production build with no proxy shows
+an explicit "No data source configured" notice instead of a bare, control-less
+globe. Files: `main.js`.
+
+Original finding (kept for the record):
 
 - In the running app (both mock and proxy modes) **every layer toggle works**:
   enabling each of the 11 layers turned it green and produced live entity counts in
@@ -135,7 +146,19 @@ Original finding (kept for the record):
 Real feeds are reached when `VITE_PROXY_BASE_URL` is set (and, for keyed feeds, when
 the secret is present). The per-layer table below states which are real-capable.
 
-### 4. "Around Me" is wonky -> Partial (mobile only; desktop is a no-op; framing is coarse)
+### 4. "Around Me" is wonky -> FIXED
+
+**Remediation (Phase B):** geolocation is now a shared one-shot helper
+(`core/geo/geolocate.js`) used by both shells. "Around Me" flies to the device
+location at a regional altitude (120 km, down from 200 km) so nearby flights and
+quakes are framed, and it now works on **desktop** as well as mobile (the desktop
+preset was previously a no-op). Denial / unavailability is handled gracefully (the
+globe stays put) and reported to the UI. Verified: clicking triggers the request
+and, when denied by the browser, degrades cleanly with no crash. Files:
+`core/geo/geolocate.js`, `shell-mobile/index.js`, `shell-desktop/index.js`,
+`main.js`.
+
+Original finding (kept for the record):
 
 - Geolocation lives **only in the mobile shell** (`shell-mobile/index.js`
   `aroundMe`). It calls `getCurrentPosition` and flies to the fix at
@@ -151,7 +174,17 @@ the secret is present). The per-layer table below states which are real-capable.
 - **Cause / files:** `shell-mobile/index.js:41-55`, `shell-desktop/index.js`
   (no sensor code), `main.js:392,500,554-557`.
 
-### 5. No "center on my location" button -> Missing
+### 5. No "center on my location" button -> FIXED
+
+**Remediation (Phase B):** added a "My location" button (`core/ui/locateButton.js`)
+in both shells. It flies the camera to the device position at city level (12 km),
+shows a pending state during the request, and on denial / unavailability shows a
+brief error state with a clear title while leaving the camera put. The button is
+pure UI; the shell owns the sensor read. Verified in the browser (denied path shows
+"Location permission denied" and does not move the camera). Files:
+`core/ui/locateButton.js(.css)`, `main.js`, both shells.
+
+Original finding (kept for the record):
 
 - There is no dedicated locate-me control in either shell. The only geolocation
   entry point is the "Around Me" preset, and only on mobile. Confirmed by search

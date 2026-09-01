@@ -92,7 +92,16 @@ async function main() {
 async function setupScene(app) {
   const proxyBase = import.meta.env.VITE_PROXY_BASE_URL;
   const dev = import.meta.env.DEV;
-  if (!proxyBase && !dev) return;
+  // A production build with no proxy has no data source (mocks are dev-only), so
+  // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
+  if (!proxyBase && !dev) {
+    const notice = document.createElement('div');
+    notice.className = 'argus-demo-banner';
+    notice.textContent =
+      'No data source configured. Set VITE_PROXY_BASE_URL to a running proxy to load live feeds.';
+    app.mountControls?.({ notice });
+    return;
+  }
 
   const [
     { createLayerManager },
@@ -528,10 +537,12 @@ async function setupScene(app) {
     { createImageryController, IMAGERY_SOURCES },
     { createTerrainController, TERRAIN_SOURCES, defaultTerrainId },
     { createImagerySwitcher, createTerrainSwitcher },
+    { createLocateButton },
   ] = await Promise.all([
     import('./core/scene/imagery.js'),
     import('./core/scene/terrain.js'),
     import('./core/ui/imagerySwitcher.js'),
+    import('./core/ui/locateButton.js'),
   ]);
 
   const metered = Boolean(app.capabilities?.network?.metered);
@@ -559,6 +570,12 @@ async function setupScene(app) {
     onSelect: (id) => terrain.set(id),
   });
 
+  // "Center on my location": flies the camera to the device position. The shell
+  // owns the sensor read (both shells provide `locate`); this is just the button.
+  const locateButton = app.locate
+    ? createLocateButton({ onLocate: (report) => app.locate(camera, report) })
+    : null;
+
   // No proxy at all means every layer is simulated. Say so up front so mock data
   // is never mistaken for live feeds.
   let demoBanner = null;
@@ -572,6 +589,7 @@ async function setupScene(app) {
   app.mountControls?.({
     demoBanner,
     search: searchBox.el,
+    locate: locateButton?.el,
     imagery: imagerySwitcher.el,
     terrain: terrainSwitcher.el,
     presetBar: presetBar.el,

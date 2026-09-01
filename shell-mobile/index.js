@@ -1,4 +1,5 @@
 import { bootGlobe } from '../core/index.js';
+import { locateAndFly } from '../core/geo/geolocate.js';
 import { createBottomSheet } from './bottomSheet.js';
 import { createCompass } from './compass.js';
 import '../core/ui/readout.css';
@@ -36,23 +37,14 @@ export async function mountShell(root) {
     mountControls: (parts) => {
       for (const el of Object.values(parts)) if (el) controlsSlot.append(el);
     },
-    // "Around Me": fly to the device location. Graceful if denied/unavailable;
-    // the globe simply stays at the world view.
-    aroundMe: (camera) => {
-      if (!('geolocation' in navigator)) return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) =>
-          camera.flyTo({
-            longitude: pos.coords.longitude,
-            latitude: pos.coords.latitude,
-            altitude: 200_000,
-          }),
-        () => {
-          /* denied or unavailable: keep the world view */
-        },
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
-      );
-    },
+    // "Around Me": fly to the device location at a regional altitude, so nearby
+    // flights and quakes are in view. Graceful if denied/unavailable: the globe
+    // simply stays put.
+    aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
+    // "Locate me": zoom in closer to the user's position (city level), reporting
+    // status so the button can show a denied/unavailable state.
+    locate: (camera, report) =>
+      locateAndFly(camera, { altitude: 12_000, onStatus: report }),
     // Point-at-sky mode: DeviceOrientation drives the camera. main provides the
     // camera controls plus how to identify and lock the aimed entity. The compass
     // button joins the controls; the reticle is a full-screen overlay.
