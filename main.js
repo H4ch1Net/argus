@@ -334,14 +334,25 @@ async function setupScene(app) {
     },
   ];
 
+  // Layers with no verified real feed. They are always synthetic, so they are
+  // labelled "demo" in the UI and fall back to the mock even when a proxy is set
+  // (rather than becoming a dead toggle), never masquerading as real.
+  const noRealFeed = new Set(['cctv', 'threats']);
+
   for (const r of registrations) {
-    // These layers have no live feed wired yet; register them only where the
-    // dev mock can drive them (a verified feed later drops into the same slot).
-    if ((r.key === 'cctv' || r.key === 'threats') && !dev) continue;
+    // The sourceless layers can only be driven by the dev mock; outside dev they
+    // have nothing to show, so do not register them (no dead chips in production).
+    if (noRealFeed.has(r.key) && !dev) continue;
     manager.register(r.key, {
       label: r.label,
       loadDef: r.loadDef,
-      makeSource: async () => (proxyClient ? r.proxy(proxyClient) : r.mock()),
+      // With a proxy, use the real feed; if this layer has none (proxy source is
+      // null), fall back to the labelled mock instead of failing to enable.
+      makeSource: async () => {
+        if (proxyClient) return (await r.proxy(proxyClient)) ?? r.mock();
+        return r.mock();
+      },
+      demo: noRealFeed.has(r.key),
     });
   }
 
@@ -548,7 +559,18 @@ async function setupScene(app) {
     onSelect: (id) => terrain.set(id),
   });
 
+  // No proxy at all means every layer is simulated. Say so up front so mock data
+  // is never mistaken for live feeds.
+  let demoBanner = null;
+  if (!proxyClient) {
+    demoBanner = document.createElement('div');
+    demoBanner.className = 'argus-demo-banner';
+    demoBanner.textContent =
+      'DEMO DATA: no proxy configured, every layer is simulated. Set VITE_PROXY_BASE_URL for live feeds.';
+  }
+
   app.mountControls?.({
+    demoBanner,
     search: searchBox.el,
     imagery: imagerySwitcher.el,
     terrain: terrainSwitcher.el,

@@ -15,8 +15,8 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
   const listeners = new Set();
   const emit = () => listeners.forEach((fn) => fn());
 
-  function register(key, { label, loadDef, makeSource }) {
-    entries.set(key, { label, loadDef, makeSource, layer: null, enabled: false });
+  function register(key, { label, loadDef, makeSource, demo = false }) {
+    entries.set(key, { label, loadDef, makeSource, demo, layer: null, enabled: false });
   }
 
   async function enable(key) {
@@ -66,6 +66,7 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
         key,
         label: e.label,
         enabled: e.enabled,
+        demo: e.demo,
       })),
     activeLayers: () =>
       [...entries.values()].filter((e) => e.enabled && e.layer).map((e) => e.layer),

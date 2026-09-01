@@ -73,7 +73,8 @@ test('createLookup enriches an IP via the (faked) proxy and geolocates it', asyn
   };
   const proxyClient = {
     async getJson(_feed, path, { params }) {
-      const call = path.split('/')[2];
+      // path is /<call>/data.json (relative to the ripestat /data base path).
+      const call = path.split('/')[1];
       return responses[`${call}:${params.resource}`];
     },
   };

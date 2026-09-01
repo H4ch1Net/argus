@@ -54,3 +54,16 @@ body {
   padding: 1px 6px;
   border-radius: 5px;
 }
+
+/* Demo-data banner: shown when no proxy is configured, so simulated data is
+   never mistaken for live feeds. */
+.argus-demo-banner {
+  padding: 7px 10px;
+  border: 1px solid rgba(240, 180, 90, 0.55);
+  border-radius: 8px;
+  background: rgba(240, 180, 90, 0.14);
+  color: #ffd9a0;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 600;
+}

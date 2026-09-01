@@ -54,7 +54,7 @@ and every toggle is dead. This is the most likely cause of the owner's report th
 
 ## Known problems from the brief (verdicts)
 
-### 1. Low-res globe, no street-level zoom  ->  FIXED (real terrain + imagery by default; photoreal wired)
+### 1. Low-res globe, no street-level zoom -> FIXED (real terrain + imagery by default; photoreal wired)
 
 **Remediation (Phase B):** the globe now defaults to **Satellite imagery + real 3D
 terrain** on capable, non-metered devices. Terrain uses keyless Esri World
@@ -100,7 +100,7 @@ Original finding (kept for the record):
   (default is coarse), missing 3D-tiles module, no terrain toggle in
   `shell-desktop` / `shell-mobile` / `main.js`.
 
-### 2. Many switches do nothing  ->  Working in dev-mock and dev+proxy; Broken in a bare production build
+### 2. Many switches do nothing -> Working in dev-mock and dev+proxy; Broken in a bare production build
 
 - In the running app (both mock and proxy modes) **every layer toggle works**:
   enabling each of the 11 layers turned it green and produced live entity counts in
@@ -114,14 +114,28 @@ Original finding (kept for the record):
   `cctv` / `threats` which are not registered at all outside dev
   (`main.js:337-340`), so those two chips are inert in any non-dev build.
 
-### 3. Demo/simulation data instead of real data  ->  Confirmed (this is the core defect)
+### 3. Demo/simulation data instead of real data -> FIXED (real where possible; the rest labelled honestly)
 
-Every layer ships a mock source and uses it whenever the proxy is not configured.
-Real feeds exist behind the proxy but are only reached when `VITE_PROXY_BASE_URL`
-is set (and, for keyed feeds, when the secret is present). See the per-layer table
-below for which are real-capable today and which are mock-only by design.
+**Remediation (Phase B):**
 
-### 4. "Around Me" is wonky  ->  Partial (mobile only; desktop is a no-op; framing is coarse)
+- **OSINT console made real.** The asset lookup / correlation console was 403ing
+  against the real proxy because the ripestat client path repeated the feed's
+  `/data` base (`/data/data/...`). Fixed both call sites (`core/osint/lookup.js`,
+  `core/osint/correlate.js`) to be relative to the base. Verified live:
+  `query 8.8.8.8` now returns real RIPEstat data (Prefix 8.8.8.0/24, ASN AS15169,
+  Operator "GOOGLE - Google LLC", geo 37.75/-97.82) and plots it; network tab shows
+  three 200s (maxmind-geo-lite, network-info, as-overview). Tests updated.
+- **Honest demo labelling.** Layers with no verified real feed (CCTV, Threats) now
+  carry a "demo" badge on their toggle chip and fall back to their mock even with a
+  proxy set (previously a silent dead toggle in dev+proxy). When no proxy is
+  configured at all, a "DEMO DATA" banner states that every layer is simulated.
+  Verified both states in the browser. Files: `core/scene/layerManager.js`,
+  `core/ui/layerToggles.js(.css)`, `main.js`, `styles.css`.
+
+Real feeds are reached when `VITE_PROXY_BASE_URL` is set (and, for keyed feeds, when
+the secret is present). The per-layer table below states which are real-capable.
+
+### 4. "Around Me" is wonky -> Partial (mobile only; desktop is a no-op; framing is coarse)
 
 - Geolocation lives **only in the mobile shell** (`shell-mobile/index.js`
   `aroundMe`). It calls `getCurrentPosition` and flies to the fix at
@@ -137,13 +151,13 @@ below for which are real-capable today and which are mock-only by design.
 - **Cause / files:** `shell-mobile/index.js:41-55`, `shell-desktop/index.js`
   (no sensor code), `main.js:392,500,554-557`.
 
-### 5. No "center on my location" button  ->  Missing
+### 5. No "center on my location" button -> Missing
 
 - There is no dedicated locate-me control in either shell. The only geolocation
   entry point is the "Around Me" preset, and only on mobile. Confirmed by search
   (`grep locate` finds nothing) and by inspecting both shells.
 
-### 6. Arcs/lines/points look flat  ->  Partial (points flat; arcs and trails already styled)
+### 6. Arcs/lines/points look flat -> Partial (points flat; arcs and trails already styled)
 
 Per `core/layers/sdk/renderers.js` and each layer's `definition.js`:
 
@@ -167,20 +181,20 @@ Per `core/layers/sdk/renderers.js` and each layer's `definition.js`:
 
 ## Scene, capability, and globe
 
-| Feature | Status | Evidence / notes |
-| --- | --- | --- |
-| Cesium viewer boot | Working | Boots clean on FULL (desktop) and BALANCED (mobile); no console errors. `core/scene/createViewer.js`. |
-| Capability tiering | Working | Readout shows tier + GPU + memory + cores + input + network; desktop FULL, mobile BALANCED, CRT hidden on mobile. `core/capability/*`. |
-| requestRenderMode + tile-load pump | Working | On-change rendering; readout shows `renderMode on-change`, `targetFrameRate 60 fps`, `resolutionScale 1`. |
-| WebGL / software-render fatal guards | Working (by code) | `main.js` shows a fatal overlay for no-WebGL / software rendering; not triggerable on this HW. |
-| Context-loss handling | Working (by code + tested) | `core/scene/contextLoss.js`; not forced in-session. |
-| Free terrain | Working | Flat `EllipsoidTerrainProvider`. |
-| Real elevation terrain | Missing | No world terrain provider. |
-| Google Photorealistic 3D Tiles + toggle | Missing | Comments only; no tileset, no key wiring, no toggle. |
-| Base imagery (Relief) | Working | Local Natural Earth II, offline, coarse. Default. |
-| Satellite imagery (Esri) | Working | Real Esri World Imagery; verified rendering + reachability. |
-| Streets imagery (OSM) | Working | Real OSM tiles; verified street-level Manhattan detail. |
-| Imagery switcher UI | Working | Relief/Satellite/Streets swap the base layer live. `core/ui/imagerySwitcher.js`, `core/scene/imagery.js`. |
+| Feature                                 | Status                     | Evidence / notes                                                                                                                       |
+| --------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Cesium viewer boot                      | Working                    | Boots clean on FULL (desktop) and BALANCED (mobile); no console errors. `core/scene/createViewer.js`.                                  |
+| Capability tiering                      | Working                    | Readout shows tier + GPU + memory + cores + input + network; desktop FULL, mobile BALANCED, CRT hidden on mobile. `core/capability/*`. |
+| requestRenderMode + tile-load pump      | Working                    | On-change rendering; readout shows `renderMode on-change`, `targetFrameRate 60 fps`, `resolutionScale 1`.                              |
+| WebGL / software-render fatal guards    | Working (by code)          | `main.js` shows a fatal overlay for no-WebGL / software rendering; not triggerable on this HW.                                         |
+| Context-loss handling                   | Working (by code + tested) | `core/scene/contextLoss.js`; not forced in-session.                                                                                    |
+| Free terrain                            | Working                    | Flat `EllipsoidTerrainProvider`.                                                                                                       |
+| Real elevation terrain                  | Missing                    | No world terrain provider.                                                                                                             |
+| Google Photorealistic 3D Tiles + toggle | Missing                    | Comments only; no tileset, no key wiring, no toggle.                                                                                   |
+| Base imagery (Relief)                   | Working                    | Local Natural Earth II, offline, coarse. Default.                                                                                      |
+| Satellite imagery (Esri)                | Working                    | Real Esri World Imagery; verified rendering + reachability.                                                                            |
+| Streets imagery (OSM)                   | Working                    | Real OSM tiles; verified street-level Manhattan detail.                                                                                |
+| Imagery switcher UI                     | Working                    | Relief/Satellite/Streets swap the base layer live. `core/ui/imagerySwitcher.js`, `core/scene/imagery.js`.                              |
 
 ---
 
@@ -189,19 +203,19 @@ Per `core/layers/sdk/renderers.js` and each layer's `definition.js`:
 "Real path" = the proxy relay path is correct and the feed is reachable.
 "Dev shows" = what a plain `npm run dev` renders.
 
-| Layer | renderType | Real feed (proxy) | Real path status | Dev shows | Verdict |
-| --- | --- | --- | --- | --- | --- |
-| Flights | billboard | OpenSky `/states/all` (OAuth2, viewport-bound) | Path OK; needs `OPENSKY_CLIENT_*`. Live test returned honest `502` without keys. | mock | Working (real) pending key; mock in dev |
-| Earthquakes | point | USGS `all_day.geojson` (keyless) | **Verified real: 192 live events rendered.** | mock | Working (real, verified) |
-| Satellites | point (SGP4 `positionAt`) | CelesTrak `gp.php` TLE (keyless) | Path OK; SGP4 + GMST implemented and unit-tested. Not runtime-confirmed with real TLE this session. | mock | Working (real path); mock in dev |
-| Fires | point | NASA FIRMS VIIRS (viewport-bound) | Path OK; needs `FIRMS_MAP_KEY`. | mock | Working (real) pending key; mock in dev |
-| Ships | billboard | AISStream via `/ws/ais` (push) | Proxy consumer implemented + tested; needs `AISSTREAM_API_KEY` (warned unset). | mock | Working (real) pending key; mock in dev |
-| Surveillance | point | Overpass `man_made=surveillance` (keyless) | Path OK (`/api/interpreter`). Not runtime-confirmed this session. | mock | Working (real path); mock in dev |
-| Landmarks | point | Overpass tourism/historic (keyless) | Path OK. Not runtime-confirmed this session. | mock | Working (real path); mock in dev |
-| CCTV | billboard | none (no generic real feed) | By design there is no real source; not registered outside dev. | mock | Stub by design (documented) |
-| Shodan | point | Shodan `/host/count` facets (credit-free) | Path OK; needs `SHODAN_API_KEY`; governor caps credits. Awareness-only, no search-on-pan. | mock | Working (real) pending key; mock in dev |
-| Threats | arc | none (GreyNoise/honeypots unverified/keyed) | By design no real source yet; not registered outside dev. | mock | Stub by design (documented) |
-| BGP | point | RIPE RIS Live via `/ws/bgp` (keyless) | Proxy consumer implemented + tested; keyless so real-capable. Not runtime-confirmed this session. | mock | Working (real path); mock in dev |
+| Layer        | renderType                | Real feed (proxy)                              | Real path status                                                                                    | Dev shows | Verdict                                 |
+| ------------ | ------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------- | --------------------------------------- |
+| Flights      | billboard                 | OpenSky `/states/all` (OAuth2, viewport-bound) | Path OK; needs `OPENSKY_CLIENT_*`. Live test returned honest `502` without keys.                    | mock      | Working (real) pending key; mock in dev |
+| Earthquakes  | point                     | USGS `all_day.geojson` (keyless)               | **Verified real: 192 live events rendered.**                                                        | mock      | Working (real, verified)                |
+| Satellites   | point (SGP4 `positionAt`) | CelesTrak `gp.php` TLE (keyless)               | Path OK; SGP4 + GMST implemented and unit-tested. Not runtime-confirmed with real TLE this session. | mock      | Working (real path); mock in dev        |
+| Fires        | point                     | NASA FIRMS VIIRS (viewport-bound)              | Path OK; needs `FIRMS_MAP_KEY`.                                                                     | mock      | Working (real) pending key; mock in dev |
+| Ships        | billboard                 | AISStream via `/ws/ais` (push)                 | Proxy consumer implemented + tested; needs `AISSTREAM_API_KEY` (warned unset).                      | mock      | Working (real) pending key; mock in dev |
+| Surveillance | point                     | Overpass `man_made=surveillance` (keyless)     | Path OK (`/api/interpreter`). Not runtime-confirmed this session.                                   | mock      | Working (real path); mock in dev        |
+| Landmarks    | point                     | Overpass tourism/historic (keyless)            | Path OK. Not runtime-confirmed this session.                                                        | mock      | Working (real path); mock in dev        |
+| CCTV         | billboard                 | none (no generic real feed)                    | By design there is no real source; not registered outside dev.                                      | mock      | Stub by design (documented)             |
+| Shodan       | point                     | Shodan `/host/count` facets (credit-free)      | Path OK; needs `SHODAN_API_KEY`; governor caps credits. Awareness-only, no search-on-pan.           | mock      | Working (real) pending key; mock in dev |
+| Threats      | arc                       | none (GreyNoise/honeypots unverified/keyed)    | By design no real source yet; not registered outside dev.                                           | mock      | Stub by design (documented)             |
+| BGP          | point                     | RIPE RIS Live via `/ws/bgp` (keyless)          | Proxy consumer implemented + tested; keyless so real-capable. Not runtime-confirmed this session.   | mock      | Working (real path); mock in dev        |
 
 Master-plan layers that are **Missing** entirely: weather and air-quality raster
 fields (the `raster` renderType throws), a transit feed (`DEFAULT_LAYERS` comment
@@ -211,23 +225,23 @@ notes "one transit, N/A yet"), radio, and bikeshare.
 
 ## UI controls and interaction
 
-| Control | Status | Evidence |
-| --- | --- | --- |
-| Layer toggles (11) | Working | All toggled on with live counts; visual state tracks real state. In a bare prod build they would be inert (see item 2). `core/ui/layerToggles.js`. |
-| Presets (5) | Partial | Around Me / Sky / Disaster / Environment / Surveillance apply their layer sets. "Around Me" on **desktop** does not geolocate (no-op camera). `core/presets.js`. |
-| Global search + geocoder fly-to | Working | Typed "Tokyo" -> combined entity + place results -> selecting "Tokyo, Japan" flew the camera there. Real geocoder path (Nominatim) is correct. Minor: unrelated threat entities matched "Tokyo" (loose relevance). `core/search/*`. |
-| Metadata card | Working | Clicking a quake showed M 7.4 with magnitude/depth/time/coordinates. `core/ui/metadataCard.js`. |
-| Click / tap to track | Working | Selected entity `mq6`; camera followed. `core/interaction/picker.js`, `tracker.js`. |
-| Trails | Working | Glowing tapered polyline + halo ring on the tracked entity. `tracker.js`. |
-| Sensor shaders (NVG/FLIR/CRT) | Working | NVG verified (full green night-vision with vignette/noise). CRT is full-tier only and hidden on mobile. `core/shaders/sensorShaders.js`. |
-| In-app terminal | Working | `help`, `layers` (listed all layers `[on]`), and `query` all ran. `core/ui/terminal.js`, `core/osint/terminal/commands.js`. |
-| Capability readout | Working | Live tier/GPU/counts panel. `core/ui/capabilityReadout.js`. |
-| CT firehose ticker | Partial | UI + toggle implemented; connects `/ws/ct` on toggle. Public CertStream upstream is often silent and needs `CT_STREAM_URL`; dev uses a synthetic stream. Real data not confirmed. `core/ui/ctTicker.js`, `core/osint/ct/*`. |
-| Time scrubber | Working (by code + tests) | Clock + ring-buffer history + UI wired; movers rewind against the shared clock. Rewind not drag-tested this session. `core/ui/timeScrubber.js`, `core/scene/clock.js`, `core/layers/sdk/ringBuffer.js`. |
-| Cockpit mode | Working (by code) | Offered for movers when tier is not minimal; not runtime-ridden this session. `core/interaction/cockpit.js`. |
-| Compass / point-at-sky | Working (by code + tests) | Mobile-only "Point at sky" button present; DeviceOrientation math unit-tested. Not sensor-tested in-browser. `shell-mobile/compass.js`, `orientation.js`. |
-| Around Me (geolocation) | Partial | See known problem 4. |
-| Locate-me button | Missing | See known problem 5. |
+| Control                         | Status                    | Evidence                                                                                                                                                                                                                            |
+| ------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layer toggles (11)              | Working                   | All toggled on with live counts; visual state tracks real state. In a bare prod build they would be inert (see item 2). `core/ui/layerToggles.js`.                                                                                  |
+| Presets (5)                     | Partial                   | Around Me / Sky / Disaster / Environment / Surveillance apply their layer sets. "Around Me" on **desktop** does not geolocate (no-op camera). `core/presets.js`.                                                                    |
+| Global search + geocoder fly-to | Working                   | Typed "Tokyo" -> combined entity + place results -> selecting "Tokyo, Japan" flew the camera there. Real geocoder path (Nominatim) is correct. Minor: unrelated threat entities matched "Tokyo" (loose relevance). `core/search/*`. |
+| Metadata card                   | Working                   | Clicking a quake showed M 7.4 with magnitude/depth/time/coordinates. `core/ui/metadataCard.js`.                                                                                                                                     |
+| Click / tap to track            | Working                   | Selected entity `mq6`; camera followed. `core/interaction/picker.js`, `tracker.js`.                                                                                                                                                 |
+| Trails                          | Working                   | Glowing tapered polyline + halo ring on the tracked entity. `tracker.js`.                                                                                                                                                           |
+| Sensor shaders (NVG/FLIR/CRT)   | Working                   | NVG verified (full green night-vision with vignette/noise). CRT is full-tier only and hidden on mobile. `core/shaders/sensorShaders.js`.                                                                                            |
+| In-app terminal                 | Working                   | `help`, `layers` (listed all layers `[on]`), and `query` all ran. `core/ui/terminal.js`, `core/osint/terminal/commands.js`.                                                                                                         |
+| Capability readout              | Working                   | Live tier/GPU/counts panel. `core/ui/capabilityReadout.js`.                                                                                                                                                                         |
+| CT firehose ticker              | Partial                   | UI + toggle implemented; connects `/ws/ct` on toggle. Public CertStream upstream is often silent and needs `CT_STREAM_URL`; dev uses a synthetic stream. Real data not confirmed. `core/ui/ctTicker.js`, `core/osint/ct/*`.         |
+| Time scrubber                   | Working (by code + tests) | Clock + ring-buffer history + UI wired; movers rewind against the shared clock. Rewind not drag-tested this session. `core/ui/timeScrubber.js`, `core/scene/clock.js`, `core/layers/sdk/ringBuffer.js`.                             |
+| Cockpit mode                    | Working (by code)         | Offered for movers when tier is not minimal; not runtime-ridden this session. `core/interaction/cockpit.js`.                                                                                                                        |
+| Compass / point-at-sky          | Working (by code + tests) | Mobile-only "Point at sky" button present; DeviceOrientation math unit-tested. Not sensor-tested in-browser. `shell-mobile/compass.js`, `orientation.js`.                                                                           |
+| Around Me (geolocation)         | Partial                   | See known problem 4.                                                                                                                                                                                                                |
+| Locate-me button                | Missing                   | See known problem 5.                                                                                                                                                                                                                |
 
 ---
 
@@ -238,17 +252,17 @@ governor budget. Relayed **real** USGS data (HTTP 200, ~137 KB GeoJSON). Emitted
 honest warnings that OpenSky and AISStream keys are unset. Feed allowlist enforced
 (an off-allowlist path returns 403). 42 proxy unit tests pass.
 
-| Job | Status | Evidence |
-| --- | --- | --- |
-| 1. Key/secret broker | Working | `feeds.js` inject rules; secrets server-side only. |
-| 2. OAuth2 token manager (OpenSky) | Working (by code + tests); not exercised with real creds | `proxy/lib/oauth.js`; without creds the feed returns 502 as designed. |
-| 3. CORS shim | Working | `proxy/lib/cors.js`; browser reached the proxy cross-origin; preflight handled. |
-| 4. HTTPS terminator | Working (by code) | `npm run start:https` / self-signed; not run in HTTPS this session. |
-| 5. Stateful AIS websocket consumer | Working (by code + tests) | `proxy/lib/ais.js`, `/ws/ais`; needs `AISSTREAM_API_KEY`. |
-| 6. Rate / budget governor | Working | `proxy/lib/governor.js`; `/health` shows ripestat budget usage incrementing. |
-| Extra: BGP RIS Live `/ws/bgp` | Working (by code + tests) | Keyless; lazy upstream connect on client subscribe. |
-| Extra: CT CertStream `/ws/ct` | Partial | Implemented; upstream often silent, needs `CT_STREAM_URL`. |
-| Feed allowlist (anti-SSRF) | Working | Off-allowlist path -> 403 "path not in feed allowlist". |
+| Job                                | Status                                                   | Evidence                                                                        |
+| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 1. Key/secret broker               | Working                                                  | `feeds.js` inject rules; secrets server-side only.                              |
+| 2. OAuth2 token manager (OpenSky)  | Working (by code + tests); not exercised with real creds | `proxy/lib/oauth.js`; without creds the feed returns 502 as designed.           |
+| 3. CORS shim                       | Working                                                  | `proxy/lib/cors.js`; browser reached the proxy cross-origin; preflight handled. |
+| 4. HTTPS terminator                | Working (by code)                                        | `npm run start:https` / self-signed; not run in HTTPS this session.             |
+| 5. Stateful AIS websocket consumer | Working (by code + tests)                                | `proxy/lib/ais.js`, `/ws/ais`; needs `AISSTREAM_API_KEY`.                       |
+| 6. Rate / budget governor          | Working                                                  | `proxy/lib/governor.js`; `/health` shows ripestat budget usage incrementing.    |
+| Extra: BGP RIS Live `/ws/bgp`      | Working (by code + tests)                                | Keyless; lazy upstream connect on client subscribe.                             |
+| Extra: CT CertStream `/ws/ct`      | Partial                                                  | Implemented; upstream often silent, needs `CT_STREAM_URL`.                      |
+| Feed allowlist (anti-SSRF)         | Working                                                  | Off-allowlist path -> 403 "path not in feed allowlist".                         |
 
 Minor: `/health` reports `phase: 3` and marks keyed feeds (firms/shodan)
 `configured: true` even without their secrets; only OAuth (opensky) reflects secret
@@ -263,16 +277,16 @@ CLAUDE.md guardrails keep most of the CVP catalog **permanently out of scope**
 those are implemented, which is correct. What is built is the **passive**
 Category D/F console.
 
-| Piece | Status | Evidence |
-| --- | --- | --- |
-| Asset classifier (guardrail gate) | Working | `query jane smith` -> "not a valid asset (expected ip/domain/asn)"; only IP/ASN/domain accepted. `core/osint/asset.js`. This is the enforced scope gate, and it holds. |
-| Asset lookup / enrichment | **Broken (against real proxy)** | `query 8.8.8.8` returned "lookup unavailable or no location". Root cause: `core/osint/lookup.js` requests subpath `/data/<call>/data.json`, but the ripestat feed `baseUrl` already ends in `/data`, so the upstream path doubles to `/data/data/...` and the allowlist rejects it with **403**. Verified: the correct path returns real geo for 8.8.8.8 (lat 37.751, lon -97.822); the client path returns 403. Works only in mock mode. |
-| Asset correlation | **Broken (against real proxy)** | Same root cause: `core/osint/correlate.js:47` uses the same `/data/<call>/data.json` pattern -> 403. Mock-only. |
-| OSINT plotter | Working (by code); depends on lookup | Plots query outputs and resolves them via the interaction spine (`main.js` extra resolver). Real plotting is blocked by the lookup 403 above. `core/osint/plotter.js`. |
-| Threat-map arcs | Stub by design | Glowing great-circle arcs with pulses; fed by a synthetic ambient stream only (no verified real source). |
-| Shodan awareness | Working (real path) pending key | Credit-free `/host/count` facets only; governor enforces budget. Awareness-only per guardrails. |
-| CT / BGP | see proxy section | CT partial (silent upstream); BGP real-capable (keyless). |
-| Terminal command surface | Working | `layers`, `query`, `correlate`, `goto`, `track`, `applyPreset`, `geocode` wired; passive-only. `core/osint/terminal/commands.js`. |
+| Piece                             | Status                               | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Asset classifier (guardrail gate) | Working                              | `query jane smith` -> "not a valid asset (expected ip/domain/asn)"; only IP/ASN/domain accepted. `core/osint/asset.js`. This is the enforced scope gate, and it holds.                                                                                                                                                                                                                                                                    |
+| Asset lookup / enrichment         | **Broken (against real proxy)**      | `query 8.8.8.8` returned "lookup unavailable or no location". Root cause: `core/osint/lookup.js` requests subpath `/data/<call>/data.json`, but the ripestat feed `baseUrl` already ends in `/data`, so the upstream path doubles to `/data/data/...` and the allowlist rejects it with **403**. Verified: the correct path returns real geo for 8.8.8.8 (lat 37.751, lon -97.822); the client path returns 403. Works only in mock mode. |
+| Asset correlation                 | **Broken (against real proxy)**      | Same root cause: `core/osint/correlate.js:47` uses the same `/data/<call>/data.json` pattern -> 403. Mock-only.                                                                                                                                                                                                                                                                                                                           |
+| OSINT plotter                     | Working (by code); depends on lookup | Plots query outputs and resolves them via the interaction spine (`main.js` extra resolver). Real plotting is blocked by the lookup 403 above. `core/osint/plotter.js`.                                                                                                                                                                                                                                                                    |
+| Threat-map arcs                   | Stub by design                       | Glowing great-circle arcs with pulses; fed by a synthetic ambient stream only (no verified real source).                                                                                                                                                                                                                                                                                                                                  |
+| Shodan awareness                  | Working (real path) pending key      | Credit-free `/host/count` facets only; governor enforces budget. Awareness-only per guardrails.                                                                                                                                                                                                                                                                                                                                           |
+| CT / BGP                          | see proxy section                    | CT partial (silent upstream); BGP real-capable (keyless).                                                                                                                                                                                                                                                                                                                                                                                 |
+| Terminal command surface          | Working                              | `layers`, `query`, `correlate`, `goto`, `track`, `applyPreset`, `geocode` wired; passive-only. `core/osint/terminal/commands.js`.                                                                                                                                                                                                                                                                                                         |
 
 ---
 

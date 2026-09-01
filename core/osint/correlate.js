@@ -43,8 +43,9 @@ export function parseShodanHost(json) {
 }
 
 export function createCorrelator({ proxyClient }) {
+  // baseUrl already ends in /data, so the sub-path must not repeat it (see lookup.js).
   const ripe = (call, resource, signal) =>
-    proxyClient.getJson('ripestat', `/data/${call}/data.json`, {
+    proxyClient.getJson('ripestat', `/${call}/data.json`, {
       params: { resource },
       signal,
     });

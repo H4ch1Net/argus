@@ -54,7 +54,8 @@ test('createCorrelator merges RIPEstat + Shodan into a sectioned composite', asy
   const proxyClient = {
     async getJson(feed, path, { params } = {}) {
       if (feed === 'ripestat') {
-        const call = path.split('/')[2];
+        // path is /<call>/data.json (relative to the ripestat /data base path).
+        const call = path.split('/')[1];
         return ripe[`${call}:${params.resource}`] ?? null;
       }
       if (feed === 'shodan') {

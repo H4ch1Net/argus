@@ -61,8 +61,10 @@ function buildResult({ id, kind, value, subtitle, geo, net, as, extraRows = [] }
 }
 
 export function createLookup(proxyClient) {
+  // The ripestat feed baseUrl already ends in /data, so the sub-path must NOT
+  // repeat it (doing so doubles to /data/data/... and fails the allowlist).
   const get = (call, resource, signal) =>
-    proxyClient.getJson('ripestat', `/data/${call}/data.json`, {
+    proxyClient.getJson('ripestat', `/${call}/data.json`, {
       params: { resource },
       signal,
     });
