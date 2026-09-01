@@ -4,6 +4,7 @@
 import { sendJson } from './respond.js';
 import { handlePreflight } from './cors.js';
 import { handleRelay } from './relay.js';
+import { handleGoogleTiles } from './tiles.js';
 
 /**
  * @param {{ config: object, feeds: import('../feeds.js').Feed[], tokenManagers?: object }} ctx
@@ -38,6 +39,11 @@ export function createRequestHandler({
       }
       if (url.pathname.startsWith('/feed/')) {
         await handleRelay(req, res, { feeds, config, tokenManagers, governor });
+        return;
+      }
+      // Google Photorealistic 3D Tiles broker (key server-side; host-pinned).
+      if (url.pathname.startsWith('/tiles/google')) {
+        await handleGoogleTiles(req, res, { config });
         return;
       }
       sendJson(res, 404, { error: 'not found' });

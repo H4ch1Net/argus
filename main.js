@@ -507,24 +507,51 @@ async function setupScene(app) {
   const { createTimeScrubber } = await import('./core/ui/timeScrubber.js');
   const scrubber = createTimeScrubber({ clock });
 
-  // Base-imagery switcher: the offline Relief baseline, or higher-resolution
-  // Satellite / Streets so zooming in shows the roads a surveillance camera sits
-  // on. Off the baseline is opt-in (cellular-friendly).
-  const [{ createImageryController, IMAGERY_SOURCES }, { createImagerySwitcher }] =
-    await Promise.all([
-      import('./core/scene/imagery.js'),
-      import('./core/ui/imagerySwitcher.js'),
-    ]);
+  // Base-imagery + terrain switchers. Imagery: the offline Relief baseline, or
+  // higher-resolution Satellite / Streets so zooming in shows the roads a
+  // surveillance camera sits on. Terrain: flat, real 3D relief (keyless), or
+  // opt-in photoreal. On capable, non-metered devices both default to the richer
+  // option so the globe is street-usable out of the box; metered / minimal keep
+  // the cellular-friendly baseline.
+  const [
+    { createImageryController, IMAGERY_SOURCES },
+    { createTerrainController, TERRAIN_SOURCES, defaultTerrainId },
+    { createImagerySwitcher, createTerrainSwitcher },
+  ] = await Promise.all([
+    import('./core/scene/imagery.js'),
+    import('./core/scene/terrain.js'),
+    import('./core/ui/imagerySwitcher.js'),
+  ]);
+
+  const metered = Boolean(app.capabilities?.network?.metered);
+  const capable = app.tier !== 'minimal' && !metered;
+
   const imagery = createImageryController(app.viewer);
+  if (capable) imagery.set('satellite');
   const imagerySwitcher = createImagerySwitcher({
     sources: IMAGERY_SOURCES,
     current: imagery.current(),
     onSelect: (id) => imagery.set(id),
   });
 
+  const terrain = createTerrainController(app.viewer, {
+    proxyBase: proxyBase || null,
+    onStatus: (s) => {
+      if (!s.ok && s.message) console.warn(`[argus] terrain: ${s.message}`);
+    },
+  });
+  const defTerrain = defaultTerrainId({ tier: app.tier, metered });
+  if (defTerrain !== 'flat') terrain.set(defTerrain);
+  const terrainSwitcher = createTerrainSwitcher({
+    sources: TERRAIN_SOURCES,
+    current: defTerrain,
+    onSelect: (id) => terrain.set(id),
+  });
+
   app.mountControls?.({
     search: searchBox.el,
     imagery: imagerySwitcher.el,
+    terrain: terrainSwitcher.el,
     presetBar: presetBar.el,
     layerToggles: layerToggles.el,
     sensorControls,
