@@ -1,20 +1,14 @@
-/* Capability readout panel. Shared look; shells own placement. */
+/* Capability + live-feed readout. Rendered inside the SYSTEM STATUS module, so it
+   carries no frame of its own: just a compact monospace data table. */
 .argus-readout {
   font:
-    12px/1.5 ui-monospace,
+    11px/1.5 ui-monospace,
     'SF Mono',
     'Cascadia Code',
     Menlo,
     Consolas,
     monospace;
-  color: #cfe3ff;
-  background: rgba(6, 10, 18, 0.82);
-  border: 1px solid rgba(90, 140, 210, 0.28);
-  border-radius: 12px;
-  padding: 12px 14px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: #b6ccc5;
   pointer-events: auto;
   user-select: none;
 }
@@ -24,21 +18,21 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #8fb4e8;
+  color: #5f8f87;
 }
 
 .argus-readout__badge {
   font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: #06101c;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 1px;
+  color: #04140f;
 }
 .argus-readout__badge--full {
-  background: #57e39a;
+  background: #35e0b0;
 }
 .argus-readout__badge--balanced {
   background: #57b6e3;
@@ -53,10 +47,10 @@
   gap: 16px;
 }
 .argus-readout__row > span:first-child {
-  color: #7f97b8;
+  color: #5f8f87;
 }
 .argus-readout__row > span:last-child {
-  color: #e8f1ff;
+  color: #d3ece5;
   text-align: right;
   max-width: 60%;
   overflow: hidden;
@@ -64,11 +58,18 @@
   white-space: nowrap;
 }
 
+/* Live feed rows sit under a hairline divider so they read apart from the static
+   capability block. */
+.argus-readout__layers:not(:empty) {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(64, 122, 138, 0.28);
+}
+
 .argus-readout__status {
   min-height: 0;
-  margin-top: 0;
   color: #e3a857;
-  font-size: 11px;
+  font-size: 10px;
 }
 .argus-readout__status--warn {
   margin-top: 8px;

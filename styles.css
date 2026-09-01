@@ -55,15 +55,8 @@ body {
   border-radius: 5px;
 }
 
-/* Demo-data banner: shown when no proxy is configured, so simulated data is
-   never mistaken for live feeds. */
+/* Demo-data notice element. Its visual treatment now comes from `.argus-alert`
+   (added by the control-panel builder); this class is kept only as a hook. */
 .argus-demo-banner {
-  padding: 7px 10px;
-  border: 1px solid rgba(240, 180, 90, 0.55);
-  border-radius: 8px;
-  background: rgba(240, 180, 90, 0.14);
-  color: #ffd9a0;
-  font-size: 11px;
-  line-height: 1.4;
-  font-weight: 600;
+  display: block;
 }

@@ -2,6 +2,7 @@ import { bootGlobe } from '../core/index.js';
 import { locateAndFly } from '../core/geo/geolocate.js';
 import { createBottomSheet } from './bottomSheet.js';
 import { createCompass } from './compass.js';
+import { buildControlModules, createModule } from '../core/ui/controlPanel.js';
 import '../core/ui/readout.css';
 import './shell.css';
 
@@ -28,14 +29,15 @@ export async function mountShell(root) {
   // then the capability readout and the metadata card.
   const controlsSlot = document.createElement('div');
   controlsSlot.className = 'argus-sheet__controls';
+  const statusModule = createModule('SYSTEM STATUS', app.readout.el);
   const uiSlot = document.createElement('div');
-  sheet.content.append(controlsSlot, app.readout.el, uiSlot);
+  sheet.content.append(controlsSlot, statusModule, uiSlot);
 
   return {
     ...app,
     mountUi: (el) => uiSlot.appendChild(el),
     mountControls: (parts) => {
-      for (const el of Object.values(parts)) if (el) controlsSlot.append(el);
+      for (const el of buildControlModules(parts)) controlsSlot.append(el);
     },
     // "Around Me": fly to the device location at a regional altitude, so nearby
     // flights and quakes are in view. Graceful if denied/unavailable: the globe

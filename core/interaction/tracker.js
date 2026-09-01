@@ -11,15 +11,36 @@ const TRAIL_MAX_POINTS = 24;
 let ringImageCache = null;
 function ringImage() {
   if (ringImageCache) return ringImageCache;
+  const S = 64;
   const c = document.createElement('canvas');
-  c.width = 44;
-  c.height = 44;
+  c.width = S;
+  c.height = S;
   const g = c.getContext('2d');
-  g.strokeStyle = '#5fe3ff';
-  g.lineWidth = 2.5;
+  const cx = S / 2;
+  // Targeting-bracket reticle: four corner brackets around a thin ring, the way
+  // an ops console frames a locked contact. Phosphor cyan, restrained glow.
+  g.strokeStyle = '#7ff2ff';
+  g.shadowColor = 'rgba(95,227,255,0.9)';
+  g.shadowBlur = 4;
+  g.lineWidth = 2;
   g.beginPath();
-  g.arc(22, 22, 17, 0, Math.PI * 2);
+  g.arc(cx, cx, 15, 0, Math.PI * 2);
   g.stroke();
+
+  g.lineWidth = 3;
+  const r = 26; // corner distance from centre
+  const len = 9; // bracket arm length
+  for (let i = 0; i < 4; i++) {
+    const sx = i & 1 ? 1 : -1;
+    const sy = i & 2 ? 1 : -1;
+    const x = cx + sx * r;
+    const y = cx + sy * r;
+    g.beginPath();
+    g.moveTo(x - sx * len, y);
+    g.lineTo(x, y);
+    g.lineTo(x, y - sy * len);
+    g.stroke();
+  }
   ringImageCache = c;
   return c;
 }
@@ -75,11 +96,9 @@ export function createTracker(viewer, { resolve, card, onChange, onCockpit }) {
           taperPower: 0.4, // fades toward the oldest point
           color: Cesium.Color.fromCssColorString('#5fe3ff'),
         }),
-        // Keep the trail visible (dimmed) where it passes behind terrain.
-        depthFailMaterial: new Cesium.PolylineGlowMaterialProperty({
-          glowPower: 0.3,
-          color: Cesium.Color.fromCssColorString('#5fe3ff').withAlpha(0.3),
-        }),
+        // No depthFailMaterial: the trail is occluded by the globe where it
+        // passes behind the limb (depthTestAgainstTerrain) instead of showing
+        // through it.
       },
     });
     haloEntity = viewer.entities.add({
