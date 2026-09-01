@@ -35,6 +35,26 @@ test('health lists configured feed ids', async (t) => {
   assert.deepEqual(j.feeds, [{ id: 'echo', configured: true }]);
 });
 
+test('health reports a keyed feed as unconfigured until its secret is set', async (t) => {
+  const feeds = [
+    { id: 'firms', baseUrl: 'https://x/', inject: [{ secret: 'FIRMS_TEST_KEY' }] },
+  ];
+  const saved = process.env.FIRMS_TEST_KEY;
+  delete process.env.FIRMS_TEST_KEY;
+  t.after(() => {
+    if (saved !== undefined) process.env.FIRMS_TEST_KEY = saved;
+  });
+  const proxy = await listen(createRequestHandler({ config: loadConfig({}), feeds }));
+  t.after(() => proxy.close());
+
+  let j = await (await fetch(`${base(proxy)}/health`)).json();
+  assert.equal(j.feeds[0].configured, false, 'unconfigured without the secret');
+
+  process.env.FIRMS_TEST_KEY = 'present';
+  j = await (await fetch(`${base(proxy)}/health`)).json();
+  assert.equal(j.feeds[0].configured, true, 'configured once the secret is set');
+});
+
 test('origin allowlist blocks a non-listed origin', async (t) => {
   const config = loadConfig({ PROXY_ALLOWED_ORIGINS: 'https://allowed.example' });
   const proxy = await listen(createRequestHandler({ config, feeds: [] }));
