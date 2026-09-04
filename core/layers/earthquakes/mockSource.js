@@ -1,6 +1,10 @@
 // Dev-only mock earthquake source: a fixed set of USGS-shaped features so the
 // layer is demonstrable without a running proxy. Dev-gated + dynamic-imported,
-// so it never ships in production.
+// so it never ships in production. When a viewer is supplied it also seeds a few
+// quakes inside the current view each poll, so "events" are visible wherever the
+// user is looking during a mock (no-proxy) session, not only at the fixed spots.
+
+import { computeViewportQuery } from '../sdk/viewport.js';
 
 const QUAKES = [
   { id: 'mq1', lon: -122.8, lat: 38.8, mag: 5.9, depth: 8, place: 'Northern California' },
@@ -27,13 +31,39 @@ const QUAKES = [
   { id: 'mq8', lon: 178.4, lat: -18.1, mag: 5.1, depth: 550, place: 'Fiji region' },
 ];
 
-export function createQuakeMockSource() {
-  return async () => ({
-    type: 'FeatureCollection',
-    features: QUAKES.map((q) => ({
-      id: q.id,
-      properties: { mag: q.mag, place: q.place, time: Date.now() - 3600_000, url: null },
-      geometry: { type: 'Point', coordinates: [q.lon, q.lat, q.depth] },
-    })),
-  });
+const rand = (a, b) => a + Math.random() * (b - a);
+
+// A handful of quakes scattered across the current view, so events show up in
+// whatever region the user has navigated to (mock sessions only).
+function localQuakes(viewer, count = 6) {
+  const b = computeViewportQuery(viewer).bbox;
+  // Skip when zoomed right out to the whole globe (the fixed set covers that).
+  if (b.lamax - b.lamin > 120) return [];
+  return Array.from({ length: count }, (_, i) => ({
+    id: `lq${i}`,
+    lon: rand(b.lomin, b.lomax),
+    lat: rand(b.lamin, b.lamax),
+    mag: Math.round(rand(2.0, 6.5) * 10) / 10,
+    depth: Math.round(rand(2, 70)),
+    place: 'simulated local event',
+  }));
+}
+
+export function createQuakeMockSource({ viewer } = {}) {
+  return async () => {
+    const set = viewer ? [...QUAKES, ...localQuakes(viewer)] : QUAKES;
+    return {
+      type: 'FeatureCollection',
+      features: set.map((q) => ({
+        id: q.id,
+        properties: {
+          mag: q.mag,
+          place: q.place,
+          time: Date.now() - 3600_000,
+          url: null,
+        },
+        geometry: { type: 'Point', coordinates: [q.lon, q.lat, q.depth] },
+      })),
+    };
+  };
 }

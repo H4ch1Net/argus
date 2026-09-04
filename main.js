@@ -150,6 +150,11 @@ async function setupScene(app) {
   const manager = createLayerManager(app.viewer, { readout: app.readout, clock });
   const camera = createCameraControls(app.viewer);
 
+  // On-screen zoom stepper: a dependable zoom on trackpads and touch, where
+  // wheel/pinch gestures are unreliable. Floats over the globe via the shell.
+  const { createZoomControls } = await import('./core/ui/zoomControls.js');
+  app.mountOverlay?.(createZoomControls({ camera }).el);
+
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
   // chunk entirely; only the proxy source ships.
@@ -180,7 +185,7 @@ async function setupScene(app) {
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/earthquakes/mockSource.js').then((m) =>
-              m.createQuakeMockSource(),
+              m.createQuakeMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },

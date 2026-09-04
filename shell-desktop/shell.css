@@ -89,6 +89,14 @@
   gap: 10px;
 }
 
+/* Floating zoom stepper, bottom-right of the globe. */
+.argus-shell-desktop .argus-zoom {
+  position: absolute;
+  right: 16px;
+  bottom: 22px;
+  z-index: 5;
+}
+
 /* Tuck the Cesium attribution credit into the bottom-right, dimmed. */
 .argus-shell-desktop .cesium-viewer-bottom {
   right: 8px;

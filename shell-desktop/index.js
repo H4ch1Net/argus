@@ -43,6 +43,7 @@ export async function mountShell(root) {
   return {
     ...app,
     mountUi: (el) => uiSlot.appendChild(el),
+    mountOverlay: (el) => root.appendChild(el),
     mountControls: (parts) => {
       for (const el of buildControlModules(parts)) controlsSlot.append(el);
     },

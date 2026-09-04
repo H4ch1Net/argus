@@ -82,6 +82,14 @@
   -webkit-backdrop-filter: none;
 }
 
+/* Floating zoom stepper: right side, above the collapsed sheet peek. */
+.argus-shell-mobile .argus-zoom {
+  position: absolute;
+  right: 14px;
+  bottom: calc(140px + env(safe-area-inset-bottom));
+  z-index: 5;
+}
+
 /* Tuck the Cesium attribution credit up out of the sheet's way. */
 .argus-shell-mobile .cesium-viewer-bottom {
   bottom: auto;

@@ -122,28 +122,28 @@ for a fully live globe at zero cost with no billing setup.
 
 Turn these on immediately, even without the proxy keys:
 
-| Layer | Source |
-|---|---|
-| Earthquakes | USGS |
-| Satellites | CelesTrak |
-| Landmarks + Surveillance / cameras | OpenStreetMap Overpass |
-| Search / fly-to | OSM Nominatim |
-| OSINT asset lookups + BGP | RIPEstat / RIPE RIS |
-| 3D Terrain | Esri World Elevation (keyless) |
+| Layer                              | Source                         |
+| ---------------------------------- | ------------------------------ |
+| Earthquakes                        | USGS                           |
+| Satellites                         | CelesTrak                      |
+| Landmarks + Surveillance / cameras | OpenStreetMap Overpass         |
+| Search / fly-to                    | OSM Nominatim                  |
+| OSINT asset lookups + BGP          | RIPEstat / RIPE RIS            |
+| 3D Terrain                         | Esri World Elevation (keyless) |
 
 ### Free key required
 
-| Layer | `.env` variable(s) | How to get it |
-|---|---|---|
-| **Flights** | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | Register at opensky-network.org, log in -> **Account** -> **API Client**: create a client; it gives a client id + secret (OAuth2). |
-| **Fires** | `FIRMS_MAP_KEY` | firms.modaps.eosdis.nasa.gov/api/map_key -> enter your email -> the MAP_KEY is emailed instantly. |
-| **Ships (AIS)** | `AISSTREAM_API_KEY` | Sign up at aisstream.io -> **API Keys** -> create one. |
+| Layer           | `.env` variable(s)                           | How to get it                                                                                                                      |
+| --------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Flights**     | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | Register at opensky-network.org, log in -> **Account** -> **API Client**: create a client; it gives a client id + secret (OAuth2). |
+| **Fires**       | `FIRMS_MAP_KEY`                              | firms.modaps.eosdis.nasa.gov/api/map_key -> enter your email -> the MAP_KEY is emailed instantly.                                  |
+| **Ships (AIS)** | `AISSTREAM_API_KEY`                          | Sign up at aisstream.io -> **API Keys** -> create one.                                                                             |
 
 ### Optional / conditional
 
-| Layer | Variable | Notes |
-|---|---|---|
-| **Shodan** | `SHODAN_API_KEY` | Awareness-only (credit-free count queries). A key is free with a student `.edu` email via the GitHub Student Pack; otherwise a paid account. Skip it and the layer stays off. |
+| Layer                  | Variable              | Notes                                                                                                                                                                         |
+| ---------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shodan**             | `SHODAN_API_KEY`      | Awareness-only (credit-free count queries). A key is free with a student `.edu` email via the GitHub Student Pack; otherwise a paid account. Skip it and the layer stays off. |
 | **Photoreal 3D Tiles** | `GOOGLE_MAPS_API_KEY` | Google Maps Platform key. Free monthly tier but requires enabling billing on a Google Cloud project. Optional: without it the "Photoreal" toggle degrades to free 3D terrain. |
 
 ### Always simulated
@@ -179,7 +179,22 @@ or `?shell=desktop`.
 
 ---
 
-## 6. Useful commands
+## 6. Navigation and what you will see
+
+- **Zoom**: use the on-screen **+ / -** buttons (bottom-right of the globe) for
+  reliable zoom on a laptop trackpad. Mouse wheel and two-finger scroll also
+  zoom; left-drag rotates; right-drag (or middle-drag) tilts.
+- **Cameras and landmarks load only when you zoom in.** Surveillance cameras and
+  landmarks come from OpenStreetMap Overpass, which is only queried once the view
+  covers a city-sized area (under ~3 degrees). Zoom into a city, then toggle
+  **SURVEILLANCE** or **LANDMARKS**; markers appear after the region loads.
+- **Flights** show wherever you are looking (default on). **Earthquakes** are
+  real, sparse events: you may see none directly over your town. In a mock
+  (no-proxy) session the demo seeds a few local events into the current view.
+- **Live vs demo**: with no proxy, an amber `DEMO DATA` banner is shown and every
+  layer is simulated. Run the proxy (section 3) for real feeds.
+
+## 7. Useful commands
 
 ```bash
 npm run dev            # dev server (mock data unless VITE_PROXY_BASE_URL is set)

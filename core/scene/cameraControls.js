@@ -19,6 +19,20 @@ export function createCameraControls(viewer) {
       viewer.scene.requestRender();
     },
 
+    /**
+     * Step the zoom in (direction > 0) or out (direction < 0) by a fraction of
+     * the current eye height, so each press feels proportional at every scale.
+     * Backs the on-screen zoom buttons: a reliable zoom on trackpads and touch,
+     * where wheel/pinch gestures are inconsistent.
+     */
+    zoomStep(direction, fraction = 0.4) {
+      const h = viewer.camera.positionCartographic.height;
+      const amount = Math.max(500, h * fraction);
+      if (direction > 0) viewer.camera.zoomIn(amount);
+      else viewer.camera.zoomOut(amount);
+      viewer.scene.requestRender();
+    },
+
     /** The camera's current ground point (degrees), a fallback when GPS is denied. */
     groundPosition() {
       const c = viewer.camera.positionCartographic;
