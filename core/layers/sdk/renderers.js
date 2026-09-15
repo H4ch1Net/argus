@@ -35,6 +35,20 @@ function glowDotImage() {
   const cx = GLOW_SPRITE_PX / 2;
   const ring = 40; // ring radius (matches GLOW_CORE_PX diameter reference)
 
+  const tIn = ring - 9;
+  const tOut = ring + 9;
+  const drawTicks = () => {
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * tIn, cx + dy * tIn);
+      ctx.lineTo(cx + dx * tOut, cx + dy * tOut);
+      ctx.stroke();
+    }
+  };
+
   // 1. Restrained phosphor bloom behind the glyph (not a giant gradient blob).
   const bloom = ctx.createRadialGradient(cx, cx, 0, cx, cx, ring * 1.5);
   bloom.addColorStop(0, 'rgba(255,255,255,0.30)');
@@ -43,37 +57,40 @@ function glowDotImage() {
   ctx.fillStyle = bloom;
   ctx.fillRect(0, 0, GLOW_SPRITE_PX, GLOW_SPRITE_PX);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  // 2. Dark contrast pass, drawn thicker and underneath the bright glyph. The
+  // billboard tint multiplies the sprite, and these near-black pixels stay dark
+  // under any tint, so the reticle keeps a crisp edge on bright basemaps
+  // (satellite, relief) while staying invisible against dark space.
   ctx.lineCap = 'butt';
+  ctx.strokeStyle = 'rgba(3,6,9,0.8)';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(cx, cx, ring, 0, Math.PI * 2);
+  ctx.stroke();
+  drawTicks();
+  ctx.fillStyle = 'rgba(3,6,9,0.85)';
+  ctx.beginPath();
+  ctx.arc(cx, cx, 11, 0, Math.PI * 2);
+  ctx.fill();
 
-  // 2. Thin outer ring.
+  // 3. Bright outer ring.
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.arc(cx, cx, ring, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 3. Four cardinal targeting ticks crossing the ring.
-  ctx.lineWidth = 3;
-  const tIn = ring - 9;
-  const tOut = ring + 9;
-  for (let i = 0; i < 4; i++) {
-    const a = (i * Math.PI) / 2;
-    const dx = Math.cos(a);
-    const dy = Math.sin(a);
-    ctx.beginPath();
-    ctx.moveTo(cx + dx * tIn, cx + dy * tIn);
-    ctx.lineTo(cx + dx * tOut, cx + dy * tOut);
-    ctx.stroke();
-  }
+  // 4. Bright cardinal targeting ticks.
+  drawTicks();
 
-  // 4. Faint inner reference ring (radar-scope feel).
+  // 5. Faint inner reference ring (radar-scope feel).
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.beginPath();
   ctx.arc(cx, cx, ring * 0.5, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 5. Solid bright core.
+  // 6. Solid bright core.
   ctx.fillStyle = 'rgba(255,255,255,1)';
   ctx.beginPath();
   ctx.arc(cx, cx, 7, 0, Math.PI * 2);
