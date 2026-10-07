@@ -45,6 +45,8 @@ export function parseTuiArgs(argv, env = process.env) {
 }
 
 export async function runTui(argv = []) {
+  // .env first, so settings like ARGUS_HOME can live there next to the keys.
+  if (!argv.includes('--demo')) (await import('../proxy/lib/env.js')).loadEnvFiles();
   const args = parseTuiArgs(argv);
   const { stdin, stdout } = process;
   if (!stdout.isTTY || !stdin.isTTY) {

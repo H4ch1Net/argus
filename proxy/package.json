@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The backbone service: key/secret broker, CORS shim, HTTPS terminator (Phase 2). OAuth2, AIS websocket, and budget governor arrive in later phases.",
+  "description": "The backbone service: key/secret broker, OAuth2, CORS shim, HTTPS terminator, websocket fan-out (AIS, BGP, CT), and budget governor.",
   "scripts": {
     "start": "node server.js",
     "start:https": "node server.js --https",
-    "test": "node --test test/"
+    "test": "node ../scripts/run-tests.js test"
   },
   "dependencies": {
     "selfsigned": "^2.4.1",

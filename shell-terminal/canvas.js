@@ -120,6 +120,13 @@ export function createCanvas(cols, rows) {
     }
   }
 
+  /** True when every cell in [col, col + width) on `row` is free of glyphs. */
+  function free(col, row, width = 1) {
+    if (row < 0 || row >= rows || col < 0 || col + width > cols) return false;
+    for (let c = col; c < col + width; c += 1) if (glyphs[row * cols + c]) return false;
+    return true;
+  }
+
   /** Resolve to one { ch, fg, bold } per cell. `ascii` swaps braille for '.'. */
   function toCells({ ascii = false } = {}) {
     const out = new Array(size);
@@ -146,7 +153,7 @@ export function createCanvas(cols, rows) {
     return out;
   }
 
-  return { cols, rows, dotsW, dotsH, ink, dot, line, glyph, text, toCells };
+  return { cols, rows, dotsW, dotsH, ink, dot, line, glyph, text, free, toCells };
 }
 
 // A rough ASCII stand-in for a braille cell: denser cells read darker.

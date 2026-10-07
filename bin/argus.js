@@ -10,7 +10,7 @@
 // and macOS. GUARDRAIL: every command reads already-public indexes through the
 // proxy's allowlist; nothing here scans or sends traffic at a target.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,10 +22,11 @@ const HELP = `argus: live public-data globe, passive OSINT console, terminal vie
 usage: argus <command> [options]
 
 run the app
-  web [--https] [--port N] [--host ADDR] [--build] [--no-build]
+  web [--https] [--port N] [--host ADDR] [--build] [--no-build] [--open]
                          build the web app if sources changed, then serve it and
                          the proxy together (default https://:8787 with --https).
-                         Open the printed LAN URL on the phone.
+                         Open the printed LAN URL on the phone; --open launches
+                         this machine's browser.
   proxy [--https] [--port N] [--host ADDR]
                          just the proxy (pair with "npm run dev")
   tui [--proxy URL] [--demo] [--ascii] [--no-color] [--at LAT,LON] [--span DEG]
@@ -150,9 +151,28 @@ async function cmdServe(argv, { serveApp }) {
   );
   console.log('');
 
+  if (serveApp && flag(argv, '--open')) openBrowser(proxy.url);
+
   const shutdown = () => proxy.close().finally(() => process.exit(0));
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+/** Open a URL in the default browser (xdg-open on Linux, start on Windows). */
+function openBrowser(url) {
+  const [cmd, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: 'ignore' })
+      .on('error', () => console.log(`    open ${url} in a browser`))
+      .unref();
+  } catch {
+    console.log(`    open ${url} in a browser`);
+  }
 }
 
 // --- dispatch -----------------------------------------------------------------

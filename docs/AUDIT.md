@@ -308,8 +308,8 @@ honest warnings that OpenSky and AISStream keys are unset. Feed allowlist enforc
 | 4. HTTPS terminator                | Working (by code)                                        | `npm run start:https` / self-signed; not run in HTTPS this session.             |
 | 5. Stateful AIS websocket consumer | Working (by code + tests)                                | `proxy/lib/ais.js`, `/ws/ais`; needs `AISSTREAM_API_KEY`.                       |
 | 6. Rate / budget governor          | Working                                                  | `proxy/lib/governor.js`; `/health` shows ripestat budget usage incrementing.    |
-| Extra: BGP RIS Live `/ws/bgp`      | Working (by code + tests)                                | Keyless; lazy upstream connect on client subscribe.                             |
-| Extra: CT CertStream `/ws/ct`      | Partial                                                  | Implemented; upstream often silent, needs `CT_STREAM_URL`.                      |
+| Extra: BGP RIS Live `/ws/bgp`      | Broken, fixed in Phase C                                 | Never connected beside `/ws/ais` (ws path mismatch answered 400). See Phase C.  |
+| Extra: CT CertStream `/ws/ct`      | Partial; routing fixed in Phase C                        | Same 400 bug as BGP; upstream often silent, needs `CT_STREAM_URL`.              |
 | Feed allowlist (anti-SSRF)         | Working                                                  | Off-allowlist path -> 403 "path not in feed allowlist".                         |
 
 Fixed (Phase B): `/health` now reports `configured` truthfully for every feed, not
@@ -456,3 +456,82 @@ What **remains genuinely incomplete** (and why):
 - **Minor**: a small dark patch at the exact north pole (elevation tileset has no
   coverage there); and the keyless Esri tile services can transiently 502 under
   heavy rapid loads (proxy-side tile caching would harden this for production).
+
+---
+
+## Phase C: finishing for personal use (phone, PC, Kali, terminal)
+
+Goal of this pass: make the project usable day to day on all three targets and
+add the requested dedicated terminal version, then fix whatever stood in the
+way. Same honesty rule as before: "verified" below means run and observed.
+
+### Environment limits of this pass (read first)
+
+- **The npm registry was blocked** by the build environment's network policy,
+  so Cesium, Vite, `satellite.js`, and `ws` could not be installed. The web app
+  was therefore **not built or run in a browser in this pass**. Its changes are
+  lint-clean and unit-tested where pure, but browser behaviour is unverified.
+- **Outbound access to every data host was blocked** (USGS, adsb.lol, CelesTrak,
+  RIPEstat, Overpass, jsDelivr, RIS Live). Live feed paths were exercised only
+  through tests with fixtures and through demo data. adsb.lol's current terms
+  and endpoint could not be re-checked (see SETUP.md).
+- `ws` was exercised with the copy bundled inside Playwright, by mapping the
+  import in a scratch loader (not shipped).
+
+### Broken before, fixed now
+
+| #   | Problem                                                                                                          | Cause                                                                                                                        | Fix / evidence                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `/ws/bgp` and `/ws/ct` never connected through the real proxy (BGP layer and CT ticker dead with a proxy)        | Three `WebSocketServer({ server, path })` on one HTTP server; ws v8 answers **400** to any path but the first-attached one   | Single upgrade router + `noServer` servers (`proxy/lib/wsRoutes.js`). Reproduced the 400 with a real ws server; the new regression test fails on the old code, passes now                                |
+| 2   | Keys in `.env` were ignored by the proxy, although SETUP.md said to put them there                               | Nothing loaded `.env`                                                                                                        | `proxy/lib/env.js` (repo `.env`, `proxy/.env`, `~/.config/argus/.env`; real env wins). Tested                                                                                                            |
+| 3   | `npm test` failed on Node 22 (the audit's 108 passes were from an older Node)                                    | `node --test core` runs `core/index.js` as a module on Node 22 (imports Cesium + CSS)                                        | `scripts/run-tests.js` lists test files explicitly; works on Node 20 and 22. Verified on Node 22                                                                                                         |
+| 4   | A production build only worked with `VITE_PROXY_BASE_URL` baked in; the phone over LAN could not reach the proxy | The app only knew an absolute proxy URL; `https://phone-page` -> `http://localhost:8787` is the wrong host and mixed content | The proxy serves the built app (`npm start`), the dev server forwards proxy routes, and the app discovers a proxy at its own origin. Proxy side verified with curl; browser side unverified (see limits) |
+| 5   | Default-on flights showed `error 502` with no OpenSky key                                                        | OpenSky is the only flights source                                                                                           | Keyless adsb.lol fallback chosen from `/health`; parser + point query unit-tested. Live endpoint unverified                                                                                              |
+| 6   | Layer errors showed only a status code                                                                           | The proxy client discarded the proxy's JSON reason                                                                           | Errors carry the reason (e.g. which key is missing); shown on hover in the readout and in the terminal shell. Tested                                                                                     |
+| 7   | Phone re-prompted for the certificate on every proxy restart                                                     | A new self-signed cert per start, with no LAN IP in it                                                                       | Generated once (with LAN IPs) and kept in `~/.config/argus/tls`; mkcert path documented for a trusted cert                                                                                               |
+| 8   | CLAUDE.md mobile requirements missing: thermal ladder, 3D-tile cache caps, PWA manifest + service worker         | Never built                                                                                                                  | `core/capability/thermalLadder.js` (+ scene binding), per-tier `tileCacheSize` and tileset byte caps, `public/manifest.webmanifest`, `public/sw.js`, generated icons                                     |
+
+### New
+
+- **Terminal shell** (`shell-terminal/`, `argus tui`): braille world map with
+  coastlines (built-in coarse outline offline, Natural Earth when fetched and
+  cached), graticule, place names, all nine real layers as glyphs, selection,
+  tracking with trails and orbits, metadata cards, presets, the shared command
+  language, CT ticker, passive OSINT plotting, JSON export, mouse support. It is
+  built from core's own parsers, normalizers, formatters, push clients, and
+  mocks (pure helpers were moved out of the Cesium definitions so every shell
+  shares them). Embedded loopback proxy, `--proxy URL`, or `--demo`.
+- **Scriptable CLI**: `argus query|correlate|quakes|flights|sats|fires|geocode|bgp|ct|health`, text or `--json`.
+- **Launcher + installer**: `bin/argus.js` (`web`, `proxy`, `tui`, CLI) and
+  `scripts/install-linux.sh` (command on PATH, keys file, menu launchers, GPU check).
+
+### Verified in this pass
+
+- Unit tests: `npm test` 177 of 179 pass; the 2 failures are the suites that need
+  `satellite.js` / `cesium`, which could not be installed here. Proxy: 54 of 54
+  pass when run with a `ws` implementation (Playwright's bundled copy).
+- Proxy run with `--static`: `/health`, app files with correct types and cache
+  headers, traversal attempts refused (404), unknown feeds refused.
+- Terminal shell: rendered headless on demo data at several sizes and zooms, and
+  driven inside a real pseudo-terminal (`script`): keys, command line, `goto`,
+  selection and tracking, quit restoring the terminal (exit code 0).
+- CLI: `health`, `query`/`correlate`/`geocode` on demo data, refusal of a
+  person's name (`query "jane smith"` exits 2: assets only), usage errors.
+- Installer: run against a scratch `HOME`; the symlinked `argus` resolves the repo.
+- Service worker routing: run in a VM sandbox; feeds, websockets, `/health`,
+  brokered tiles, and third-party tiles are never intercepted.
+- PWA icons: generated and inspected.
+
+### Still unverified or incomplete (and why)
+
+- **Web app in a browser** (all Phase C client changes): blocked by the registry
+  limit above. First thing to check on a real machine: `npm install && npm start`,
+  then the globe, the network tab (requests go to the page's own origin), and a
+  flights layer with no OpenSky key (adsb.lol).
+- **Live data end to end** from the terminal shell and CLI: blocked by the egress
+  limit above.
+- **Thermal ladder on a real phone**: logic tested with synthetic frame-time
+  sequences; thresholds may need tuning on the S25.
+- **PWA install**: needs trusted HTTPS on the phone (SETUP.md, mkcert).
+- Unchanged from Phase B: keyed feeds without keys here, photoreal tiles,
+  CertStream upstream silence, `raster` renderType, CCTV/threats demo-only.

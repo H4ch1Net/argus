@@ -11,7 +11,7 @@
  * @param {string} data.tier
  * @param {string[]} data.reasons
  * @param {object} data.profile
- * @returns {{ el: HTMLElement, setContextLost: (lost: boolean) => void }}
+ * @returns {{ el: HTMLElement, setContextLost: (lost: boolean) => void, setLayerStatus: Function, setThermal: Function }}
  */
 export function createCapabilityReadout({ capabilities, tier, reasons, profile }) {
   const el = document.createElement('div');
@@ -51,6 +51,7 @@ export function createCapabilityReadout({ capabilities, tier, reasons, profile }
       ${row('resolutionScale', profile.resolutionScale)}
       ${row('targetFrameRate', `${profile.targetFrameRate} fps`)}
       ${row('renderMode', profile.requestRenderMode ? 'on-change' : 'continuous')}
+      <div class="argus-readout__row"><span>thermal</span><span data-role="thermal">full quality</span></div>
       <div class="argus-readout__layers" data-role="layers"></div>
     </div>
     <div class="argus-readout__status" data-role="status"></div>
@@ -85,8 +86,18 @@ export function createCapabilityReadout({ capabilities, tier, reasons, profile }
         : status.state === 'error'
           ? `error ${status.status ?? ''}`.trim()
           : (status.reason ?? status.state);
-    rowEl.querySelector('[data-role="v"]').textContent = value;
+    const v = rowEl.querySelector('[data-role="v"]');
+    v.textContent = value;
+    // The proxy's reason (e.g. which key is missing) on hover.
+    v.title = status.state === 'error' ? String(status.message ?? '') : '';
   };
 
-  return { el, setContextLost, setLayerStatus };
+  // The thermal ladder's current rung (full quality, or what it has given up).
+  const thermalEl = el.querySelector('[data-role="thermal"]');
+  const setThermal = (label, level) => {
+    thermalEl.textContent = level > 0 ? `${label} (heat)` : label;
+    thermalEl.classList.toggle('argus-readout__status--warn', level > 0);
+  };
+
+  return { el, setContextLost, setLayerStatus, setThermal };
 }

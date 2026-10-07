@@ -7,6 +7,7 @@ import { fit } from './ansi.js';
 import { metrics, project, latSpan, widthKm, DOTS_X, DOTS_Y } from './projection.js';
 import { drawBasemap, drawGraticule, drawPolyline } from './mapRender.js';
 import { graticuleStep } from './basemap.js';
+import { CITIES } from './data/cities.js';
 
 export const THEME = {
   brand: '#57e39a',
@@ -22,6 +23,7 @@ export const THEME = {
   error: '#ff6b5b',
   demo: '#ffb454',
   cmd: '#7fd4ff',
+  city: '#8193a6',
 };
 
 /** Panel geometry for a terminal size. Shared with the app for mouse mapping. */
@@ -152,6 +154,21 @@ function drawMap(scr, box, state) {
     const color = o.variant === 'correlated' ? '#ff7ad9' : THEME.brand;
     canvas.glyph(c.col, c.row, state.glyphs.osint, color, { priority: 2e6, bold: true });
     canvas.text(c.col + 2, c.row, o.value, color, { priority: 1.5e6, bold: true });
+  }
+
+  // Place names for orientation: more of them as you zoom in, placed greedily by
+  // rank so labels never overlap each other or any entity.
+  if (state.showCities) {
+    const span = latSpan(view, m);
+    const maxRank = span > 90 ? 1 : span > 25 ? 2 : 3;
+    for (const [name, lat, lon, rank] of CITIES) {
+      if (rank > maxRank) continue;
+      const c = cellOf(lon, lat);
+      if (!c) continue;
+      const label = `${state.unicode ? '∙' : '.'}${name}`;
+      if (!canvas.free(c.col, c.row, label.length)) continue;
+      canvas.text(c.col, c.row, label, THEME.city, { priority: -0.5 });
+    }
   }
 
   // Graticule labels along the left and top edges, under every entity glyph.
@@ -388,7 +405,7 @@ function drawFooter(scr, row, state) {
 export const HELP_LINES = [
   'KEYS',
   '  arrows / h j k l   pan            + - (or wheel)   zoom in / out',
-  '  w                  world view     g                graticule on/off',
+  '  w                  world view     g / n            graticule / place names',
   '  1-9                toggle layer   p                cycle presets',
   '  tab / shift-tab    select next / previous entity in view',
   '  enter              track the selection (map follows it)',

@@ -441,13 +441,16 @@ async function setupScene(app) {
   // weakest tier at all; balanced renders reduced-resolution single-pass; full
   // gets full resolution plus the stackable CRT overlay.
   let sensorControls = null;
+  let shaders = null;
+  let sensorUi = null;
   if (app.tier !== 'minimal') {
     const [{ createSensorShaders }, { createSensorControls }] = await Promise.all([
       import('./core/shaders/sensorShaders.js'),
       import('./core/ui/sensorControls.js'),
     ]);
-    const shaders = createSensorShaders(app.viewer, { tier: app.tier });
-    sensorControls = createSensorControls({ shaders }).el;
+    shaders = createSensorShaders(app.viewer, { tier: app.tier });
+    sensorUi = createSensorControls({ shaders });
+    sensorControls = sensorUi.el;
     if (dev && window.__argus) window.__argus.shaders = shaders;
   }
 
@@ -578,6 +581,7 @@ async function setupScene(app) {
 
   const terrain = createTerrainController(app.viewer, {
     proxyBase: proxyBase || null,
+    tilesetCache: app.profile?.tilesetCache ?? null,
     onStatus: (s) => {
       if (!s.ok && s.message) console.warn(`[argus] terrain: ${s.message}`);
     },
@@ -589,6 +593,63 @@ async function setupScene(app) {
     current: defTerrain,
     onSelect: (id) => terrain.set(id),
   });
+
+  // Thermal budget ladder (CLAUDE.md): Android has no thermal API, so a rising
+  // frame-time trend is the signal. Quality is given up one rung at a time, each
+  // reversible once the device has stayed comfortable for a while:
+  // post-processing off -> lower resolutionScale -> flat (free) terrain.
+  // Phones and weak devices only: on a full-tier desktop a heavier scene the
+  // user chose (photoreal, stacked shaders) is not heat, and must not be undone.
+  const { attachThermalLadder } = await import('./core/scene/thermal.js');
+  let savedSensor = null;
+  let savedTerrain = null;
+  if (app.tier !== 'full') {
+    attachThermalLadder(app.viewer, {
+      targetFrameRate: app.profile.targetFrameRate,
+      rungs: [
+        null,
+        {
+          down: () => {
+            if (!shaders) return;
+            savedSensor = { sensor: shaders.sensor, crt: shaders.crt };
+            shaders.setSensor('none');
+            shaders.setCrt(false);
+            sensorUi?.sync();
+          },
+          up: () => {
+            if (!shaders || !savedSensor) return;
+            shaders.setSensor(savedSensor.sensor);
+            shaders.setCrt(savedSensor.crt);
+            savedSensor = null;
+            sensorUi?.sync();
+          },
+        },
+        {
+          down: () => {
+            app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
+          },
+          up: () => {
+            app.viewer.resolutionScale = app.profile.resolutionScale;
+          },
+        },
+        {
+          down: () => {
+            savedTerrain = terrain.current();
+            if (savedTerrain !== 'flat') terrainSwitcher.setActive('flat');
+          },
+          up: () => {
+            if (savedTerrain && savedTerrain !== 'flat')
+              terrainSwitcher.setActive(savedTerrain);
+            savedTerrain = null;
+          },
+        },
+      ],
+      onChange: (level, label) => {
+        app.readout.setThermal?.(label, level);
+        console.info(`[argus] thermal ladder: ${label}`);
+      },
+    });
+  }
 
   // "Center on my location": flies the camera to the device position. The shell
   // owns the sensor read (both shells provide `locate`); this is just the button.
@@ -729,6 +790,17 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
   // The label of a picked entity, for the point-at-sky HUD.
   const labelFor = (entity) => resolve(entity)?.metadata?.title ?? null;
   return { tracker, labelFor };
+}
+
+// Service worker (production only): caches the app shell and Cesium's static
+// assets for fast repeat starts on the phone, never live data (see public/sw.js).
+// Browsers only allow it in a secure context (HTTPS, or localhost).
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err) => {
+      console.info('[argus] service worker not registered', err?.message || err);
+    });
+  });
 }
 
 // Guard the pre-try setup (capability probe, shell pick) too: any unexpected

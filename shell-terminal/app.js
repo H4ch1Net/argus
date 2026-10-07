@@ -80,6 +80,7 @@ export function createTuiApp(opts) {
     frozenAt: null,
     sidePanel: true,
     showGrid: true,
+    showCities: true,
     mode: 'map', // map | command | help
     input: '',
     cursor: 0,
@@ -763,6 +764,7 @@ export function createTuiApp(opts) {
       if (state.tracking) state.tracking = false;
       else clearSelection();
     } else if (n === 'g') state.showGrid = !state.showGrid;
+    else if (n === 'n') state.showCities = !state.showCities;
     else if (n === 'i') state.sidePanel = !state.sidePanel;
     else if (n === 'c') toggleCt();
     else if (n === 'p') {
