@@ -221,6 +221,19 @@ export function createLayer(viewer, def, ctx) {
     if (document.hidden) pausePolling();
     else resumePolling();
   }
+  // Push streams (AIS, BGP) close while the page is hidden and reopen on return
+  // (CLAUDE.md: Page Visibility pauses the AIS socket, with explicit resume). The
+  // stale sweep keeps running, so vessels that went quiet meanwhile drop out and
+  // the stream repopulates on resume.
+  function onPushVisibilityChange() {
+    if (!running) return;
+    if (document.hidden) {
+      unsubscribe?.();
+      unsubscribe = null;
+    } else if (!unsubscribe) {
+      unsubscribe = ctx.source(pushIngest);
+    }
+  }
 
   return {
     id: def.id,
@@ -230,7 +243,8 @@ export function createLayer(viewer, def, ctx) {
       ds.show = true;
       moversActive(true);
       if (mode === 'push') {
-        unsubscribe = ctx.source(pushIngest);
+        unsubscribe = document.hidden ? null : ctx.source(pushIngest);
+        document.addEventListener('visibilitychange', onPushVisibilityChange);
         // Sweep at least as often as entities expire, so short-lived push layers
         // (e.g. BGP pulses) cull promptly instead of lingering to the next sweep.
         staleTimer = setInterval(sweepStale, Math.min(10_000, staleMs));
@@ -253,6 +267,7 @@ export function createLayer(viewer, def, ctx) {
     stop() {
       running = false;
       if (mode === 'push') {
+        document.removeEventListener('visibilitychange', onPushVisibilityChange);
         unsubscribe?.();
         unsubscribe = null;
         if (staleTimer) {
