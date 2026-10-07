@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
-import { parseTle } from './tle.js';
-import { toSatrec, satPositionAt, orbitTrack } from './propagate.js';
+import { satPositionAt, orbitTrack } from './propagate.js';
+import { tleToNormalized, describeSatellite, satelliteSearchText } from './format.js';
 
 // Satellites as a Layer SDK definition. Unlike flights (fixes + interpolation),
 // positions are COMPUTED from orbital elements via SGP4 each frame (def.positionAt),
@@ -22,17 +22,7 @@ export const satellitesDefinition = {
   positionAt: (n, timeMs) => satPositionAt(n.meta.satrec, new Date(timeMs)),
   maxEntities: 400,
 
-  normalize: (tleText) =>
-    parseTle(tleText).map((sat) => {
-      const satrec = toSatrec(sat);
-      const p = satPositionAt(satrec, new Date());
-      return {
-        id: String(satrec.satnum),
-        type: 'satellite',
-        position: p || { longitude: 0, latitude: 0, altitude: 0 },
-        meta: { name: sat.name, satrec },
-      };
-    }),
+  normalize: (tleText) => tleToNormalized(tleText),
 
   render: {
     renderType: 'point',
@@ -60,18 +50,6 @@ export const satellitesDefinition = {
     return () => clearInterval(timer);
   },
 
-  describe: (n) => {
-    const p = satPositionAt(n.meta.satrec, new Date());
-    return {
-      id: n.id,
-      title: n.meta.name || `SAT ${n.id}`,
-      subtitle: `NORAD ${n.id}`,
-      rows: [
-        ['Altitude', p ? `${Math.round(p.altitude / 1000)} km` : '—'],
-        ['Latitude', p ? p.latitude.toFixed(2) : '—'],
-        ['Longitude', p ? p.longitude.toFixed(2) : '—'],
-      ],
-    };
-  },
-  searchText: (n) => `${n.meta.name} ${n.id}`,
+  describe: (n) => describeSatellite(n),
+  searchText: satelliteSearchText,
 };

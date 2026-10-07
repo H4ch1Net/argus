@@ -4,21 +4,32 @@
   "private": true,
   "type": "module",
   "description": "Live 3D globe (CesiumJS) visualizing public data feeds. Mobile-first (S25 Ultra) > Linux > Windows.",
+  "bin": {
+    "argus": "bin/argus.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "dev": "vite",
     "dev:https": "cross-env HTTPS=true vite",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "node bin/argus.js web",
+    "start:https": "node bin/argus.js web --https",
+    "tui": "node bin/argus.js tui",
     "proxy": "node proxy/server.js",
-    "test": "node --test core shell-mobile",
-    "test:proxy": "node --test proxy/test",
+    "test": "node scripts/run-tests.js core shell-mobile shell-terminal",
+    "test:proxy": "node scripts/run-tests.js proxy/test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
     "cesium": "^1.140.0",
-    "satellite.js": "^5.0.0"
+    "satellite.js": "^5.0.0",
+    "selfsigned": "^2.4.1",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

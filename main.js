@@ -87,18 +87,23 @@ async function main() {
 
 // Set up the scene: register the available layers, wire presets + toggle UI and
 // the interaction spine, then apply the default state. Data comes from the proxy
-// when VITE_PROXY_BASE_URL is set, otherwise from dev mocks; with neither
-// (a production build without a proxy) no layers register and the globe is bare.
+// (VITE_PROXY_BASE_URL, or the app's own origin when the proxy serves it or the
+// dev server forwards to it), otherwise from dev mocks; with neither (a
+// production build that cannot reach a proxy) no layers register.
 async function setupScene(app) {
-  const proxyBase = import.meta.env.VITE_PROXY_BASE_URL;
   const dev = import.meta.env.DEV;
+  const { discoverProxy, feedConfigured } = await import('./core/net/discoverProxy.js');
+  const { base: proxyBase, health } = await discoverProxy({
+    explicit: import.meta.env.VITE_PROXY_BASE_URL || null,
+    origin: location.origin,
+  });
   // A production build with no proxy has no data source (mocks are dev-only), so
   // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
   if (!proxyBase && !dev) {
     const notice = document.createElement('div');
     notice.className = 'argus-demo-banner';
     notice.textContent =
-      'No data source configured. Set VITE_PROXY_BASE_URL to a running proxy to load live feeds.';
+      'No proxy reachable. Run "npm start" (it serves this app and its proxy together) or set VITE_PROXY_BASE_URL.';
     app.mountControls?.({ notice });
     return;
   }
@@ -164,8 +169,18 @@ async function setupScene(app) {
       label: 'Flights',
       loadDef: () =>
         import('./core/layers/flights/definition.js').then((m) => m.flightsDefinition),
-      proxy: (c) => (q, s) =>
-        c.getJson('opensky', '/states/all', { params: q.bbox, signal: s }),
+      // OpenSky when its OAuth2 client is configured on the proxy; otherwise the
+      // keyless adsb.lol feed, so the default-on layer works with zero keys. An
+      // unreachable explicit proxy (no health report) keeps the OpenSky path so
+      // the readout shows the honest error.
+      proxy: async (c) => {
+        if (!health || feedConfigured(health, 'opensky')) {
+          return (q, s) =>
+            c.getJson('opensky', '/states/all', { params: q.bbox, signal: s });
+        }
+        const { adsbPointPath } = await import('./core/layers/flights/parse.js');
+        return (q, s) => c.getJson('adsblol', adsbPointPath(q.bbox), { signal: s });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/flights/mockSource.js').then((m) =>
@@ -588,7 +603,7 @@ async function setupScene(app) {
     demoBanner = document.createElement('div');
     demoBanner.className = 'argus-demo-banner';
     demoBanner.textContent =
-      'DEMO DATA: no proxy configured, every layer is simulated. Set VITE_PROXY_BASE_URL for live feeds.';
+      'DEMO DATA: no proxy reachable, every layer is simulated. Run "npm run proxy" alongside the dev server for live feeds.';
   }
 
   app.mountControls?.({

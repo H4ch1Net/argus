@@ -1,82 +1,54 @@
-// Argus proxy v1 (Phase 2): the backbone service.
+// Argus proxy: the backbone service. All six jobs (master plan 3.3 / CLAUDE.md):
+//   1. Key / secret broker    - secrets injected server side, never reach the browser
+//   2. OAuth2 token manager   - OpenSky client credentials (lib/oauth.js)
+//   3. CORS shim              - adds CORS headers feeds omit
+//   4. HTTPS terminator       - serves the browser over HTTPS (lib/createServer.js)
+//   5. Stateful websockets    - AIS fan-out, plus the BGP and CT firehoses
+//   6. Rate / budget governor - in front of every metered feed (lib/governor.js)
 //
-// Implemented this phase (master plan 3.3 / CLAUDE.md):
-//   1. Key / secret broker   - secrets injected server side, never reach the browser
-//   3. CORS shim             - adds CORS headers feeds omit
-//   4. HTTPS terminator      - serves the browser over HTTPS (see createServer.js)
+// Usage: node proxy/server.js [--https] [--port N] [--host ADDR] [--static DIR]
+// Secrets come from the environment or a .env file (see lib/env.js).
 //
-// Not yet (later phases, deliberately not scaffolded here):
-//   2. OAuth2 token manager  - Phase 3, with OpenSky
-//   5. AIS websocket consumer - Phase 10
-//   6. Rate / budget governor - Phase 13
-//
-// GUARDRAIL: the relay only reaches feeds listed in feeds.js (currently none).
-// It reads already-public indexes; it never scans or sends traffic at a target.
+// GUARDRAIL: the relay only reaches feeds listed in feeds.js. It reads
+// already-public indexes; it never scans or sends traffic at a target.
 
-import { loadConfig, validateFeeds } from './lib/config.js';
-import { createRequestHandler } from './lib/app.js';
-import { createServer } from './lib/createServer.js';
-import { createTokenManager } from './lib/oauth.js';
-import { feeds as feedRegistry } from './feeds.js';
+import { loadEnvFiles } from './lib/env.js';
+import { startProxy } from './lib/start.js';
+import { lanAddresses } from './lib/createServer.js';
 
-const config = loadConfig();
+function argValue(argv, name) {
+  const i = argv.indexOf(name);
+  return i >= 0 && i + 1 < argv.length ? argv[i + 1] : undefined;
+}
+
+const argv = process.argv.slice(2);
+const envFiles = loadEnvFiles();
+
+const opts = {};
 // `--https` is a cross-platform alternative to PROXY_HTTPS=true.
-if (process.argv.includes('--https')) config.https = true;
+if (argv.includes('--https')) opts.https = true;
+if (argValue(argv, '--port') !== undefined) opts.port = Number(argValue(argv, '--port'));
+if (argValue(argv, '--host') !== undefined) opts.host = argValue(argv, '--host');
+if (argValue(argv, '--static') !== undefined) opts.staticDir = argValue(argv, '--static');
 
-const feeds = validateFeeds(feedRegistry);
+const proxy = await startProxy(opts);
 
-// Build a token manager for each OAuth2 feed whose credentials are present.
-// A feed with OAuth2 config but unset credentials is left without a manager and
-// responds 502 until configured, rather than failing startup.
-const tokenManagers = {};
-for (const f of feeds) {
-  if (f.auth?.type !== 'oauth2') continue;
-  const clientId = process.env[f.auth.clientId];
-  const clientSecret = process.env[f.auth.clientSecret];
-  if (clientId && clientSecret) {
-    tokenManagers[f.id] = createTokenManager({
-      tokenUrl: f.auth.tokenUrl,
-      clientId,
-      clientSecret,
-    });
-  } else {
-    console.warn(
-      `[argus-proxy] feed ${f.id}: OAuth2 configured but ${f.auth.clientId} / ${f.auth.clientSecret} are unset; it will return 502 until set`,
-    );
+const list = proxy.feeds.map((f) => f.id).join(', ') || 'none';
+console.log(`[argus-proxy] listening on ${proxy.url}`);
+if (!proxy.host) {
+  for (const ip of lanAddresses()) {
+    console.log(`[argus-proxy]   LAN: ${proxy.url.replace('localhost', ip)}`);
   }
 }
+console.log(`[argus-proxy] feeds: ${list}`);
+console.log('[argus-proxy] ws: /ws/ais /ws/bgp /ws/ct   health: /health');
+if (proxy.staticDir) console.log(`[argus-proxy] serving the app from ${proxy.staticDir}`);
+console.log(
+  `[argus-proxy] env files: ${envFiles.length ? envFiles.join(', ') : 'none found (keyless feeds only)'}`,
+);
 
-const { createGovernor } = await import('./lib/governor.js');
-const governor = createGovernor(feeds);
-
-const handler = createRequestHandler({ config, feeds, tokenManagers, governor });
-const server = await createServer(handler, config);
-
-// AIS websocket consumer (job 5). Attaches at /ws/ais. Without an API key the
-// endpoint accepts clients but has no upstream, so it simply sends no ships.
-const aisKey = process.env.AISSTREAM_API_KEY;
-const { attachAisWebsocket } = await import('./lib/ais.js');
-attachAisWebsocket(server, { apiKey: aisKey });
-if (!aisKey) {
-  console.warn(
-    '[argus-proxy] AISSTREAM_API_KEY unset; /ws/ais has no ship data until set',
-  );
-}
-
-// BGP firehose (RIPE RIS Live). Public, no key: attaches at /ws/bgp and holds one
-// sampled upstream connection while any client is subscribed.
-const { attachRisWebsocket } = await import('./lib/risLive.js');
-attachRisWebsocket(server);
-
-// Certificate Transparency firehose. Attaches at /ws/ct; upstream from CT_STREAM_URL
-// (defaults to public CertStream, which is often silent). No key.
-const { attachCtWebsocket } = await import('./lib/certStream.js');
-attachCtWebsocket(server);
-
-server.listen(config.port, () => {
-  const scheme = config.https ? 'https' : 'http';
-  const list = feeds.map((f) => f.id).join(', ') || 'none';
-  console.log(
-    `[argus-proxy] v1 listening on ${scheme}://localhost:${config.port} (feeds: ${list}, ws: /ws/ais + /ws/bgp + /ws/ct, health: /health)`,
-  );
-});
+const shutdown = () => {
+  proxy.close().finally(() => process.exit(0));
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

@@ -102,3 +102,22 @@ test('help lists every command', async () => {
     assert.match(text, new RegExp(`\\b${c}\\b`));
   }
 });
+
+test('shell-specific extra commands register alongside the shared set', async () => {
+  const cmds = createCommands(
+    {},
+    {
+      extra: [
+        {
+          name: 'zoom',
+          usage: 'zoom <n>',
+          help: 'zoom the map',
+          run: (a) => [`z ${a[0]}`],
+        },
+      ],
+    },
+  );
+  assert.deepEqual(await cmds.run('zoom 3'), ['z 3']);
+  const help = await cmds.run('help');
+  assert.ok(help.some((l) => l.includes('zoom <n>')));
+});

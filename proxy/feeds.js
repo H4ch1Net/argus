@@ -51,6 +51,21 @@ export const feeds = [
     },
   },
   {
+    // Flights, keyless fallback (adsb.lol, a community ADS-B aggregator listed in
+    // the master plan beside OpenSky). Used only when no OpenSky client is
+    // configured, so the default-on flights layer works with zero keys. Its v2 API
+    // follows the ADSBExchange/readsb schema; the point query is viewport-derived
+    // (centre + radius <= 250 nm). NOT re-verified at build time (egress was
+    // blocked): the public API was keyless with a feeder key announced for later.
+    // The governor keeps polling polite.
+    id: 'adsblol',
+    baseUrl: 'https://api.adsb.lol',
+    methods: ['GET'],
+    allowPaths: [/^\/v2\/point\/-?\d+(\.\d+)?\/-?\d+(\.\d+)?\/\d+$/],
+    headers: { 'user-agent': 'Argus/0.1 (public-data globe; research)' },
+    governor: { ratePerMinute: 30 },
+  },
+  {
     // Earthquakes (USGS). Keyless, CORS-enabled, refreshed every minute. No auth;
     // the proxy still fronts it for one consistent HTTPS origin on mobile.
     id: 'usgs-quakes',
@@ -116,6 +131,16 @@ export const feeds = [
     allowPaths: [/^\/search/],
     headers: { 'user-agent': 'Argus/0.1 (public-data globe; research)' },
     governor: { ratePerMinute: 40 },
+  },
+  {
+    // Coastlines for the terminal shell's map: Natural Earth land outlines (public
+    // domain) as packaged by the world-atlas project, pinned to one version. A
+    // static, keyless file fetched once and cached on disk by the client.
+    id: 'basemap',
+    baseUrl: 'https://cdn.jsdelivr.net',
+    methods: ['GET'],
+    allowPaths: [/^\/npm\/world-atlas@2\.0\.2\/land-(110m|50m)\.json$/],
+    governor: { ratePerMinute: 10 },
   },
   {
     // RIPEstat data API (OSINT query console). Keyless, public, passive: it reads

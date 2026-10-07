@@ -16,7 +16,7 @@ function feedConfigured(feed, tokenManagers, env) {
 }
 
 /**
- * @param {{ config: object, feeds: import('../feeds.js').Feed[], tokenManagers?: object }} ctx
+ * @param {{ config: object, feeds: import('../feeds.js').Feed[], tokenManagers?: object, governor?: object, serveStatic?: Function, streams?: () => object }} ctx
  * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void}
  */
 export function createRequestHandler({
@@ -24,6 +24,8 @@ export function createRequestHandler({
   feeds,
   tokenManagers = {},
   governor = null,
+  serveStatic = null,
+  streams = null,
 }) {
   return async function handler(req, res) {
     try {
@@ -36,6 +38,9 @@ export function createRequestHandler({
       if (url.pathname === '/health') {
         sendJson(res, 200, {
           status: 'ok',
+          // Lets a client that probes its own origin (same-origin mode) confirm it
+          // reached this proxy rather than some other server answering /health.
+          service: 'argus-proxy',
           phase: 3,
           feeds: feeds.map((f) => ({
             id: f.id,
@@ -45,6 +50,8 @@ export function createRequestHandler({
             configured: feedConfigured(f, tokenManagers, process.env),
             budget: governor?.usage(f.id) ?? undefined,
           })),
+          // Websocket feeds: whether each endpoint is attached and has its key.
+          streams: streams?.() ?? undefined,
         });
         return;
       }
@@ -57,6 +64,8 @@ export function createRequestHandler({
         await handleGoogleTiles(req, res, { config });
         return;
       }
+      // The built web app, when this proxy also serves it (same-origin mode).
+      if (serveStatic?.(req, res, url.pathname)) return;
       sendJson(res, 404, { error: 'not found' });
     } catch {
       // Last-resort guard so a handler bug never crashes the process.

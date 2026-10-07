@@ -60,6 +60,7 @@ export function createMockSource({ count = 40, stepSeconds = 15 } = {}) {
       return s;
     });
 
-    return { time: now, states };
+    // `demo` marks the payload as simulated so the card never claims a real source.
+    return { time: now, states, demo: true };
   };
 }

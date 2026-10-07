@@ -35,3 +35,16 @@ test('validateFeeds rejects duplicate ids and bad URLs', () => {
   assert.throws(() => validateFeeds([{ baseUrl: 'https://x/' }]));
   assert.deepEqual(validateFeeds([]), []);
 });
+
+test('the real feed registry validates and pins the keyless flights fallback', async () => {
+  const { feeds } = await import('../feeds.js');
+  assert.equal(validateFeeds(feeds), feeds);
+  const adsb = feeds.find((f) => f.id === 'adsblol');
+  const allowed = (p) => adsb.allowPaths.some((re) => re.test(p));
+  assert.equal(allowed('/v2/point/37.5/-122.5/42'), true);
+  assert.equal(allowed('/v2/point/-33.9/151.2/250'), true);
+  // Only the viewport point query is reachable, nothing else on that host.
+  assert.equal(allowed('/v2/mil'), false);
+  assert.equal(allowed('/v2/point/1/2/3/extra'), false);
+  assert.equal(adsb.inject, undefined); // keyless: no secret involved
+});

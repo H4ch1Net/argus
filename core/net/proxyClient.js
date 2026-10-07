@@ -37,7 +37,7 @@ export function createProxyClient({ baseUrl, fetchImpl = (...a) => fetch(...a) }
         signal,
         headers: { accept: 'application/json' },
       });
-      if (!res.ok) throw proxyError(feedId, res.status);
+      if (!res.ok) throw await proxyError(feedId, res);
       return res.json();
     },
 
@@ -47,14 +47,26 @@ export function createProxyClient({ baseUrl, fetchImpl = (...a) => fetch(...a) }
         signal,
         headers: { accept: 'text/plain' },
       });
-      if (!res.ok) throw proxyError(feedId, res.status);
+      if (!res.ok) throw await proxyError(feedId, res);
       return res.text();
     },
   };
 }
 
-function proxyError(feedId, status) {
-  const err = new Error(`proxy ${feedId} responded ${status}`);
-  err.status = status;
+// The proxy answers its own failures with { error } (e.g. "feed firms not
+// configured: missing FIRMS_MAP_KEY"); carry that reason so the readout and the
+// terminal can say what is actually wrong, not just a status code.
+async function proxyError(feedId, res) {
+  let detail = '';
+  try {
+    const type = res.headers?.get?.('content-type') || '';
+    if (type.includes('json')) detail = (await res.json())?.error || '';
+  } catch {
+    // no readable body
+  }
+  const err = new Error(
+    `proxy ${feedId} responded ${res.status}${detail ? `: ${detail}` : ''}`,
+  );
+  err.status = res.status;
   return err;
 }
