@@ -115,7 +115,12 @@ export const cctvDefinition = {
     };
   },
 
+  // The horizon culler (core/scene/occlusion.js) owns entity.show for point
+  // features, so the image screen hides through its billboard instead.
   onShow: (on, { viewer }) => {
-    for (const e of extrasFor(viewer)) e.show = on;
+    for (const e of extrasFor(viewer)) {
+      if (e.billboard) e.billboard.show = on;
+      else e.show = on;
+    }
   },
 };

@@ -222,7 +222,10 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
   // ---------------------------------------------------------------- drawing
   function draw() {
     const now = performance.now();
-    if (now - lastPick > PICK_INTERVAL_MS) pick(now);
+    // Thousands of contacts in view: re-choose the boxes less often (each pass
+    // projects every visible contact), keeping phones cool.
+    const interval = summary.total > 2000 ? PICK_INTERVAL_MS * 3 : PICK_INTERVAL_MS;
+    if (now - lastPick > interval) pick(now);
     occluder.cameraPosition = scene.camera.positionWC;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);

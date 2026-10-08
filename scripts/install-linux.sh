@@ -120,6 +120,16 @@ else
   warn "glxinfo not found (sudo apt install mesa-utils) to check GPU acceleration"
 fi
 
+# 7. Font: the ctOS look is set in JetBrains Mono (any monospace works without it).
+if command -v fc-list >/dev/null 2>&1; then
+  if fc-list 2>/dev/null | grep -qi 'jetbrains'; then
+    say "font: JetBrains Mono found"
+  else
+    warn "JetBrains Mono not installed (the UI falls back to another monospace)."
+    warn "For the intended look: sudo apt install fonts-jetbrains-mono"
+  fi
+fi
+
 cat <<EOF
 
   Ready. Common commands:
