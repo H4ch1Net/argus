@@ -23,8 +23,19 @@ export async function createServer(handler, config) {
   return https.createServer(creds, handler);
 }
 
+/** Read the interfaces, tolerating platforms that forbid it (Android/Termux). */
+function readInterfaces() {
+  try {
+    return os.networkInterfaces();
+  } catch {
+    // Android's sandbox blocks the netlink query behind os.networkInterfaces()
+    // (uv_interface_addresses fails with EACCES); carry on without LAN addresses.
+    return {};
+  }
+}
+
 /** Non-internal IPv4 addresses of this machine (what a phone on the LAN would use). */
-export function lanAddresses(ifaces = os.networkInterfaces()) {
+export function lanAddresses(ifaces = readInterfaces()) {
   const out = [];
   for (const list of Object.values(ifaces)) {
     for (const a of list || []) {

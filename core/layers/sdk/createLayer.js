@@ -3,6 +3,7 @@ import { createRingBuffer } from './ringBuffer.js';
 import { interpolateFix } from './interpolate.js';
 import { computeViewportQuery } from './viewport.js';
 import { getRenderer } from './renderers.js';
+import { createRasterLayer } from './rasterLayer.js';
 
 // The Layer SDK engine. A layer is config against this interface, not bespoke
 // code (CLAUDE.md): fetch -> normalize -> render -> interpolate?, with
@@ -35,6 +36,8 @@ export function createLayer(viewer, def, ctx) {
   if (typeof ctx?.source !== 'function') {
     throw new Error(`layer ${def.id}: a source function is required`);
   }
+  // Field / overlay layers (weather) render as imagery, not entities.
+  if (def.render?.renderType === 'raster') return createRasterLayer(viewer, def, ctx);
   const scene = viewer.scene;
   const intervalMs = def.fetch?.intervalMs ?? DEFAULT_INTERVAL_MS;
   // A layer is a mover if it interpolates between fixes OR computes its position

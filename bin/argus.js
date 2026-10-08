@@ -139,9 +139,13 @@ async function cmdServe(argv, { serveApp }) {
   console.log(`    this machine : ${proxy.url}`);
   for (const ip of lan)
     console.log(`    LAN / phone  : ${proxy.url.replace('localhost', ip)}`);
-  if (serveApp && !proxy.https) {
+  if (serveApp && process.platform === 'android') {
     console.log('');
-    console.log('    The phone needs HTTPS for location, compass and install:');
+    console.log(`    On this phone, open http://localhost:${proxy.port} in Chrome:`);
+    console.log('    localhost counts as secure, so location, compass and install work.');
+  } else if (serveApp && !proxy.https) {
+    console.log('');
+    console.log('    A phone on the LAN needs HTTPS for location, compass and install:');
     console.log(
       '    restart with "npm run start:https" and accept the certificate once.',
     );
@@ -158,14 +162,16 @@ async function cmdServe(argv, { serveApp }) {
   process.on('SIGTERM', shutdown);
 }
 
-/** Open a URL in the default browser (xdg-open on Linux, start on Windows). */
+/** Open a URL in the default browser (xdg-open on Linux, Termux's opener on Android). */
 function openBrowser(url) {
   const [cmd, args] =
     process.platform === 'win32'
       ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin'
         ? ['open', [url]]
-        : ['xdg-open', [url]];
+        : process.platform === 'android'
+          ? ['termux-open-url', [url]]
+          : ['xdg-open', [url]];
   try {
     spawn(cmd, args, { detached: true, stdio: 'ignore' })
       .on('error', () => console.log(`    open ${url} in a browser`))

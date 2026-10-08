@@ -87,3 +87,17 @@ test('without a static dir the proxy answers 404 for app paths', async (t) => {
   assert.equal(res.status, 404);
   await res.arrayBuffer();
 });
+
+test('lanAddresses lists external IPv4 only and tolerates a blocked interface query', async () => {
+  const { lanAddresses } = await import('../lib/createServer.js');
+  const list = lanAddresses({
+    lo: [{ family: 'IPv4', address: '127.0.0.1', internal: true }],
+    wlan0: [
+      { family: 'IPv4', address: '192.168.1.20', internal: false },
+      { family: 'IPv6', address: 'fe80::1', internal: false },
+    ],
+  });
+  assert.deepEqual(list, ['192.168.1.20']);
+  // On Android the default query throws; the call must still return an array.
+  assert.ok(Array.isArray(lanAddresses()));
+});

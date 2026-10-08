@@ -6,9 +6,9 @@ import { arcSamples } from './greatCircle.js';
 // contract. Each renderer creates the entity's graphics once, then updates the
 // dynamic bits from the definition's per-entity style(normalized) on each fix.
 //
-// Implemented now: point, billboard, arc (threat-map source->target). raster is
-// declared as the extension point it will fill in its phase; asking for one
-// before it exists fails loudly rather than silently rendering nothing.
+// Entity renderers live here: point, billboard, arc (threat-map source->target).
+// raster layers are imagery rather than entities, so createLayer hands them to
+// rasterLayer.js; asking this dispatch for any unknown type fails loudly.
 
 export const RenderType = {
   POINT: 'point',
