@@ -25,14 +25,15 @@ logic by unit tests. What is verified, and how, is in
 
 ## Run it
 
-| Where                             | Command                                  | What you get                                                                                                                   |
-| --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| PC or Kali, in a browser          | `npm start`                              | Builds once, then serves the globe and its proxy at `http://localhost:8787`                                                    |
-| Phone on the same Wi-Fi           | `npm run start:https`                    | Open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once                                          |
-| Android phone, no PC (Termux)     | `bash scripts/install-termux.sh`         | Proxy, globe and terminal version all on the phone; open `http://localhost:8787`                                               |
-| Any terminal (Kali, SSH, Windows) | `npm run tui`                            | Full-screen braille world map with the same layers, cards, and commands; no GPU needed                                         |
-| Scripts and pipes                 | `argus query 8.8.8.8 --json`             | Passive lookups, quakes, flights, military, storms, launches, satellites, fires, routes, distances, BGP and CT as text or JSON |
-| No network at all                 | `npm run dev` or `npm run tui -- --demo` | Every layer except the imagery overlays (weather, GOES, recent imagery, traffic flow) on simulated data, clearly labelled DEMO |
+| Where                             | Command                                    | What you get                                                                                                                   |
+| --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| PC or Kali, in a browser          | `npm start`                                | Builds once, then serves the globe and its proxy at `http://localhost:8787`                                                    |
+| Phone on the same Wi-Fi           | `npm run start:https`                      | Open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once                                          |
+| Android app, no PC                | `argus-android.apk` from the releases page | One installable app: the globe and its proxy on the phone, plus an Android Auto map ([docs/ANDROID.md](docs/ANDROID.md))       |
+| Android phone, no PC (Termux)     | `bash scripts/install-termux.sh`           | Proxy, globe and terminal version all on the phone; open `http://localhost:8787`                                               |
+| Any terminal (Kali, SSH, Windows) | `npm run tui`                              | Full-screen braille world map with the same layers, cards, and commands; no GPU needed                                         |
+| Scripts and pipes                 | `argus query 8.8.8.8 --json`               | Passive lookups, quakes, flights, military, storms, launches, satellites, fires, routes, distances, BGP and CT as text or JSON |
+| No network at all                 | `npm run dev` or `npm run tui -- --demo`   | Every layer except the imagery overlays (weather, GOES, recent imagery, traffic flow) on simulated data, clearly labelled DEMO |
 
 First run:
 
@@ -50,6 +51,14 @@ JetBrains Mono: `sudo apt install fonts-jetbrains-mono`; without it a system
 monospace is used). On Android, `scripts/install-termux.sh` does the same
 inside Termux (see SETUP.md, Android standalone). Full instructions, the phone setup, and
 troubleshooting are in **[SETUP.md](SETUP.md)**.
+
+**Android app.** No PC and no Termux: install `argus-android.apk` from the
+repository's releases page (the `android-latest` prerelease is rebuilt on every
+push to `main`). The app runs the proxy on the phone (Node, embedded) and the
+same globe in a full-screen view, and adds Argus to Android Auto as a map: a
+heading-up view that follows the car, with the nearest contacts in large type.
+Install, keys, Android Auto setup and building it yourself:
+**[docs/ANDROID.md](docs/ANDROID.md)**.
 
 **Keys are optional.** With none, you get flights and military aircraft (via
 adsb.lol, with a 24 h trace and adsbdb type and route details on request), live

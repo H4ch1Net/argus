@@ -50,12 +50,26 @@ export function createBorderWaitSource({
   cameraSource = null,
   cameraMaxKm = 20,
   camerasPerPort = 2,
+  memoMs = 2 * 60_000,
+  now = () => Date.now(),
 }) {
-  return async (query, signal) => {
+  // The two national lists, reused for two minutes: panning only changes which
+  // crossings get camera links, never the wait times (CBP updates hourly).
+  let lists = null; // { at, ttl, cbp, cbsa }
+  const fetchLists = async (signal) => {
+    if (lists && now() - lists.at < lists.ttl) return lists;
     const [cbp, cbsa] = await Promise.allSettled([
       proxyClient.getJson('cbp-bwt', CBP_PATH, { signal }),
       proxyClient.getText('cbsa-bwt', CBSA_PATH, { signal }),
     ]);
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    // A partial answer is kept a quarter as long, so a failed feed is retried soon.
+    const whole = cbp.status === 'fulfilled' && cbsa.status === 'fulfilled';
+    lists = { at: now(), ttl: whole ? memoMs : memoMs / 4, cbp, cbsa };
+    return lists;
+  };
+  return async (query, signal) => {
+    const { cbp, cbsa } = await fetchLists(signal);
     if (cbp.status === 'rejected' && cbsa.status === 'rejected') throw cbp.reason;
     const joined = joinPorts(
       cbp.status === 'fulfilled' ? parseCbp(cbp.value) : [],

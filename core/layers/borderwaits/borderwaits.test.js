@@ -152,7 +152,9 @@ test('CBP: one record per crossing, lanes that exist, closed and pending states'
   const amb = rows.find((r) => r.crossing === 'Ambassador Bridge');
   assert.equal(amb.border, 'ca');
   assert.deepEqual(
-    amb.lanes.filter((l) => l.kind === 'passenger_vehicle_lanes').map((l) => [l.closed, l.pending]),
+    amb.lanes
+      .filter((l) => l.kind === 'passenger_vehicle_lanes')
+      .map((l) => [l.closed, l.pending]),
     [
       [true, false],
       [false, true],
@@ -179,10 +181,7 @@ test('CBP crossings land on the right bundled port; the rest are counted, not gu
   assert.equal(at('point-roberts').cbp[0].crossing, 'Point Roberts');
   assert.equal(at('detroit-tunnel').cbp[0].crossing, 'Windsor Tunnel');
   assert.equal(at('lewiston-bridge').cbp.length, 1);
-  assert.deepEqual(
-    unplaced.map((r) => r.port).sort(),
-    ['Eagle Pass', 'Tornillo'],
-  );
+  assert.deepEqual(unplaced.map((r) => r.port).sort(), ['Eagle Pass', 'Tornillo']);
   assert.equal(normName('B&M Bridge'), 'b and m bridge');
   assert.equal(portForCbp({ port: 'Calexico', crossing: 'East' }).id, 'calexico-east');
   assert.equal(portForCbp({ port: 'Calexico', crossing: 'West' }).id, 'calexico-west');
@@ -234,10 +233,42 @@ test('the source: both feeds through the proxy, partial failure, nearest cameras
     },
   });
   const cams = [
-    { id: 'cam-1', name: 'I-5 at San Ysidro POE', provider: 'Caltrans', lat: 32.545, lon: -117.03, imageUrl: 'https://proxy.test/feed/caltrans-img/a.jpg', imageFormat: null },
-    { id: 'cam-2', name: 'I-805 at Otay', provider: 'Caltrans', lat: 32.56, lon: -117.0, imageUrl: 'https://proxy.test/feed/caltrans-img/b.jpg', imageFormat: null },
-    { id: 'cam-3', name: 'Far away', provider: 'Caltrans', lat: 33.0, lon: -117.3, imageUrl: 'https://proxy.test/feed/caltrans-img/c.jpg', imageFormat: null },
-    { id: 'cam-4', name: 'TxDOT style', provider: 'TxDOT', lat: 32.5425, lon: -117.0299, imageUrl: 'https://proxy.test/feed/txdot-img/x', imageFormat: 'json-base64-jpeg' },
+    {
+      id: 'cam-1',
+      name: 'I-5 at San Ysidro POE',
+      provider: 'Caltrans',
+      lat: 32.545,
+      lon: -117.03,
+      imageUrl: 'https://proxy.test/feed/caltrans-img/a.jpg',
+      imageFormat: null,
+    },
+    {
+      id: 'cam-2',
+      name: 'I-805 at Otay',
+      provider: 'Caltrans',
+      lat: 32.56,
+      lon: -117.0,
+      imageUrl: 'https://proxy.test/feed/caltrans-img/b.jpg',
+      imageFormat: null,
+    },
+    {
+      id: 'cam-3',
+      name: 'Far away',
+      provider: 'Caltrans',
+      lat: 33.0,
+      lon: -117.3,
+      imageUrl: 'https://proxy.test/feed/caltrans-img/c.jpg',
+      imageFormat: null,
+    },
+    {
+      id: 'cam-4',
+      name: 'TxDOT style',
+      provider: 'TxDOT',
+      lat: 32.5425,
+      lon: -117.0299,
+      imageUrl: 'https://proxy.test/feed/txdot-img/x',
+      imageFormat: 'json-base64-jpeg',
+    },
   ];
   const cameraQueries = [];
   const cameraSource = async (q) => {
@@ -264,6 +295,21 @@ test('the source: both feeds through the proxy, partial failure, nearest cameras
   // Ports outside the view are not linked.
   assert.equal(r.ports.find((p) => p.id === 'peace-bridge').cameras, undefined);
 
+  // Panning within two minutes re-uses the lists: only the camera lookup runs.
+  let t = 0;
+  const memoized = createBorderWaitSource({
+    proxyClient: proxyClient(),
+    cameraSource,
+    now: () => t,
+  });
+  asked.length = 0;
+  await memoized({ bbox: sanDiego });
+  await memoized({ bbox: { ...sanDiego, lamin: 32.41 } });
+  assert.equal(asked.length, 2);
+  t += 2 * 60_000;
+  await memoized({ bbox: sanDiego });
+  assert.equal(asked.length, 4);
+
   // Zoomed out: no camera lookup at all.
   cameraQueries.length = 0;
   await createBorderWaitSource({ proxyClient: proxyClient(), cameraSource })({
@@ -275,7 +321,10 @@ test('the source: both feeds through the proxy, partial failure, nearest cameras
     proxyClient: proxyClient({ 'cbsa-bwt': true }),
   })({});
   assert.equal(partial.failed, 1);
-  assert.match(borderWaitNote(partial), /1 feed\(s\) failed · 2 crossing\(s\) not on the map/);
+  assert.match(
+    borderWaitNote(partial),
+    /1 feed\(s\) failed · 2 crossing\(s\) not on the map/,
+  );
   await assert.rejects(
     createBorderWaitSource({
       proxyClient: proxyClient({ 'cbp-bwt': true, 'cbsa-bwt': true }),
@@ -290,7 +339,14 @@ test('the card: lanes into the US and Canada, nearby camera stills, honest posit
     proxyClient: { getJson: async () => CBP, getText: async () => CBSA },
     cameraSource: async () => ({
       cameras: [
-        { id: 'c1', name: 'Peace Arch', provider: 'DriveBC', lat: 49.0, lon: -122.757, imageUrl: 'https://proxy.test/feed/drivebc-img/1.jpg' },
+        {
+          id: 'c1',
+          name: 'Peace Arch',
+          provider: 'DriveBC',
+          lat: 49.0,
+          lon: -122.757,
+          imageUrl: 'https://proxy.test/feed/drivebc-img/1.jpg',
+        },
       ],
     }),
   })({ bbox: { lamin: 48.9, lamax: 49.1, lomin: -122.9, lomax: -122.6 } });
@@ -306,7 +362,9 @@ test('the card: lanes into the US and Canada, nearby camera stills, honest posit
   assert.equal(row('Into US: Ready Lane'), 'no delay (6 lanes open)');
   assert.equal(row('Into Canada: Travellers'), '15 min');
   assert.equal(row('Nearby camera'), 'Peace Arch (DriveBC, 0.2 km)');
-  assert.ok(card.links.some((l) => l.url === 'https://proxy.test/feed/drivebc-img/1.jpg'));
+  assert.ok(
+    card.links.some((l) => l.url === 'https://proxy.test/feed/drivebc-img/1.jpg'),
+  );
   assert.match(row('Coordinates'), /within a few hundred metres/);
   assert.equal(row('Source'), 'CBP Border Wait Times + CBSA Border Wait Times');
   assert.match(card.credit, /Open Government Licence - Canada/);
@@ -314,7 +372,10 @@ test('the card: lanes into the US and Canada, nearby camera stills, honest posit
 
   const amb = describeBorderWait(ents.find((n) => n.id === 'bw:detroit-ambassador'));
   assert.equal(amb.rows.find(([k]) => k === 'Into US: Passenger')[1], 'lanes closed');
-  assert.equal(amb.rows.find(([k]) => k === 'Into US: SENTRI / NEXUS')[1], 'update pending');
+  assert.equal(
+    amb.rows.find(([k]) => k === 'Into US: SENTRI / NEXUS')[1],
+    'update pending',
+  );
   assert.match(amb.rows.find(([k]) => k === 'Nearby camera')[1], /zoom in/);
   const sy = describeBorderWait(ents.find((n) => n.id === 'bw:san-ysidro'));
   assert.ok(sy.rows.filter(([k]) => k === 'Crossing').length === 2);

@@ -88,7 +88,10 @@ export async function mountShell(root, bootOpts = {}) {
   // ------------------------------------------------------------------ HUD
   const cell = (label) => {
     const value = h('span.car-cell__value', {}, '--');
-    return { el: h('div.car-cell', {}, h('span.car-cell__label', {}, label), value), value };
+    return {
+      el: h('div.car-cell', {}, h('span.car-cell__label', {}, label), value),
+      value,
+    };
   };
   const cells = {
     utc: cell('UTC'),
@@ -97,7 +100,11 @@ export async function mountShell(root, bootOpts = {}) {
     heading: cell('HDG'),
     mode: cell('MODE'),
   };
-  const status = h('div.car-status', { role: 'status' }, ...Object.values(cells).map((c) => c.el));
+  const status = h(
+    'div.car-status',
+    { role: 'status' },
+    ...Object.values(cells).map((c) => c.el),
+  );
   const readout = h('div.car-readout', { hidden: true });
   const notify = h('div.car-notify');
   const marker = h('div.car-self', { hidden: true, 'aria-hidden': 'true' });
@@ -136,7 +143,13 @@ export async function mountShell(root, bootOpts = {}) {
   function applyView() {
     Cesium.Cartographic.fromDegrees(view.lon, view.lat, 0, carto);
     const ground = scene.globe.getHeight(carto) ?? 0;
-    Cesium.Cartesian3.fromDegrees(view.lon, view.lat, ground, Cesium.Ellipsoid.WGS84, centre);
+    Cesium.Cartesian3.fromDegrees(
+      view.lon,
+      view.lat,
+      ground,
+      Cesium.Ellipsoid.WGS84,
+      centre,
+    );
     hpr.heading = Cesium.Math.toRadians(view.heading);
     hpr.pitch = Cesium.Math.toRadians(FOLLOW_PITCH_DEG);
     hpr.range = view.range;
@@ -403,7 +416,9 @@ export async function mountShell(root, bootOpts = {}) {
 
   // --------------------------------------------------------------- insets
   function setInsets(top, right, bottom, left) {
-    const v = [top, right, bottom, left].map((n) => (Number.isFinite(n) ? Math.max(0, n) : 0));
+    const v = [top, right, bottom, left].map((n) =>
+      Number.isFinite(n) ? Math.max(0, n) : 0,
+    );
     [insets.top, insets.right, insets.bottom, insets.left] = v;
     root.style.setProperty('--car-top', `${insets.top}px`);
     root.style.setProperty('--car-right', `${insets.right}px`);
@@ -444,7 +459,12 @@ export async function mountShell(root, bootOpts = {}) {
     const p = target?.position?.getValue?.(viewer.clock.currentTime, pos);
     if (!p) return null;
     const c = Cesium.Cartographic.fromCartesian(p, Cesium.Ellipsoid.WGS84, pc);
-    return c ? { lat: Cesium.Math.toDegrees(c.latitude), lon: Cesium.Math.toDegrees(c.longitude) } : null;
+    return c
+      ? {
+          lat: Cesium.Math.toDegrees(c.latitude),
+          lon: Cesium.Math.toDegrees(c.longitude),
+        }
+      : null;
   };
 
   let lastReadout = 0;
@@ -459,14 +479,29 @@ export async function mountShell(root, bootOpts = {}) {
       const at = latLonOf(hub.target);
       const near = at && here ? nearestContacts([at], here, 1)[0] : null;
       rows.push(
-        row('00', hub.label || 'TARGET', hub.sub || 'TRACK', near?.distanceM, near?.bearingDeg, true),
+        row(
+          '00',
+          hub.label || 'TARGET',
+          hub.sub || 'TRACK',
+          near?.distanceM,
+          near?.bearingDeg,
+          true,
+        ),
       );
     }
     const contacts = (summary?.contacts ?? [])
       .filter((c) => c.target !== hub?.target)
       .map((c) => ({ ...c, ...latLonOf(c.target) }));
     for (const c of nearestContacts(contacts, here, hub?.target ? 2 : 3)) {
-      rows.push(row(pad2(c.id ?? 0), c.label || layerCode(c.key), layerCode(c.key), c.distanceM, c.bearingDeg));
+      rows.push(
+        row(
+          pad2(c.id ?? 0),
+          c.label || layerCode(c.key),
+          layerCode(c.key),
+          c.distanceM,
+          c.bearingDeg,
+        ),
+      );
     }
     readout.replaceChildren(...rows);
     readout.hidden = rows.length === 0;
@@ -481,7 +516,11 @@ export async function mountShell(root, bootOpts = {}) {
       h('span.car-row__id', {}, id),
       h('span.car-row__name', {}, String(name).slice(0, 16)),
       h('span.car-row__kind', {}, String(kind).slice(0, 18)),
-      h('span.car-row__range', {}, Number.isFinite(distance) ? formatDistance(distance, units) : ''),
+      h(
+        'span.car-row__range',
+        {},
+        Number.isFinite(distance) ? formatDistance(distance, units) : '',
+      ),
       h(
         'span.car-row__dir',
         { style: rel === null ? { visibility: 'hidden' } : {} },
@@ -497,6 +536,8 @@ export async function mountShell(root, bootOpts = {}) {
     tap,
     recenter() {
       rangeScale = 1;
+      // Fly back from wherever free look left the camera, then follow.
+      viewSet = false;
       setFollowing(true);
     },
     setLocation,

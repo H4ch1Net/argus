@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global console */
 // Stage the Node project the Android app runs (android/, docs/ANDROID.md): the
 // built globe (dist/), the proxy with its runtime dependencies, the app's Node
 // entry (android/node/main.js), and argus-manifest.json listing every file, so
@@ -13,6 +12,7 @@
 // skipped wherever they are, and the result is checked for them at the end.
 
 import { spawnSync } from 'node:child_process';
+import console from 'node:console';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,7 +26,8 @@ const opt = (name) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const out = path.resolve(
-  opt('--out') ?? path.join(repo, 'android', 'app', 'src', 'main', 'assets', 'nodejs-project'),
+  opt('--out') ??
+    path.join(repo, 'android', 'app', 'src', 'main', 'assets', 'nodejs-project'),
 );
 const MANIFEST = 'argus-manifest.json';
 
@@ -101,7 +102,11 @@ fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 
 copyTree(dist, path.join(out, 'dist'));
-copyTree(path.join(repo, 'proxy'), path.join(out, 'proxy'), new Set(['node_modules', 'test']));
+copyTree(
+  path.join(repo, 'proxy'),
+  path.join(out, 'proxy'),
+  new Set(['node_modules', 'test']),
+);
 fs.copyFileSync(path.join(repo, 'android', 'node', 'main.js'), path.join(out, 'main.js'));
 // The keys template for the app's settings screen (no dot: aapt skips dotfiles).
 fs.copyFileSync(path.join(repo, '.env.example'), path.join(out, 'env.example'));
@@ -132,14 +137,21 @@ if (!argv.includes('--skip-install')) {
     { cwd: proxyOut, stdio: 'inherit', shell: process.platform === 'win32' },
   );
   if (r.status !== 0) {
-    console.warn('[android-bundle] npm ci failed; copying the installed packages instead');
+    console.warn(
+      '[android-bundle] npm ci failed; copying the installed packages instead',
+    );
     fs.rmSync(path.join(proxyOut, 'node_modules'), { recursive: true, force: true });
     if (!copyInstalledDeps(proxyOut)) {
-      fail('could not install the proxy dependencies (npm ci failed, none installed locally)');
+      fail(
+        'could not install the proxy dependencies (npm ci failed, none installed locally)',
+      );
     }
   }
   // Type definitions are never loaded at run time.
-  fs.rmSync(path.join(proxyOut, 'node_modules', '@types'), { recursive: true, force: true });
+  fs.rmSync(path.join(proxyOut, 'node_modules', '@types'), {
+    recursive: true,
+    force: true,
+  });
   fs.rmSync(path.join(proxyOut, 'node_modules', '.package-lock.json'), { force: true });
 }
 

@@ -107,7 +107,9 @@ async function main() {
   });
 
   if (env.ARGUS_PORT_FILE) fs.writeFileSync(env.ARGUS_PORT_FILE, `${proxy.port}\n`);
-  console.log(`[argus-android] Node ${process.version} on ${process.platform}/${process.arch}`);
+  console.log(
+    `[argus-android] Node ${process.version} on ${process.platform}/${process.arch}`,
+  );
   console.log(`[argus-android] proxy and globe at http://127.0.0.1:${proxy.port}/`);
   if (host === '0.0.0.0') console.log('[argus-android] shared on the LAN (settings)');
   console.log(

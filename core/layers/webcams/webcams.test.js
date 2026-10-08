@@ -273,7 +273,13 @@ test('Windy: active webcams with a position; stills pinned to Windy hosts', () =
   const out = parseWindy(WINDY);
   assert.deepEqual(
     out.map((c) => c.id),
-    ['windy-1179853135', 'windy-1600000001', 'windy-1600000003', 'windy-1600000004', 'windy-1600000006'],
+    [
+      'windy-1179853135',
+      'windy-1600000001',
+      'windy-1600000003',
+      'windy-1600000004',
+      'windy-1600000006',
+    ],
   );
   const [zermatt, bahnhof, lake, tooMany, osprey] = out;
   assert.equal(zermatt.category, 'mountain');
@@ -310,7 +316,10 @@ test('NPS: active, located listings; images pinned to nps.gov uploads; wildlife 
   const out = parseNps(NPS);
   assert.deepEqual(
     out.map((c) => c.id),
-    ['nps-a1b2c3d4-0000-1111-2222-333344445555', 'nps-e5f6a7b8-0000-1111-2222-333344445555'],
+    [
+      'nps-a1b2c3d4-0000-1111-2222-333344445555',
+      'nps-e5f6a7b8-0000-1111-2222-333344445555',
+    ],
   );
   const [geyser, bears] = out;
   assert.equal(geyser.category, 'park');
@@ -342,7 +351,10 @@ test('EPIC: latest images at their centroid, thumbnail still, full-size link', (
     feedId: 'epic-img',
     path: '/archive/natural/2026/10/07/thumbs/epic_1b_20261007003633.jpg',
   });
-  assert.equal(a.fullImage.path, '/archive/natural/2026/10/07/jpg/epic_1b_20261007003633.jpg');
+  assert.equal(
+    a.fullImage.path,
+    '/archive/natural/2026/10/07/jpg/epic_1b_20261007003633.jpg',
+  );
   assert.equal(a.updated, '2026-10-07T00:31:45Z');
   assert.equal(epicImagePaths('epic_RGB_20261007003633'), null);
   assert.deepEqual(parseEpic({ not: 'a list' }), []);
@@ -381,7 +393,10 @@ test('keyless by default: EPIC and the observatories, no Windy or NPS request', 
   assert.equal(r.webcams.filter((c) => c.source === 'epic').length, 2);
   assert.equal(r.webcams.filter((c) => c.source === 'observatory').length, 3);
   const epic = r.webcams.find((c) => c.source === 'epic');
-  assert.match(epic.imageUrl, /^https:\/\/proxy\.test\/feed\/epic-img\/archive\/natural\//);
+  assert.match(
+    epic.imageUrl,
+    /^https:\/\/proxy\.test\/feed\/epic-img\/archive\/natural\//,
+  );
   assert.match(epic.fullImageUrl, /\/jpg\/epic_1b_/);
 });
 
@@ -495,10 +510,7 @@ test('the card: still via the proxy, link back to windy.com, credit, category', 
   const [nps] = parseWebcams({ webcams: parseNps(NPS).slice(0, 1) });
   const npsCard = describeWebcam(nps);
   assert.equal(npsCard.image, null); // no imageUrl resolved: nothing to load
-  assert.match(
-    npsCard.rows.find(([k]) => k === 'Image')[1],
-    /reference photo/,
-  );
+  assert.match(npsCard.rows.find(([k]) => k === 'Image')[1], /reference photo/);
   assert.equal(npsCard.rows.find(([k]) => k === 'Live stream')[1], 'on the webcam page');
   assert.equal(npsCard.rows.find(([k]) => k === 'Image credit')[1], 'NPS / Jane Doe');
 });
@@ -513,10 +525,11 @@ test('the category filter hides without refetching, and the note counts it', () 
   const all = parseWebcams(result);
   const f = createCategoryFilter(['space', 'wildlife']);
   const shown = filterWebcams(all, f);
-  assert.deepEqual(
-    shown.map((n) => n.meta.category).sort(),
-    ['space', 'space', 'wildlife'],
-  );
+  assert.deepEqual(shown.map((n) => n.meta.category).sort(), [
+    'space',
+    'space',
+    'wildlife',
+  ]);
   assert.equal(webcamNote(result, f), '4 hidden by filter');
   assert.equal(filterWebcams(all, null).length, all.length);
 });

@@ -80,7 +80,13 @@ export function followPose({ lat, lon, heading = 0, speed = 0 }, { scale = 1 } =
   const alt = followAltitude(speed) * clamp(scale, 0.05, 20);
   const range = alt / Math.sin(rad(-FOLLOW_PITCH_DEG));
   const look = destination(lat, lon, heading, alt * 0.25);
-  return { lat: look.lat, lon: look.lon, heading: wrap360(heading), pitch: FOLLOW_PITCH_DEG, range };
+  return {
+    lat: look.lat,
+    lon: look.lon,
+    heading: wrap360(heading),
+    pitch: FOLLOW_PITCH_DEG,
+    range,
+  };
 }
 
 /**
@@ -155,7 +161,11 @@ const CODES = {
   transit: 'TRN',
 };
 /** A three-letter tag for a layer key. */
-export const layerCode = (key) => CODES[key] ?? String(key || '?').slice(0, 3).toUpperCase();
+export const layerCode = (key) =>
+  CODES[key] ??
+  String(key || '?')
+    .slice(0, 3)
+    .toUpperCase();
 
 /**
  * The contacts nearest to `here`, with range and bearing. Contacts without a
@@ -165,7 +175,8 @@ export const layerCode = (key) => CODES[key] ?? String(key || '?').slice(0, 3).t
  */
 export function nearestContacts(contacts, here, max = 3) {
   const placed = contacts.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-  if (!here) return placed.slice(0, max).map((c) => ({ ...c, distanceM: null, bearingDeg: null }));
+  if (!here)
+    return placed.slice(0, max).map((c) => ({ ...c, distanceM: null, bearingDeg: null }));
   return placed
     .map((c) => ({
       ...c,

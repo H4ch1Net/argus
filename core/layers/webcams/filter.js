@@ -43,7 +43,7 @@ export function createChipFilter({ options, filter, onChange, label = '', ink })
   const grid = h('div.ct-seg', { role: 'group', 'aria-label': label });
   for (const o of options) {
     const tile = o.glyph ? glyphTile(o.glyph, ink) : null;
-    if (tile) Object.assign(tile.style, { width: '12px', height: '12px', flex: 'none' });
+    if (tile) Object.assign(tile.style, { width: '16px', height: '16px', flex: 'none' });
     const chip = h(
       'button.ct-btn',
       {

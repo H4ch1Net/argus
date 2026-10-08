@@ -11,7 +11,12 @@ import {
   sourcesInView,
   parseCameraCatalog,
 } from './sources.js';
-import { parseTrafficCams, describeTrafficCam, trafficCamNote, trafficCamSearchText } from './format.js';
+import {
+  parseTrafficCams,
+  describeTrafficCam,
+  trafficCamNote,
+  trafficCamSearchText,
+} from './format.js';
 import { cameraKinds, kindsPass, KIND_IDS, kindLabel } from './kinds.js';
 import { createSetFilter } from '../webcams/categories.js';
 
@@ -30,19 +35,34 @@ test('the 511 platform, v2 shape (AZ511): an enabled view on the network host', 
     Location: 'I-10 EB @ 7th St',
     SortOrder: 0,
     Views: [
-      { Id: 1, Url: `https://az511.gov/map/Cctv/${id}`, Status: 'Enabled', Description: 'Looking East' },
+      {
+        Id: 1,
+        Url: `https://az511.gov/map/Cctv/${id}`,
+        Status: 'Enabled',
+        Description: 'Looking East',
+      },
     ],
     ...over,
   });
   const out = parseCameraCatalog(
     [
       row(101),
-      row(102, { Views: [{ Url: 'https://evil.example/map/Cctv/102', Status: 'Enabled' }] }),
-      row(103, { Views: [{ Url: 'https://az511.gov/map/Cctv/103', Status: 'Disabled' }] }),
+      row(102, {
+        Views: [{ Url: 'https://evil.example/map/Cctv/102', Status: 'Enabled' }],
+      }),
+      row(103, {
+        Views: [{ Url: 'https://az511.gov/map/Cctv/103', Status: 'Disabled' }],
+      }),
       row(104, { Latitude: 47.6, Longitude: -122.3 }), // Seattle: outside Arizona
       row(105, {
         Location: 'SR-87 Beeline Hwy near Sunflower',
-        Views: [{ Url: 'https://cdn.traveliq.co/map/Cctv/105--1', Status: 'Enabled', Description: 'NB' }],
+        Views: [
+          {
+            Url: 'https://cdn.traveliq.co/map/Cctv/105--1',
+            Status: 'Enabled',
+            Description: 'NB',
+          },
+        ],
       }),
       row(101), // duplicate
     ],
@@ -77,7 +97,9 @@ test('the 511 platform, 511NY v1 shape: one Url per camera, disabled and blocked
       row('NYSDOT_1'),
       row('NYSDOT_2', { Disabled: true }),
       row('NYSDOT_3', { Blocked: true }),
-      row('NYSDOT_4', { Url: 'https://s9.nysdot.skyvdn.com/rtplive/R1_001/playlist.m3u8' }),
+      row('NYSDOT_4', {
+        Url: 'https://s9.nysdot.skyvdn.com/rtplive/R1_001/playlist.m3u8',
+      }),
       row('NYSDOT_5', { Url: 'https://www.511ny.org/map/Cctv/NYSDOT_5' }),
       row('NYSDOT_6', { Name: 'Tappan Zee Bridge (Cuomo Bridge) toll plaza' }),
     ],
@@ -111,7 +133,9 @@ test('WSDOT: active cameras with a still on images.wsdot.wa.gov; partner credit'
     [
       cam(16500),
       cam(16501, { IsActive: false }),
-      cam(16502, { ImageURL: 'https://images.drivebc.ca/bchighwaycam/pub/cameras/2.jpg' }),
+      cam(16502, {
+        ImageURL: 'https://images.drivebc.ca/bchighwaycam/pub/cameras/2.jpg',
+      }),
       cam(16503, { ImageURL: 'https://images.wsdot.wa.gov/nw/005vc16503.jpg?x=1' }),
       cam(16504, {
         CameraOwner: 'City of Bellevue',
@@ -204,7 +228,10 @@ test('camera kinds: conservative rules, several at once, none for plain roads', 
   assert.deepEqual(cameraKinds('Bay Bridge on-ramp'), ['ramp', 'bridge']);
   assert.deepEqual(cameraKinds('Caldecott Tunnel west portal'), ['tunnel']);
   assert.deepEqual(cameraKinds('SR-905 at Otay Mesa Port of Entry'), ['border']);
-  assert.deepEqual(cameraKinds('US-59 @ Laredo International Bridge 1'), ['bridge', 'border']);
+  assert.deepEqual(cameraKinds('US-59 @ Laredo International Bridge 1'), [
+    'bridge',
+    'border',
+  ]);
   assert.deepEqual(cameraKinds('I-5 SB', 'BC border crossings'), ['border']);
   assert.deepEqual(cameraKinds('I-35 / US-290 Interchange'), ['ramp']);
   // Street names are not structures; "Poe" is a street, "POE" a port of entry.
@@ -244,8 +271,26 @@ test('the kind filter: a plain camera counts as "road"; the card and search show
   assert.ok(kindsPass([], f));
 
   const cameras = [
-    { id: 'a', name: 'Donner Summit', lat: 39.3, lon: -120.3, provider: 'Caltrans', region: 'Sierra', license: 'x', kinds: ['pass'] },
-    { id: 'b', name: 'Main St', lat: 39.3, lon: -120.3, provider: 'Caltrans', region: 'Sierra', license: 'x', kinds: [] },
+    {
+      id: 'a',
+      name: 'Donner Summit',
+      lat: 39.3,
+      lon: -120.3,
+      provider: 'Caltrans',
+      region: 'Sierra',
+      license: 'x',
+      kinds: ['pass'],
+    },
+    {
+      id: 'b',
+      name: 'Main St',
+      lat: 39.3,
+      lon: -120.3,
+      provider: 'Caltrans',
+      region: 'Sierra',
+      license: 'x',
+      kinds: [],
+    },
   ];
   f.set(['pass']);
   assert.equal(trafficCamNote({ cameras, inView: 1 }, f), '1 hidden by filter');
@@ -256,12 +301,24 @@ test('the kind filter: a plain camera counts as "road"; the card and search show
 });
 
 test('keyed networks are offered only when the proxy has their key', async () => {
-  assert.deepEqual(
-    KEYED_CAMERA_SOURCES.map((s) => s.feedId).sort(),
-    ['ak511', 'az511', 'ctroads', 'ga511', 'id511', 'la511', 'nvroads', 'ny511', 'udot', 'wi511', 'wsdot'],
-  );
+  assert.deepEqual(KEYED_CAMERA_SOURCES.map((s) => s.feedId).sort(), [
+    'ak511',
+    'az511',
+    'ctroads',
+    'ga511',
+    'id511',
+    'la511',
+    'nvroads',
+    'ny511',
+    'udot',
+    'wi511',
+    'wsdot',
+  ]);
   for (const s of KEYED_CAMERA_SOURCES) assert.match(s.env, /^[A-Z0-9_]+$/);
-  assert.equal(offeredSources(CAMERA_SOURCES).some((s) => s.keyed), false);
+  assert.equal(
+    offeredSources(CAMERA_SOURCES).some((s) => s.keyed),
+    false,
+  );
 
   const asked = [];
   const proxyClient = {

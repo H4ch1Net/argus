@@ -133,7 +133,8 @@ test('Windy: the documented query only, a bbox or a circle, never a key', () => 
   );
   assert.equal(allowed('windy', '/webcams', qs({ ...q, bbox: '60,40,10,-20' })), false);
   assert.equal(allowed('windy', '/webcams', qs({ ...q, bbox: '46,8,47,7' })), false);
-  const { include: _omit, ...noInclude } = q;
+  const noInclude = { ...q };
+  delete noInclude.include;
   assert.equal(allowed('windy', '/webcams', qs(noInclude)), false);
   assert.equal(allowed('windy', '/webcams/1234', qs(q)), false);
   assert.equal(allowed('windy', '/categories', qs(q)), false);
