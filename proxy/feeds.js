@@ -29,6 +29,8 @@
 // @property {{ ttlMs: number, staleMs?: number }} [cache]  reuse 200 GET bodies for ttlMs;
 //                                      serve the last good one for staleMs when the upstream fails
 // @property {string} [baseUrlEnv]      env var that may point the feed at another instance
+// @property {boolean} [localOnly]      upstream exists only when baseUrlEnv names a host on
+//                                      this machine or the LAN (e.g. a home SDR receiver)
 // @property {boolean} [enabled=true]
 //
 // @typedef {Object} OAuth2Auth
@@ -187,6 +189,18 @@ export const feeds = [
       /^\/data\/(network-info|as-overview|announced-prefixes|maxmind-geo-lite|dns-chain)\/data\.json$/,
     ],
     governor: { ratePerMinute: 60 },
+  },
+  {
+    // Your own ADS-B receiver (dump1090 / readsb / tar1090 aircraft.json), e.g. an
+    // RTL-SDR on the Kali box: LOCAL_ADSB_URL=http://localhost:8080/data. It must
+    // be on this machine or the LAN (localOnly); without it the feed is simply
+    // not configured. Reading your own decoder is as passive as it gets.
+    id: 'local-adsb',
+    baseUrl: 'http://localhost:8080/data',
+    baseUrlEnv: 'LOCAL_ADSB_URL',
+    localOnly: true,
+    methods: ['GET'],
+    allowPaths: [/(^|\/)aircraft\.json$/],
   },
   // --- Layers ported from the reference project (bilawalsidhu/gods-eye-view) ---
   // Endpoints, parameters and terms below are as that project uses them (read

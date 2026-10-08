@@ -17,6 +17,12 @@ import {
   formatHeading,
 } from '../core/layers/flights/format.js';
 import { parseFires } from '../core/layers/fires/parse.js';
+import { ADSB_MILITARY_PATH } from '../core/layers/flights/parse.js';
+import { parseMilitary } from '../core/layers/military/parse.js';
+import { parseCyclones } from '../core/layers/cyclones/parse.js';
+import { saffirSimpson } from '../core/layers/cyclones/format.js';
+import { parseLaunches, launchQuery } from '../core/layers/launches/parse.js';
+import { relativeTime } from '../core/layers/launches/format.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
 
 export const CLI_COMMANDS = [
@@ -24,6 +30,9 @@ export const CLI_COMMANDS = [
   'correlate',
   'quakes',
   'flights',
+  'military',
+  'storms',
+  'launches',
   'sats',
   'fires',
   'geocode',
@@ -334,6 +343,128 @@ export async function runCli(cmd, argv, io = {}) {
           ),
         );
       }
+      return 0;
+    }
+
+    if (cmd === 'military') {
+      // adsb.lol's global military list; optionally only those near a place.
+      const near = opt(argv, '--near');
+      const place = near ? await resolvePlace(backend, near) : null;
+      const radiusKm = Number(opt(argv, '--radius') ?? 500);
+      const limit = Number(opt(argv, '--limit') ?? 40);
+      const list = parseMilitary(await c.getJson('adsblol', ADSB_MILITARY_PATH))
+        .map((n) => ({
+          ...n.meta,
+          distanceKm: place
+            ? haversineKm(place.lat, place.lon, n.meta.latitude, n.meta.longitude)
+            : null,
+        }))
+        .filter((a) => !place || a.distanceKm <= radiusKm)
+        .sort((a, b) =>
+          place
+            ? a.distanceKm - b.distanceKm
+            : String(a.callsign).localeCompare(b.callsign),
+        )
+        .slice(0, limit);
+      if (json) out(JSON.stringify({ near: place, aircraft: list }, null, 2));
+      else {
+        out(
+          `${list.length} military aircraft${place ? ` within ${radiusKm} km of ${place.name}` : ''} (adsb.lol)`,
+        );
+        out(
+          table(
+            [
+              'callsign',
+              'icao24',
+              'type',
+              'operator',
+              'altitude',
+              'speed',
+              place ? 'dist' : 'lat,lon',
+            ],
+            list.map((a) => [
+              a.callsign || '-',
+              a.id,
+              a.typeCode ?? '',
+              a.operator ?? '',
+              a.onGround ? 'ground' : formatAltitude(a.geoAltitude ?? a.baroAltitude),
+              formatSpeed(a.velocity),
+              place
+                ? `${a.distanceKm.toFixed(0)} km`
+                : `${a.latitude.toFixed(2)},${a.longitude.toFixed(2)}`,
+            ]),
+          ),
+        );
+      }
+      return 0;
+    }
+
+    if (cmd === 'storms') {
+      const list = parseCyclones(await c.getJson('nhc', '/CurrentStorms.json'));
+      if (json) out(JSON.stringify(list, null, 2));
+      else if (!list.length)
+        out('no active tropical cyclones (NOAA NHC: Atlantic, E/C Pacific)');
+      else
+        out(
+          table(
+            ['storm', 'id', 'class', 'wind', 'pressure', 'lat', 'lon', 'moving'],
+            list.map(({ meta: m, position: p }) => [
+              m.name,
+              m.stormId.toUpperCase(),
+              saffirSimpson(m.windKt)
+                ? `${m.classification} cat ${saffirSimpson(m.windKt)}`
+                : (m.classification ?? ''),
+              m.windKt != null ? `${m.windKt} kt` : '',
+              m.pressureHpa != null ? `${m.pressureHpa} hPa` : '',
+              p.latitude.toFixed(1),
+              p.longitude.toFixed(1),
+              m.movementDir != null ? `${m.movementDir}° ${m.movementKt ?? '?'} kt` : '',
+            ]),
+          ),
+        );
+      return 0;
+    }
+
+    if (cmd === 'launches') {
+      // Upcoming by default; --past lists the last week instead.
+      const past = argv.includes('--past');
+      const limit = Number(opt(argv, '--limit') ?? 20);
+      const now = Date.now();
+      const pads = parseLaunches(
+        await c.getJson('ll2', '/launches/', { params: launchQuery(now) }),
+      );
+      const list = pads
+        .flatMap((p) =>
+          p.meta.launches.map((l) => ({
+            ...l,
+            pad: p.meta.pad,
+            location: p.meta.location,
+          })),
+        )
+        .filter((l) =>
+          past ? l.net != null && l.net < now : l.net == null || l.net >= now,
+        )
+        .sort((a, b) =>
+          past ? (b.net ?? 0) - (a.net ?? 0) : (a.net ?? Infinity) - (b.net ?? Infinity),
+        )
+        .slice(0, limit);
+      if (json) out(JSON.stringify(list, null, 2));
+      else
+        out(
+          table(
+            ['NET (UTC)', 'when', 'launch', 'provider', 'pad', 'status'],
+            list.map((l) => [
+              l.net
+                ? new Date(l.net).toISOString().slice(0, 16).replace('T', ' ')
+                : 'TBD',
+              relativeTime(l.net, now),
+              l.name,
+              l.provider ?? '',
+              l.pad,
+              l.abbrev ?? l.status ?? '',
+            ]),
+          ),
+        );
       return 0;
     }
 

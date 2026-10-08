@@ -12,3 +12,4 @@ const rasterDefinition = (id) => ({
 
 export const cloudsDefinition = rasterDefinition('clouds');
 export const radarDefinition = rasterDefinition('radar');
+export const lightningDefinition = rasterDefinition('lightning');

@@ -25,3 +25,9 @@ test('the refresh bucket changes once per interval, so tiles reload on schedule'
 test('rejects an unknown product', () => {
   assert.throws(() => weatherSpec('tornado', buildUrl));
 });
+
+test('lightning density uses the lightning service', () => {
+  const s = weatherSpec('lightning', buildUrl, 0);
+  assert.equal(s.url, 'https://proxy.test/feed/nowcoast/lightning_detection/ows');
+  assert.equal(s.layers, 'ldn_lightning_strike_density');
+});

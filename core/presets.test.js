@@ -37,6 +37,7 @@ test('every preset references known layer keys', () => {
     'cyclones',
     'clouds',
     'radar',
+    'lightning',
     'ships',
     'transit',
     'bikeshare',

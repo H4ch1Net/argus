@@ -40,6 +40,25 @@ export function buildUpstreamUrl(feed, subpath, search) {
   return target;
 }
 
+/** Loopback, RFC 1918 / link-local IPv4, IPv6 loopback / ULA, localhost, *.local. */
+export function isLocalHost(hostname) {
+  const h = String(hostname)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.local') || h === '::1') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true; // IPv6 unique local
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return (
+    a === 127 ||
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+  );
+}
+
 function matchAllow(patterns, pathname) {
   return patterns.some((p) =>
     p instanceof RegExp ? p.test(pathname) : pathname.startsWith(p),
@@ -121,9 +140,20 @@ export async function handleRelay(
     // self-hosted Overpass) through an env var; the path allowlist still applies.
     let upstreamFeed = feed;
     const override = feed.baseUrlEnv ? env[feed.baseUrlEnv] : null;
+    if (feed.localOnly && !override) {
+      throw new RelayError(502, `feed ${feed.id} not configured: set ${feed.baseUrlEnv}`);
+    }
     if (override) {
       if (!URL.canParse(override)) {
         throw new RelayError(502, `${feed.baseUrlEnv} is not a valid URL`);
+      }
+      // A localOnly feed reads equipment on this machine or the LAN (a receiver
+      // you own), never a third-party host.
+      if (feed.localOnly && !isLocalHost(new URL(override).hostname)) {
+        throw new RelayError(
+          502,
+          `${feed.baseUrlEnv} must point at this machine or the LAN`,
+        );
       }
       upstreamFeed = { ...feed, baseUrl: override };
     }

@@ -38,6 +38,9 @@ running proxy instead of an embedded one)
   correlate <ip|domain|asn>    multi-source correlation (RIPEstat + Shodan host)
   quakes [--min M] [--limit N] [--feed all_day|all_hour|all_week|significant_week]
   flights --near <LAT,LON|place> [--radius NM] [--limit N]
+  military [--near <LAT,LON|place>] [--radius KM] [--limit N]
+  storms                       active tropical cyclones (NOAA NHC)
+  launches [--past] [--limit N]  rocket launches (Launch Library 2)
   sats [--group stations|visual|active|starlink|gps-ops|weather] [--limit N]
   fires --near <LAT,LON|place> [--radius KM]
   geocode <place>

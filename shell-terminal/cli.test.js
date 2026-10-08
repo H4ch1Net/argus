@@ -148,3 +148,80 @@ test('flights and fires require --near; fires explains a missing key', async () 
   );
   assert.match(f.err[0], /FIRMS_MAP_KEY/);
 });
+
+test('military, storms and launches read the new keyless feeds', async () => {
+  const calls = [];
+  const soon = new Date(Date.now() + 2 * 86400_000).toISOString();
+  const backend = {
+    health: health(),
+    client: {
+      getJson: async (feed, p, opts) => {
+        calls.push([feed, p, opts?.params]);
+        if (feed === 'adsblol')
+          return {
+            ac: [
+              {
+                hex: 'ae0001',
+                flight: 'RCH1',
+                lat: 10,
+                lon: 10,
+                ownOp: 'USAF',
+                t: 'C17',
+              },
+              { hex: 'ae0002', flight: 'RCH2', lat: 0.2, lon: 0.2 },
+            ],
+          };
+        if (feed === 'nhc')
+          return {
+            activeStorms: [
+              {
+                id: 'al012026',
+                name: 'Ana',
+                classification: 'HU',
+                intensity: '90',
+                latitudeNumeric: 20,
+                longitudeNumeric: -60,
+              },
+            ],
+          };
+        return {
+          results: [
+            {
+              id: 'x',
+              name: 'Rocket | Sat',
+              net: soon,
+              status: { abbrev: 'Go' },
+              pad: { id: 1, name: 'LC-1', latitude: 1, longitude: 2 },
+            },
+          ],
+        };
+      },
+    },
+  };
+  let c = capture();
+  assert.equal(
+    await runCli('military', ['--near', '0,0', '--radius', '100', '--json'], {
+      ...c.io,
+      backend,
+    }),
+    0,
+  );
+  assert.deepEqual(
+    JSON.parse(c.out[0]).aircraft.map((a) => a.id),
+    ['ae0002'],
+  );
+  assert.deepEqual(calls[0].slice(0, 2), ['adsblol', '/v2/mil']);
+
+  c = capture();
+  assert.equal(await runCli('storms', [], { ...c.io, backend }), 0);
+  assert.match(c.out[0], /Ana\s+AL012026\s+HU cat 2\s+90 kt/);
+
+  c = capture();
+  assert.equal(await runCli('launches', ['--json'], { ...c.io, backend }), 0);
+  const launches = JSON.parse(c.out[0]);
+  assert.equal(launches[0].name, 'Rocket | Sat');
+  assert.equal(launches[0].pad, 'LC-1');
+  const llCall = calls.find(([f]) => f === 'll2');
+  assert.equal(llCall[1], '/launches/');
+  assert.equal(llCall[2].ordering, 'net');
+});

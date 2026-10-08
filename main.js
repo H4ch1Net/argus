@@ -208,6 +208,24 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'localadsb',
+      group: 'Air & space',
+      label: 'My receiver',
+      // Only offered when the proxy knows your receiver (LOCAL_ADSB_URL).
+      requires: 'local-adsb',
+      loadDef: () =>
+        import('./core/layers/localadsb/definition.js').then(
+          (m) => m.localAdsbDefinition,
+        ),
+      proxy: (c) => (_q, s) => c.getJson('local-adsb', '/aircraft.json', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/localadsb/mockSource.js').then((m) =>
+              m.createLocalAdsbMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'satellites',
       group: 'Air & space',
       label: 'Satellites',
@@ -397,6 +415,20 @@ async function setupScene(app) {
       proxy: async (c) => {
         const { weatherSpec } = await import('./core/layers/weather/products.js');
         return async () => weatherSpec('radar', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'lightning',
+      group: 'Earth & weather',
+      label: 'Lightning',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.lightningDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('lightning', c.buildUrl);
       },
       // Imagery needs the real service; there is no offline stand-in.
       mock: () => Promise.resolve(null),
@@ -630,6 +662,9 @@ async function setupScene(app) {
     // The sourceless layers can only be driven by the dev mock; outside dev they
     // have nothing to show, so do not register them (no dead chips in production).
     if (noRealFeed.has(r.key) && !dev) continue;
+    // Layers that exist only with local equipment (your own receiver) are listed
+    // only when the proxy has it configured, so no one sees a dead chip.
+    if (r.requires && !dev && !(health && feedConfigured(health, r.requires))) continue;
     manager.register(r.key, {
       label: r.label,
       group: r.group,

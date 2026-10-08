@@ -1,4 +1,5 @@
-// Observed-weather imagery from NOAA nowCOAST (GeoServer WMS), as raster specs
+// Observed-weather imagery from NOAA nowCOAST (GeoServer WMS): global infrared
+// clouds, US radar and lightning density, as raster specs
 // for the SDK's raster renderType. Services, layer names and styles are the ones
 // the reference project uses. Requests go through the proxy feed 'nowcoast'.
 // Pure: builds plain spec objects.
@@ -26,6 +27,16 @@ export const WEATHER_PRODUCTS = {
     alpha: 0.75,
     // Contiguous US mosaic: no point requesting tiles elsewhere.
     rectangle: [-127, 20, -65, 52],
+  },
+  lightning: {
+    // A derived density product NOAA may redistribute (not raw detections).
+    // Covers the Americas and the Pacific; empty elsewhere.
+    service: 'lightning_detection',
+    layers: 'ldn_lightning_strike_density',
+    styles: 'lightning_density',
+    label: 'Lightning density (Americas, Pacific)',
+    refreshMs: 10 * 60 * 1000,
+    alpha: 0.8,
   },
 };
 

@@ -373,3 +373,61 @@ test('baseUrlEnv points a feed at another instance, keeping the path allowlist',
   assert.equal((await r.json()).url, '/mirror/api/interpreter?data=x');
   assert.equal((await fetch(`${base(proxy)}/feed/ovp/status`)).status, 403);
 });
+
+test('a localOnly feed needs its URL, and only reaches this machine or the LAN', async (t) => {
+  const echo = await startEcho();
+  t.after(() => echo.close());
+  const feeds = [
+    {
+      id: 'rx',
+      baseUrl: 'http://localhost:1/data',
+      baseUrlEnv: 'TEST_RX_URL',
+      localOnly: true,
+      allowPaths: [/(^|\/)aircraft\.json$/],
+    },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_RX_URL;
+  });
+  const get = (p) => fetch(`${base(proxy)}/feed/rx${p}`);
+
+  let r = await get('/aircraft.json');
+  assert.equal(r.status, 502);
+  assert.match((await r.json()).error, /set TEST_RX_URL/);
+
+  process.env.TEST_RX_URL = 'https://example.com/data';
+  r = await get('/aircraft.json');
+  assert.equal(r.status, 502);
+  assert.match((await r.json()).error, /this machine or the LAN/);
+
+  process.env.TEST_RX_URL = `${base(echo)}/data`;
+  r = await get('/aircraft.json');
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).url, '/data/aircraft.json');
+  assert.equal((await get('/stats.json')).status, 403);
+});
+
+test('isLocalHost accepts loopback, private and .local names only', async () => {
+  const { isLocalHost } = await import('../lib/relay.js');
+  for (const h of [
+    'localhost',
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.20.0.5',
+    '192.168.1.40',
+    'piaware.local',
+    '[::1]',
+    'fd12:3456::1',
+  ])
+    assert.equal(isLocalHost(h), true, h);
+  for (const h of [
+    'example.com',
+    '8.8.8.8',
+    '172.32.0.1',
+    '192.169.0.1',
+    'local.example.com',
+  ])
+    assert.equal(isLocalHost(h), false, h);
+});

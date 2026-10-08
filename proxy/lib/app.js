@@ -9,9 +9,12 @@ import { handleGoogleTiles } from './tiles.js';
 
 // A feed is "configured" (able to serve) when its credentials are actually present:
 // an OAuth2 feed needs its token manager; a feed with injected secrets needs every
-// required secret in the environment; a keyless feed is always configured.
+// required secret in the environment; a feed whose upstream exists only when the
+// operator names it (localOnly, e.g. a home SDR receiver) needs that URL set; a
+// keyless feed is always configured.
 function feedConfigured(feed, tokenManagers, env) {
   if (feed.auth?.type === 'oauth2') return Boolean(tokenManagers[feed.id]);
+  if (feed.localOnly && !env[feed.baseUrlEnv]) return false;
   const required = (feed.inject || []).filter((r) => r.required !== false);
   return required.every((r) => Boolean(env[r.secret]));
 }

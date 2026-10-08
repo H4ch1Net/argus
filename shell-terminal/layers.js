@@ -37,6 +37,7 @@ import {
   bgpSearchText,
 } from '../core/layers/bgp/format.js';
 import { parseMilitary, militarySearchText } from '../core/layers/military/parse.js';
+import { parseLocalAdsb } from '../core/layers/localadsb/parse.js';
 import { ADSB_MILITARY_PATH } from '../core/layers/flights/parse.js';
 import { createTransitSource } from '../core/layers/transit/source.js';
 import { parseTransit, transitNote } from '../core/layers/transit/parse.js';
@@ -443,6 +444,28 @@ export function buildLayers({
       }),
       legend: () =>
         `${g.bgp} BGP updates at RIS collectors (cyan announce, amber withdraw)`,
+    },
+    {
+      key: 'localadsb',
+      label: 'My receiver',
+      mode: 'poll',
+      intervalMs: 2000,
+      interpolate: true,
+      maxEntities: 1000,
+      unavailable: needs('local-adsb', 'LOCAL_ADSB_URL'),
+      makeSource: async () => {
+        if (demo) {
+          const m = await import('../core/layers/localadsb/mockSource.js');
+          return m.createLocalAdsbMockSource({ viewer });
+        }
+        if (needs('local-adsb', 'LOCAL_ADSB_URL')) return null;
+        return (_q, signal) => client.getJson('local-adsb', '/aircraft.json', { signal });
+      },
+      normalize: (raw) => parseLocalAdsb(raw),
+      describe: (n) => formatAircraft(n.meta),
+      searchText: aircraftSearchText,
+      glyph: (n) => ({ ch: arrowFor(n.meta.trueTrack, g), color: '#b388ff', bold: true }),
+      legend: () => `${g.arrows[2]} aircraft heard by your receiver`,
     },
     {
       key: 'landmarks',
