@@ -948,8 +948,28 @@ async function setupScene(app, splash) {
     prefs: app.settings,
     onClose: () => tracker?.deselect(),
     onPickContact: (c) => tracker?.select(c.target),
+    // Pointing at a contact (panel row or widget node) marks it on the map.
+    onHoverContact: (c) => overlay.highlight(c?.target ?? null),
   });
   app.mount('target', panel.el);
+
+  // Closest-approach alerts: a contact on a conflicting pass with the target
+  // (core/geo/cpa.js) raises one notice per contact every two minutes.
+  const alerted = new Map(); // contact id -> time of the last notice
+  overlay.subscribe((sum) => {
+    const now = Date.now();
+    for (const c of sum.conflicts ?? []) {
+      if (now - (alerted.get(c.id) ?? 0) < 120_000) continue;
+      alerted.set(c.id, now);
+      notifier.push({
+        title: `CLOSING ${String(c.id).padStart(2, '0')} ${c.label ?? c.key.toUpperCase()}`,
+        body: `Closest approach ${Math.round((c.cpaM ?? 0) / 100) / 10} km in ${Math.round((c.tcpaS ?? 0) / 6) / 10} min.`,
+        key: `cpa-${c.id}`,
+        level: 'normal',
+        action: { label: 'SELECT', onClick: () => tracker?.select(c.target) },
+      });
+    }
+  });
 
   const objMeter = readouts.createObjMeter();
   overlay.subscribe((s) => {

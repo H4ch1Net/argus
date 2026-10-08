@@ -158,3 +158,10 @@ dd.ct-kv__section {
   padding: 0 7px;
   font-size: 9px;
 }
+
+/* A contact on a conflicting pass with the target (closest approach inside
+   its limit): an alert state, so it takes the error colour. */
+.ct-target__contact.is-conflict .ct-row__label,
+.ct-target__contact.is-conflict .ct-row__meta {
+  color: var(--error);
+}
