@@ -8,7 +8,7 @@ import '../core/ui/readout.css';
 import './shell.css';
 
 // Desktop shell (Linux / Windows), ctOS layout: the bar across the top, a
-// tabbed menu panel on the left (LAYERS / VIEW / INTEL), the target panel on the
+// tabbed menu panel on the left (LAYERS / VIEW / TOOLS), the target panel on the
 // right (the tracking widget, the selected target's card, nearest contacts),
 // the view stack at the right edge and a status strip along the bottom. Mouse
 // and keyboard: M toggles the menu, T the target panel, / or Ctrl+K search,
@@ -37,7 +37,7 @@ export async function mountShell(root) {
     tabs: [
       { id: 'layers', label: 'LAYERS', pane: panes.layers },
       { id: 'view', label: 'VIEW', pane: panes.view },
-      { id: 'intel', label: 'INTEL', pane: panes.intel },
+      { id: 'intel', label: 'TOOLS', pane: panes.intel },
     ],
   });
   const left = h(

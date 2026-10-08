@@ -250,6 +250,8 @@ export function createTracker(
     get following() {
       return Boolean(followEntity);
     },
+    /** Redraw the panel now (an async lookup for the target finished). */
+    refresh: refreshPanel,
     /** Re-follow after something else (cockpit) borrowed the camera. */
     resume() {
       if (followEntity) viewer.trackedEntity = followEntity;

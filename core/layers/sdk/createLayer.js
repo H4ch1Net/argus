@@ -514,6 +514,10 @@ export function createLayer(viewer, def, ctx) {
      * world position as of the last rendered frame. The selection overlay and the
      * contacts roster use this; it allocates nothing.
      */
+    /** Visit every contact the layer holds (in view or not). */
+    forEachRecord(fn) {
+      for (const rec of records.values()) fn(rec.target, rec.normalized);
+    },
     forEachVisible(fn) {
       if (!running || !shown) return;
       for (const rec of records.values()) {

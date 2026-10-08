@@ -52,6 +52,13 @@ export const LAYER_INK = Object.freeze({
   shodan: INK.gray,
   threats: INK.error,
   bgp: INK.cyan,
+  goes: INK.dimmer,
+  cyclonecones: INK.white,
+  cyclonetracks: INK.white,
+  perimeters: INK.error,
+  dams: INK.teal,
+  imagery: INK.dimmer,
+  trafficflow: INK.teal,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

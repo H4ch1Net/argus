@@ -643,3 +643,111 @@ select {
     display: none;
   }
 }
+
+/* Weather history strip */
+.ct-wx > .ct-btn {
+  flex: 0 0 auto;
+  min-width: 34px;
+}
+.ct-wx__time {
+  display: block;
+  margin-top: 4px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* Launch replay HUD */
+.ct-replay {
+  width: 260px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-replay__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-replay__clock {
+  color: var(--textPrimary);
+  font-size: 30px;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+}
+.ct-replay__phase {
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-replay__ctl .ct-btn {
+  flex: 1 1 auto;
+  min-height: 24px;
+  padding: 0 6px;
+}
+.ct-replay__note {
+  color: var(--textSecondary);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+/* Tools */
+.ct-tool__pt {
+  display: grid;
+  grid-template-columns: 1.2ch 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.ct-tool__pt .ct-btn {
+  min-height: 24px;
+  padding: 0 7px;
+}
+.ct-tool__val {
+  color: var(--textPrimary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-tool__summary {
+  color: var(--textPrimary);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  min-height: 0;
+}
+.ct-tool__summary:empty {
+  display: none;
+}
+.ct-tool__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+}
+.ct-tool__step {
+  display: grid;
+  grid-template-columns: 3ch 1fr auto;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--textPrimaryDim);
+}
+.ct-credits {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.ct-credits__group {
+  margin-top: 6px;
+  color: var(--textPrimaryDim);
+  letter-spacing: 0.06em;
+}
+.ct-credits a,
+.ct-section__note a {
+  color: var(--textPrimary);
+}

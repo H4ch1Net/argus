@@ -50,7 +50,17 @@ export function createLayerManager(viewer, { readout, clock, animationFps } = {}
       e.pending ??= (async () => {
         try {
           const source = await e.makeSource();
-          if (!source) return null; // no data source available; cannot enable
+          if (!source) {
+            // No data source here (a layer that needs the live proxy, or a
+            // key it does not have): say so instead of failing silently.
+            e.status = {
+              state: 'unavailable',
+              message:
+                'No data source: this layer needs the Argus proxy (and its key, if any).',
+            };
+            emitStatus(key, e.status);
+            return null;
+          }
           const def = await e.loadDef();
           return createLayer(viewer, def, {
             source,

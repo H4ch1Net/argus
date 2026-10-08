@@ -25,8 +25,8 @@ export function createCameraReadout(viewer) {
     );
     const h = c.height;
     altSeg.set(
-      h >= 1e6
-        ? `${(h / 1e6).toFixed(2)}MM`
+      h >= 100_000
+        ? `${Math.round(h / 1000).toLocaleString('en-US')}KM`
         : h >= 1000
           ? `${(h / 1000).toFixed(1)}KM`
           : `${Math.round(h)}M`,

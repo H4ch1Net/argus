@@ -173,6 +173,40 @@ async function setupScene(app, splash) {
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
   // chunk entirely; only the proxy source ships.
+  // Shared by the timed weather overlays: one observation clock, so radar,
+  // clouds and lightning step through history together (the VIEW strip).
+  const { createWeatherTimeline } = await import('./core/layers/weather/timeline.js');
+  const weatherTimeline = createWeatherTimeline();
+  const timedWeather = (productId) => async (c) => {
+    const { createTimedWeatherSource } =
+      await import('./core/layers/weather/timedSource.js');
+    return createTimedWeatherSource({
+      productId,
+      proxyClient: c,
+      timeline: weatherTimeline,
+      maximumLevel: app.tier === 'full' ? undefined : 5,
+    });
+  };
+  // Starlink dense mode (VIEW > SATELLITES), read by the constellation source.
+  let starlinkDense = false;
+  // Recent imagery (NASA HLS / VIIRS): the catalogue the VIEW tool searches and
+  // the layer shows from.
+  const { createImageryCatalogue } = await import('./core/layers/imagery/catalog.js');
+  const imageryCatalogue = proxyClient
+    ? createImageryCatalogue({ buildUrl: proxyClient.buildUrl })
+    : null;
+  const cycloneForecastSource = async (c) => {
+    const { createCycloneForecastSource } =
+      await import('./core/layers/cyclonecones/source.js');
+    return createCycloneForecastSource({ proxyClient: c });
+  };
+  const cycloneForecastMock = () =>
+    import.meta.env.DEV
+      ? import('./core/layers/cyclonecones/mockSource.js').then((m) =>
+          m.createCycloneForecastMockSource(),
+        )
+      : Promise.resolve(null);
+
   const registrations = [
     {
       key: 'flights',
@@ -225,13 +259,21 @@ async function setupScene(app, splash) {
       key: 'localadsb',
       group: 'Air & space',
       label: 'My receiver',
-      // Only offered when the proxy knows your receiver (LOCAL_ADSB_URL).
-      requires: 'local-adsb',
+      // Only offered when the proxy knows your receiver: a 1090 MHz feed
+      // (LOCAL_ADSB_URL), a 978 MHz UAT feed (LOCAL_UAT_URL), or both.
+      requires: ['local-adsb', 'local-uat'],
       loadDef: () =>
         import('./core/layers/localadsb/definition.js').then(
           (m) => m.localAdsbDefinition,
         ),
-      proxy: (c) => (_q, s) => c.getJson('local-adsb', '/aircraft.json', { signal: s }),
+      proxy: async (c) => {
+        const { createLocalReceiverSource, LOCAL_RECEIVER_FEEDS } =
+          await import('./core/layers/localadsb/source.js');
+        const feeds = health
+          ? LOCAL_RECEIVER_FEEDS.filter((f) => feedConfigured(health, f.feed))
+          : LOCAL_RECEIVER_FEEDS;
+        return createLocalReceiverSource({ proxyClient: c, feeds });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/localadsb/mockSource.js').then((m) =>
@@ -262,15 +304,20 @@ async function setupScene(app, splash) {
     {
       key: 'constellations',
       group: 'Air & space',
-      label: 'Nav & GEO sats',
+      label: 'Nav, GEO & visual sats',
       loadDef: () =>
         import('./core/layers/constellations/definition.js').then(
           (m) => m.constellationsDefinition,
         ),
+      // Starlink "dense" (thousands of points) only on the full tier, and only
+      // when switched on in VIEW; read on every fetch.
       proxy: async (c) => {
-        const { createConstellationSource } =
+        const { createConstellationSource, denseAllowedForTier } =
           await import('./core/layers/constellations/groups.js');
-        return createConstellationSource({ proxyClient: c });
+        return createConstellationSource({
+          proxyClient: c,
+          dense: () => starlinkDense && denseAllowedForTier(app.tier),
+        });
       },
       mock: () =>
         import.meta.env.DEV
@@ -336,6 +383,22 @@ async function setupScene(app, splash) {
               m.createBikeshareMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
+    },
+    {
+      key: 'trafficflow',
+      group: 'Ground & sea',
+      label: 'Traffic flow',
+      // Hidden until the proxy has a TomTom key (TOMTOM_API_KEY).
+      requires: 'tomtom-flow',
+      loadDef: () =>
+        import('./core/layers/trafficflow/definition.js').then(
+          (m) => m.trafficFlowDefinition,
+        ),
+      proxy: async (c) => {
+        const { trafficFlowSpec } = await import('./core/layers/trafficflow/spec.js');
+        return async () => trafficFlowSpec(c.buildUrl);
+      },
+      mock: () => Promise.resolve(null),
     },
     {
       key: 'ships',
@@ -411,11 +474,9 @@ async function setupScene(app, splash) {
       label: 'IR clouds',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('clouds', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('clouds'),
       // Imagery needs the real service; there is no offline stand-in.
       mock: () => Promise.resolve(null),
     },
@@ -425,11 +486,9 @@ async function setupScene(app, splash) {
       label: 'Radar (US)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.radarDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('radar', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('radar'),
       // Imagery needs the real service; there is no offline stand-in.
       mock: () => Promise.resolve(null),
     },
@@ -439,12 +498,73 @@ async function setupScene(app, splash) {
       label: 'Lightning',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.lightningDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('lightning', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('lightning'),
       // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'goes',
+      group: 'Earth & weather',
+      label: 'IR clouds (GOES)',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.goesDefinition),
+      proxy: timedWeather('goes'),
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'cyclonecones',
+      group: 'Earth & weather',
+      label: 'Storm cones',
+      loadDef: () =>
+        import('./core/layers/cyclonecones/definition.js').then(
+          (m) => m.cycloneConesDefinition,
+        ),
+      proxy: cycloneForecastSource,
+      mock: cycloneForecastMock,
+    },
+    {
+      key: 'cyclonetracks',
+      group: 'Earth & weather',
+      label: 'Storm tracks',
+      loadDef: () =>
+        import('./core/layers/cyclonecones/definition.js').then(
+          (m) => m.cycloneTracksDefinition,
+        ),
+      proxy: cycloneForecastSource,
+      mock: cycloneForecastMock,
+    },
+    {
+      key: 'perimeters',
+      group: 'Earth & weather',
+      label: 'Fire perimeters',
+      loadDef: () =>
+        import('./core/layers/perimeters/definition.js').then(
+          (m) => m.perimetersDefinition,
+        ),
+      proxy: async (c) => {
+        const { createPerimeterSource } =
+          await import('./core/layers/perimeters/source.js');
+        return createPerimeterSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/perimeters/mockSource.js').then((m) =>
+              m.createPerimeterMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'imagery',
+      group: 'Earth & weather',
+      label: 'Recent imagery',
+      loadDef: () =>
+        import('./core/layers/imagery/definition.js').then(
+          (m) => m.recentImageryDefinition,
+        ),
+      // Shows the day picked in VIEW > RECENT IMAGERY (NASA HLS / VIIRS).
+      proxy: async () => imageryCatalogue?.rasterSource ?? null,
       mock: () => Promise.resolve(null),
     },
     {
@@ -550,6 +670,30 @@ async function setupScene(app, splash) {
         import.meta.env.DEV
           ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
               m.createInfraMockSource({ viewer: app.viewer, kind: 'datacenters' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'dams',
+      group: 'Infrastructure',
+      label: 'Dams',
+      loadDef: () =>
+        import('./core/layers/dams/definition.js').then((m) => m.damsDefinition),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/dams/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.DAM_FILTERS,
+          maxAreaDeg: f.DAM_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/dams/mockSource.js').then((m) =>
+              m.createDamMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
@@ -679,7 +823,11 @@ async function setupScene(app, splash) {
     // Layers that exist only with local equipment (your own receiver) are listed
     // only when the proxy has it configured, so no one sees a dead chip.
     // (In a dev session with no proxy, the labelled mock stands in instead.)
-    if (r.requires && proxyClient && !(health && feedConfigured(health, r.requires)))
+    if (
+      r.requires &&
+      proxyClient &&
+      ![].concat(r.requires).some((id) => health && feedConfigured(health, id))
+    )
       continue;
     manager.register(r.key, {
       label: r.label,
@@ -754,12 +902,71 @@ async function setupScene(app, splash) {
   });
 
   const notify = (n) => notifier.push(n);
+
+  // Map-tap mode for tools: while a tool is armed, a tap on the globe goes to
+  // it (a route point, a drawing vertex, an imagery area) instead of selecting.
+  const sketchMod = await import('./core/scene/sketch.js');
+  const sketch = sketchMod.createSketch(app.viewer);
+  let tapOwner = null; // { fn, repeat }
+  const disarm = () => {
+    tapOwner = null;
+    notifier.clear('tap');
+  };
+  const armTap = (fn, label, { repeat = false } = {}) => {
+    tapOwner = { fn, repeat };
+    notifier.push({ title: label, body: 'Esc cancels.', key: 'tap', timeoutMs: 20_000 });
+  };
+  const interceptTap = (pos) => {
+    if (!tapOwner || !pos) return false;
+    const ll = sketchMod.windowToLatLon(app.viewer, pos);
+    if (!ll) return true; // a tap on the sky: ignore, stay armed
+    const owner = tapOwner;
+    if (!owner.repeat) disarm();
+    owner.fn(ll);
+    return true;
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tapOwner) disarm();
+  });
+
+  // Per-layer extras on the target card: trace, enrichment, passes, replay,
+  // nearest camera (core/interaction/targetExtras.js).
+  const [{ createTargetExtras }, { createReplayView }] = await Promise.all([
+    import('./core/interaction/targetExtras.js'),
+    import('./core/layers/launches/replayView.js'),
+  ]);
+  const replay = createReplayView(app.viewer, {
+    proxyClient,
+    mount: (el) => app.mount('float', el),
+    notify,
+    onChange: () => tracker?.refresh(),
+  });
+  const extras = createTargetExtras({
+    proxyClient,
+    manager,
+    notify,
+    replay,
+    select: (t) => tracker?.select(t),
+    getObserver: async () => {
+      const fix = await app.observer?.();
+      if (fix) return fix;
+      // Desktop: the point under the middle of the view.
+      const c = app.viewer.camera.positionCartographic;
+      return {
+        latitude: (c.latitude * 180) / Math.PI,
+        longitude: (c.longitude * 180) / Math.PI,
+      };
+    },
+  });
   const tracking = await attachTracking(app, manager, {
     extraResolvers: [osintPlotter],
     panel,
     overlay,
     notify,
+    extras,
+    interceptTap,
   });
+  extras.setRefresh(() => tracking.tracker.refresh());
   tracker = tracking.tracker;
   labelFor = tracking.labelFor;
 
@@ -981,6 +1188,34 @@ async function setupScene(app, splash) {
   if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
   view.push(section('TERRAIN', terrainChoice.el));
 
+  // Satellites: Starlink dense mode (thousands of points), full tier only.
+  const { denseAllowedForTier } = await import('./core/layers/constellations/groups.js');
+  if (denseAllowedForTier(app.tier)) {
+    view.push(
+      section(
+        'SATELLITES',
+        createSwitch({
+          label: 'Starlink dense',
+          title: 'Add the Starlink constellation to Nav, GEO & visual sats (heavy)',
+          onToggle: async (on) => {
+            starlinkDense = on;
+            // The constellation source reads the flag on its next fetch: reload.
+            if (manager.isEnabled('constellations')) {
+              manager.disable('constellations');
+              await manager.enable('constellations');
+            } else if (on) await manager.enable('constellations');
+          },
+        }).el,
+      ),
+    );
+  }
+
+  // Weather history: step the timed overlays (radar, clouds, lightning) back
+  // through the last day of observations. Shown once a product reports times.
+  const { createWeatherStrip } = await import('./core/ui/weatherStrip.js');
+  const weatherStrip = createWeatherStrip({ timeline: weatherTimeline });
+  view.push(section('WEATHER HISTORY', weatherStrip.el));
+
   // Sensor shaders (NVG/FLIR/CRT...): desktop-favored, mobile-gated. Not on the
   // weakest tier at all; balanced renders reduced-resolution single-pass; full
   // gets full resolution plus the stackable CRT overlay.
@@ -990,14 +1225,13 @@ async function setupScene(app, splash) {
   if (app.tier !== 'minimal') {
     const { createSensorShaders } = await import('./core/shaders/sensorShaders.js');
     shaders = createSensorShaders(app.viewer, { tier: app.tier });
-    const modes = shaders.modes ?? [
-      { id: 'none', label: 'Normal' },
-      { id: 'nvg', label: 'NVG' },
-      { id: 'flir', label: 'FLIR' },
-    ];
+    const modes = (shaders.modes ?? ['none', 'nvg', 'flir']).map((id) => ({
+      id,
+      label: shaders.labels?.[id] ?? id.toUpperCase(),
+    }));
     sensorChoice = createChoice({
       label: 'Sensor mode',
-      options: modes.map((m) => ({ id: m.id, label: m.label })),
+      options: modes,
       current: shaders.sensor ?? 'none',
       onSelect: (id) => {
         shaders.setSensor(id);
@@ -1012,6 +1246,16 @@ async function setupScene(app, splash) {
         onToggle: (on) => shaders.setCrt(on),
       });
       items.push(crtSwitch.el);
+    }
+    if (shaders.sharpenSupported) {
+      items.push(
+        createSwitch({ label: 'Sharpen', onToggle: (on) => shaders.setSharpen(on) }).el,
+      );
+    }
+    if (shaders.bloomSupported) {
+      items.push(
+        createSwitch({ label: 'Bloom', onToggle: (on) => shaders.setBloom(on) }).el,
+      );
     }
     view.push(section('SENSOR', ...items));
     if (dev && window.__argus) window.__argus.shaders = shaders;
@@ -1098,6 +1342,24 @@ async function setupScene(app, splash) {
   app.mount('float', terminal.el);
 
   const intel = [];
+  const tools = await import('./core/ui/toolsMenu.js');
+  const { alongRoute } = await import('./core/route/osrm.js');
+  intel.push(
+    tools.createRouteTool({
+      proxyClient,
+      sketch,
+      armTap,
+      notify,
+      targetPoint: () => sketchMod.targetLatLon(app.viewer, tracker.trackedEntity),
+      flyAlong: (coords) => {
+        tracker.unfollow?.();
+        sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
+      },
+    }).el,
+    tools.createDrawTool({ sketch, armTap, disarm }).el,
+    tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
+    tools.createShareTool({ encode: () => encodeView(), notify }).el,
+  );
   intel.push(
     section(
       'CONSOLE',
@@ -1151,6 +1413,16 @@ async function setupScene(app, splash) {
   } else {
     intel.push(section('TIMELINE', scrubber.el));
   }
+  intel.push(
+    tools.createCreditsView({
+      manager,
+      activeKeys: () =>
+        manager
+          .list()
+          .filter((l) => l.enabled)
+          .map((l) => l.key),
+    }).el,
+  );
   for (const el of intel) app.mount('intel', el);
 
   // ------------------------------------------------------------ view stack
@@ -1258,17 +1530,113 @@ async function setupScene(app, splash) {
     });
   }
 
+  // ------------------------------------------------------------ share link
+  // The address bar always holds this view (camera, layers, looks, labels,
+  // target), so a reload or a copied link reopens it. Local only: nothing is
+  // sent anywhere. core/share/state.js fails closed on anything malformed.
+  const share = await import('./core/share/state.js');
+  const deg = (r) => (r * 180) / Math.PI;
+  const keyOf = (target) =>
+    manager.active().find((a) => a.layer.getRecord(target.id)?.entity === target)?.key ??
+    null;
+  function encodeView() {
+    const cam = app.viewer.camera;
+    const pc = cam.positionCartographic;
+    const t = tracker.trackedEntity;
+    const tk = t && keyOf(t);
+    return share.encodeShareHash({
+      camera: {
+        lat: deg(pc.latitude),
+        lon: deg(pc.longitude),
+        alt: pc.height,
+        heading: deg(cam.heading),
+        pitch: deg(cam.pitch),
+      },
+      layers: manager
+        .list()
+        .filter((l) => l.enabled)
+        .map((l) => l.key),
+      sensor: shaders?.sensor ?? 'none',
+      imagery: imagery.current(),
+      terrain: terrain.current?.(),
+      labels: {
+        cities: overlay.options().cities,
+        places: labels.get('places'),
+        roads: labels.get('roads'),
+      },
+      track: tk ? { layer: tk, id: String(t.id) } : undefined,
+    });
+  }
+  let hashTimer = null;
+  const writeHash = () => {
+    clearTimeout(hashTimer);
+    hashTimer = setTimeout(() => history.replaceState(null, '', encodeView()), 800);
+  };
+
+  const shared =
+    location.hash.length > 1
+      ? share.decodeShareHash(location.hash, {
+          layerKeys: manager.keys(),
+          imageryIds: IMAGERY_SOURCES.map((x) => x.id),
+          terrainIds: TERRAIN_SOURCES.map((x) => x.id),
+          labelKeys: ['cities', 'places', 'roads'],
+          sensorModes: shaders?.modes ?? ['none'],
+        })
+      : null;
+
   // Default state (master plan 8): flights + earthquakes + transit on. The
   // mobile shell launches into the "Around Me" preset itself (geolocation, and
   // its layer set, so the highlighted preset matches what is on); desktop starts
-  // at the world view with the defaults.
+  // at the world view with the defaults. A shared link wins over both.
   splash?.step('GREETER_UI_INITIALIZING', 85);
   const aroundMe = !desktop && app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
-  if (aroundMe) {
+  if (shared) {
+    if (shared.camera) {
+      camera.lookFrom({
+        longitude: shared.camera.lon,
+        latitude: shared.camera.lat,
+        height: shared.camera.alt,
+        heading: shared.camera.heading ?? 0,
+        pitch: shared.camera.pitch ?? -90,
+      });
+    }
+    if (shared.imagery) imagery.set(shared.imagery);
+    if (shared.terrain) terrainChoice.set(shared.terrain);
+    if (shared.sensor && shaders) {
+      shaders.setSensor(shared.sensor);
+      syncSensorUi();
+    }
+    for (const [k, on] of Object.entries(shared.labels ?? {})) {
+      if (k === 'cities') overlay.setOptions({ cities: on });
+      else labels.set(k, on);
+    }
+    for (const key of shared.layers ?? DEFAULT_LAYERS) await manager.enable(key);
+    // The target appears once its layer has data: wait for it (up to 30 s).
+    if (shared.track) {
+      const { layer: lk, id } = shared.track;
+      const until = Date.now() + 30_000;
+      const tryTrack = () => {
+        const rec = manager.getLayer(lk)?.getRecord(id);
+        if (rec?.entity) tracker.select(rec.entity);
+        else if (Date.now() < until) setTimeout(tryTrack, 1000);
+      };
+      tryTrack();
+    }
+  } else if (aroundMe) {
     runPreset(aroundMe);
   } else {
     for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
+  app.viewer.camera.moveEnd.addEventListener(writeHash);
+  manager.subscribe(writeHash);
+  let lastHub = null;
+  overlay.subscribe((sum) => {
+    const t = sum.hub?.target ?? null;
+    if (t !== lastHub) {
+      lastHub = t;
+      writeHash();
+    }
+  });
 
   if (dev && window.__argus)
     Object.assign(window.__argus, {
@@ -1289,7 +1657,7 @@ async function setupScene(app, splash) {
 async function attachTracking(
   app,
   manager,
-  { extraResolvers = [], panel, overlay, notify },
+  { extraResolvers = [], panel, overlay, notify, extras, interceptTap },
 ) {
   const [
     { createPicker },
@@ -1318,9 +1686,13 @@ async function attachTracking(
       // receiver all key aircraft by ICAO hex), so the record must be for this
       // very target, not a namesake in another layer.
       if (rec && rec.cardModel && (!rec.entity || rec.entity === target)) {
+        const metadata = decorate(rec.cardModel, rec.normalized, { label, demo });
+        const more = extras?.rows(key, rec.normalized) ?? [];
+        if (more.length) metadata.rows = [...(metadata.rows || []), ...more];
         return {
           key,
-          metadata: decorate(rec.cardModel, rec.normalized, { label, demo }),
+          normalized: rec.normalized,
+          metadata,
           getHistoryFixes: rec.getHistoryFixes,
           mover: rec.mover,
         };
@@ -1355,8 +1727,10 @@ async function attachTracking(
     overlay,
     notify,
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
-    onChange: (target) => {
+    extraActions: (target, rec) => extras?.actions(target, rec) ?? [],
+    onChange: (target, rec) => {
       app.focusTarget?.(Boolean(target));
+      if (target && rec) extras?.onSelect(rec.key, rec.normalized);
       // On the phone the card covers the lower half: glide the target into
       // the free area above it (sideways only, never a zoom).
       if (target && app.shell === 'mobile') {
@@ -1366,17 +1740,22 @@ async function attachTracking(
         }, 360);
       }
       const cctv = manager.getLayer('cctv');
-      const rec = target && cctv ? cctv.getRecord(target.id) : null;
-      if (rec?.normalized?.meta?.pose) {
+      const cam = target && cctv ? cctv.getRecord(target.id) : null;
+      if (cam?.normalized?.meta?.pose) {
         calibrating = { layer: cctv, id: target.id };
-        gizmo.show(rec.normalized.meta.pose, rec.cardModel.title);
+        gizmo.show(cam.normalized.meta.pose, cam.cardModel.title);
       } else {
         calibrating = null;
         gizmo.hide();
       }
     },
   });
-  createPicker(app.viewer, { onPick: (target) => tracker.select(target) });
+  createPicker(app.viewer, {
+    onPick: (target, pos) => {
+      if (interceptTap?.(pos)) return;
+      tracker.select(target);
+    },
+  });
 
   // C rides along with the target (movers only), as in the reference.
   document.addEventListener('keydown', (e) => {

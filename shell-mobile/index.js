@@ -11,7 +11,7 @@ import './shell.css';
 
 // Mobile shell (S25-tuned), ctOS layout: a compact bar at the top (lockup,
 // search, feed state), the view stack at the right edge in thumb reach, and a
-// bottom sheet with kitty tabs: LAYERS / TARGET / VIEW / INTEL. Selecting a
+// bottom sheet with kitty tabs: LAYERS / TARGET / VIEW / TOOLS. Selecting a
 // contact opens the sheet to half on TARGET, so the card is visible with the
 // map still in view. Sensors are shell inputs: this shell reads GPS and the
 // compass and calls core's camera; core never imports sensor code.
@@ -41,7 +41,7 @@ export async function mountShell(root) {
       { id: 'layers', label: 'LAYERS', pane: panes.layers },
       { id: 'target', label: 'TARGET', pane: panes.target },
       { id: 'view', label: 'VIEW', pane: panes.view },
-      { id: 'intel', label: 'INTEL', pane: panes.intel },
+      { id: 'intel', label: 'TOOLS', pane: panes.intel },
     ],
     // Tapping a tab while the sheet is down opens it.
     onChange: () => {
@@ -104,6 +104,16 @@ export async function mountShell(root) {
     showTab: (id) => tabs.select(id),
     // "Around Me": fly to the device location at a regional altitude.
     aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
+    // The observer for satellite pass predictions: the phone's own position.
+    observer: () =>
+      new Promise((resolve) => {
+        if (!navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+          () => resolve(null),
+          { timeout: 8000, maximumAge: 120_000 },
+        );
+      }),
     // GEO: zoom in closer to the user's position (city level).
     locate: (camera, report) =>
       locateAndFly(camera, { altitude: 12_000, onStatus: report }),

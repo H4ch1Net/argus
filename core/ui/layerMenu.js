@@ -67,6 +67,7 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
 
   function metaFor(key, enabled, demo) {
     const s = manager.statusOf(key);
+    if (s?.state === 'unavailable') return { text: 'N/A', cls: '', title: s.message };
     if (!enabled && s?.state !== 'loading') {
       return { text: 'OFF', cls: '', title: '' };
     }

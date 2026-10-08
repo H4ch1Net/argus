@@ -33,6 +33,7 @@
 }
 .argus-readout__row > span:last-child {
   color: var(--textPrimaryDim);
+  text-transform: uppercase;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
