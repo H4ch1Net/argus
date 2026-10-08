@@ -42,6 +42,17 @@ import {
 } from '../core/layers/bgp/format.js';
 import { parseMilitary, militarySearchText } from '../core/layers/military/parse.js';
 import { parseLocalAdsb } from '../core/layers/localadsb/parse.js';
+import { parsePerimeters } from '../core/layers/perimeters/parse.js';
+import {
+  describePerimeter,
+  perimeterSearchText,
+} from '../core/layers/perimeters/format.js';
+import {
+  DAM_FILTERS,
+  DAM_MAX_DEG,
+  describeDam,
+  damSearchText,
+} from '../core/layers/dams/format.js';
 import { ADSB_MILITARY_PATH } from '../core/layers/flights/parse.js';
 import { createTransitSource } from '../core/layers/transit/source.js';
 import { parseTransit, transitNote } from '../core/layers/transit/parse.js';
@@ -129,6 +140,8 @@ export const GLYPHS = {
     navsat: '✧',
     trafficcam: '◘',
     bike: '¤',
+    perimeter: '▲',
+    dam: '▬',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -152,6 +165,8 @@ export const GLYPHS = {
     navsat: ':',
     trafficcam: 'T',
     bike: '$',
+    perimeter: 'P',
+    dam: '=',
   },
 };
 
@@ -459,20 +474,29 @@ export function buildLayers({
       intervalMs: 2000,
       interpolate: true,
       maxEntities: 1000,
-      unavailable: needs('local-adsb', 'LOCAL_ADSB_URL'),
+      // 1090 MHz (LOCAL_ADSB_URL) and/or 978 MHz UAT (LOCAL_UAT_URL).
+      unavailable:
+        needs('local-adsb', 'LOCAL_ADSB_URL') && needs('local-uat', 'LOCAL_UAT_URL')
+          ? 'needs LOCAL_ADSB_URL or LOCAL_UAT_URL in .env (proxy side)'
+          : null,
       makeSource: async () => {
         if (demo) {
           const m = await import('../core/layers/localadsb/mockSource.js');
           return m.createLocalAdsbMockSource({ viewer });
         }
-        if (needs('local-adsb', 'LOCAL_ADSB_URL')) return null;
-        return (_q, signal) => client.getJson('local-adsb', '/aircraft.json', { signal });
+        const { createLocalReceiverSource, LOCAL_RECEIVER_FEEDS } =
+          await import('../core/layers/localadsb/source.js');
+        const feeds = LOCAL_RECEIVER_FEEDS.filter(
+          (f) => !health || feedConfigured(health, f.feed),
+        );
+        if (!feeds.length) return null;
+        return createLocalReceiverSource({ proxyClient: client, feeds });
       },
       normalize: (raw) => parseLocalAdsb(raw),
       describe: (n) => formatAircraft(n.meta),
       searchText: aircraftSearchText,
       glyph: (n) => ({ ch: arrowFor(n.meta.trueTrack, g), color: '#b388ff', bold: true }),
-      legend: () => `${g.arrows[2]} aircraft heard by your receiver`,
+      legend: () => `${g.arrows[2]} aircraft heard by your receiver (1090 / 978 MHz)`,
     },
     {
       key: 'landmarks',
@@ -714,7 +738,7 @@ export function buildLayers({
     },
     {
       key: 'constellations',
-      label: 'Nav & GEO sats',
+      label: 'Nav, GEO & visual sats',
       mode: 'poll',
       intervalMs: 6 * 60 * 60_000,
       maxEntities: 1200,
@@ -737,7 +761,55 @@ export function buildLayers({
       },
       searchText: (n) => `${n.meta.name} ${n.id} ${n.meta.groupLabel}`,
       glyph: (n) => ({ ch: g.navsat, color: groupInfo(n.meta.group).color }),
-      legend: () => `${g.navsat} GPS / Galileo / GLONASS / GEO satellites`,
+      legend: () => `${g.navsat} GPS / Galileo / GLONASS / GEO / brightest satellites`,
+    },
+    {
+      key: 'perimeters',
+      label: 'Fire perimeters',
+      mode: 'poll',
+      intervalMs: 5 * 60_000,
+      maxEntities: 2000,
+      makeSource: async () => {
+        if (demo) {
+          const m = await import('../core/layers/perimeters/mockSource.js');
+          return m.createPerimeterMockSource();
+        }
+        const { createPerimeterSource } =
+          await import('../core/layers/perimeters/source.js');
+        return createPerimeterSource({ proxyClient: client });
+      },
+      normalize: (raw) => parsePerimeters(raw),
+      describe: (n) => describePerimeter(n),
+      searchText: perimeterSearchText,
+      glyph: (n) => ({
+        ch: g.perimeter,
+        color: (n.meta.containedPct ?? 0) >= 100 ? '#7a7a7a' : '#fc3e38',
+        bold: true,
+      }),
+      legend: () => `${g.perimeter} wildfire perimeters, US (NIFC WFIGS)`,
+    },
+    {
+      key: 'dams',
+      label: 'Dams',
+      mode: 'viewport',
+      maxEntities: 3000,
+      makeSource: async () =>
+        demo
+          ? (await import('../core/layers/dams/mockSource.js')).createDamMockSource({
+              viewer,
+            })
+          : createOverpassSource({
+              proxyClient: client,
+              filters: DAM_FILTERS,
+              maxAreaDeg: DAM_MAX_DEG,
+            }),
+      normalize: (json) => parseOverpass(json),
+      describe: describeDam,
+      searchText: damSearchText,
+      glyph: () => ({ ch: g.dam, color: '#66b2b2' }),
+      statusNote: (q) =>
+        !demo && q.bbox && areaTooLarge(q.bbox, DAM_MAX_DEG) ? 'zoom in to load' : '',
+      legend: () => `${g.dam} dams (OSM)`,
     },
   ];
 

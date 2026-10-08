@@ -965,6 +965,7 @@ async function setupScene(app, splash) {
     notify,
     extras,
     interceptTap,
+    proxyClient,
   });
   extras.setRefresh(() => tracking.tracker.refresh());
   tracker = tracking.tracker;
@@ -1360,6 +1361,15 @@ async function setupScene(app, splash) {
     tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
     tools.createShareTool({ encode: () => encodeView(), notify }).el,
   );
+  const { createRadioTuner } = await import('./core/ui/radioTuner.js');
+  intel.push(
+    createRadioTuner({
+      manager,
+      proxyClient,
+      notify,
+      select: (t) => tracker.select(t),
+    }).el,
+  );
   intel.push(
     section(
       'CONSOLE',
@@ -1657,7 +1667,7 @@ async function setupScene(app, splash) {
 async function attachTracking(
   app,
   manager,
-  { extraResolvers = [], panel, overlay, notify, extras, interceptTap },
+  { extraResolvers = [], panel, overlay, notify, extras, interceptTap, proxyClient },
 ) {
   const [
     { createPicker },
@@ -1703,8 +1713,54 @@ async function attachTracking(
   const isDemo = (key) => Boolean(manager.list().find((l) => l.key === key)?.demo);
 
   let tracker;
+  // Cockpit briefing strip (desktop): live signals, regional news, local info.
+  const [{ createBriefingStrip }, { targetLatLon }] = await Promise.all([
+    import('./core/ui/briefingStrip.js'),
+    import('./core/scene/sketch.js'),
+  ]);
+  const briefing =
+    app.shell === 'desktop'
+      ? createBriefingStrip({
+          proxyClient,
+          getSubject: () => {
+            const p = targetLatLon(app.viewer, cockpitTarget);
+            return p && { latitude: p.lat, longitude: p.lon };
+          },
+          getContacts: () => {
+            const out = [];
+            for (const { key, layer } of manager.active()) {
+              layer.forEachVisible?.((t, _w, n) => {
+                if (t === cockpitTarget || out.length > 2000 || !n?.position) return;
+                out.push({
+                  id: t.id,
+                  layer: key,
+                  latitude: n.position.latitude,
+                  longitude: n.position.longitude,
+                  label: n.meta?.callsign || n.meta?.name || t.id,
+                  kind: key,
+                });
+              });
+            }
+            return out;
+          },
+          onPickContact: (l) => {
+            const rec = manager.getLayer(l.target.layer)?.getRecord(l.target.id);
+            if (rec?.entity) tracker.select(rec.entity);
+          },
+        })
+      : null;
+  if (briefing) app.mount('float', briefing.el);
+  let cockpitTarget = null;
   const cockpit = createCockpit(app.viewer, {
-    onExit: () => tracker?.resume(),
+    onEnter: (t) => {
+      cockpitTarget = t;
+      briefing?.show();
+    },
+    onExit: () => {
+      cockpitTarget = null;
+      briefing?.hide();
+      tracker?.resume();
+    },
   });
   const cockpitEnabled = app.tier !== 'minimal';
 

@@ -751,3 +751,92 @@ select {
 .ct-section__note a {
   color: var(--textPrimary);
 }
+
+/* Radio tuner */
+.ct-tuner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-tuner[hidden] {
+  display: none;
+}
+.ct-tuner__tape {
+  width: 100%;
+  height: 46px;
+  border: 1px solid var(--backgroundBright);
+  background: #0a0a0a;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ct-tuner__tape:focus-visible {
+  outline: 1px solid var(--ctosGray);
+}
+.ct-tuner__name {
+  color: var(--textPrimary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-tuner__meta {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Cockpit briefing strip */
+.ct-brief {
+  width: min(420px, calc(100vw - 24px));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-brief__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.ct-brief__dots {
+  margin-left: auto;
+  color: var(--textSecondary);
+  letter-spacing: 2px;
+}
+.ct-brief__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ct-brief__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textPrimaryDim);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  text-decoration: none;
+  cursor: default;
+}
+a.ct-brief__line,
+button.ct-brief__line {
+  cursor: pointer;
+}
+a.ct-brief__line:hover,
+button.ct-brief__line:hover {
+  color: var(--textPrimary);
+}
+.ct-brief__credit {
+  color: var(--textSecondary);
+  font-size: 10px;
+}
+.ct-brief__credit a {
+  color: var(--textPrimaryDim);
+}

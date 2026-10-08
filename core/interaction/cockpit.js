@@ -16,7 +16,7 @@ const CHASE_HEIGHT = 1200; // metres above
 const LOOK_AHEAD = 1500; // aim point ahead of the entity
 const MIN_HEIGHT = 150; // camera floor above the ellipsoid
 
-export function createCockpit(viewer, { onExit } = {}) {
+export function createCockpit(viewer, { onExit, onEnter } = {}) {
   const scene = viewer.scene;
   let entity = null;
   let active = false;
@@ -105,6 +105,7 @@ export function createCockpit(viewer, { onExit } = {}) {
     if (active || !target) return;
     entity = target;
     active = true;
+    onEnter?.(target);
     lastPos = null;
     forward = null;
     viewer.trackedEntity = undefined; // we drive the camera directly
