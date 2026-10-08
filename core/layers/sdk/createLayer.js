@@ -4,6 +4,7 @@ import { interpolateInto } from './interpolate.js';
 import { computeViewportQuery } from './viewport.js';
 import { getRenderer, isPrimitiveRenderType } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
+import { createFieldLayer } from './fieldLayer.js';
 import {
   acquireContinuousRender,
   releaseContinuousRender,
@@ -55,6 +56,7 @@ export function createLayer(viewer, def, ctx) {
   }
   // Field / overlay layers (weather) render as imagery, not entities.
   if (def.render?.renderType === 'raster') return createRasterLayer(viewer, def, ctx);
+  if (def.render?.renderType === 'field') return createFieldLayer(viewer, def, ctx);
   const scene = viewer.scene;
   const intervalMs = def.fetch?.intervalMs ?? DEFAULT_INTERVAL_MS;
   // A layer is a mover if it interpolates between fixes OR computes its position
@@ -90,6 +92,9 @@ export function createLayer(viewer, def, ctx) {
   let aborter = null;
   let holdsRender = false;
   let dirty = true; // positions or visibility must be recomputed next frame
+  // Contacts drawn by something else for now (a 3D model close to the camera):
+  // their glyph stays hidden while they keep counting as visible.
+  const suppressed = new Set();
 
   // --- positions ------------------------------------------------------------
 
@@ -217,6 +222,7 @@ export function createLayer(viewer, def, ctx) {
     if (primitive) collection.remove(rec.billboard);
     else ds.entities.remove(rec.entity);
     records.delete(id);
+    suppressed.delete(id);
     dirty = true;
   }
 
@@ -275,7 +281,8 @@ export function createLayer(viewer, def, ctx) {
       }
       const visible = occluder.isPointVisible(rec.world);
       rec.visible = visible;
-      if (rec.billboard.show !== visible) rec.billboard.show = visible;
+      const show = visible && !suppressed.has(rec.id);
+      if (rec.billboard.show !== show) rec.billboard.show = show;
     }
     dirty = false;
   }
@@ -514,6 +521,13 @@ export function createLayer(viewer, def, ctx) {
      * world position as of the last rendered frame. The selection overlay and the
      * contacts roster use this; it allocates nothing.
      */
+    /** Hide (or restore) one contact's glyph while something else draws it. */
+    suppress(id, on) {
+      if (on) suppressed.add(id);
+      else suppressed.delete(id);
+      dirty = true;
+      scene.requestRender();
+    },
     /** Visit every contact the layer holds (in view or not). */
     forEachRecord(fn) {
       for (const rec of records.values()) fn(rec.target, rec.normalized);

@@ -59,6 +59,7 @@ export const LAYER_INK = Object.freeze({
   dams: INK.teal,
   imagery: INK.dimmer,
   trafficflow: INK.teal,
+  wind: INK.gray,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

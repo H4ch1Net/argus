@@ -44,6 +44,21 @@ export function pinnedQuery(required, optional = {}) {
 
 const intUpTo = (max) => (v) => /^\d{1,6}$/.test(v) && Number(v) <= max;
 
+/** "51.5,-0.12,..." -> numbers within +-max with at most 2 decimals, 2..64 of them. */
+function coordList(v, max) {
+  if (typeof v !== 'string' || v.length > 1024) return null;
+  const parts = v.split(',');
+  if (parts.length < 2 || parts.length > 64) return null;
+  const out = [];
+  for (const p of parts) {
+    if (!/^-?\d{1,3}(?:\.\d{1,2})?$/.test(p)) return null;
+    const n = Number(p);
+    if (Math.abs(n) > max) return null;
+    out.push(n);
+  }
+  return out;
+}
+
 // NHC GIS (core/layers/cyclones/forecast.js NHC_GIS_LAYERS asks exactly these).
 const NHC_GIS_BASE =
   'https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather_summary/MapServer';
@@ -118,5 +133,35 @@ export const feeds = [
     headers: UA,
     governor: { ratePerMinute: 20 },
     cache: { ttlMs: 5 * MINUTE, staleMs: HOUR },
+  },
+  {
+    // Wind (core/layers/wind/field.js): the current 10 m wind at a small grid
+    // of points over the view, from Open-Meteo (keyless; CC BY 4.0 data with a
+    // linked credit; free for non-commercial use within a daily allowance in
+    // which each point counts as one call). Pinned to that one query: 2 to 64
+    // coordinate pairs with 2 decimals, the two wind fields, m/s, UTC. At most
+    // 120 requests a day here (7,680 point calls), cached 15 min.
+    // Per the reference implementation, not live-tested here (the reference
+    // used GFS/ECMWF GRIB instead; Open-Meteo is the keyless substitute).
+    id: 'openmeteo-wind',
+    baseUrl: 'https://api.open-meteo.com/v1',
+    methods: ['GET'],
+    allowPaths: [/^\/v1\/forecast$/],
+    allowQuery: (q) => {
+      const lat = coordList(q.get('latitude'), 80);
+      const lon = coordList(q.get('longitude'), 180);
+      return (
+        pinnedQuery({
+          latitude: () => lat !== null,
+          longitude: () => lon !== null,
+          current: 'wind_speed_10m,wind_direction_10m',
+          wind_speed_unit: 'ms',
+          timezone: 'UTC',
+        })(q) && lat.length === lon.length
+      );
+    },
+    headers: UA,
+    governor: { ratePerMinute: 6, creditBudget: 120, creditWindowMs: 24 * HOUR },
+    cache: { ttlMs: 15 * MINUTE, staleMs: HOUR, maxEntries: 32 },
   },
 ];

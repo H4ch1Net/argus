@@ -50,6 +50,11 @@ export function createTrackWidget() {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(hgt * dpr);
     layout();
+    // Resizing clears the canvas, and the loop stops while it has no size
+    // (a closed panel): redraw now and restart the loop.
+    step(performance.now());
+    draw();
+    kick();
   }
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);

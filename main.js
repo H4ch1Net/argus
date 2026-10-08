@@ -514,6 +514,22 @@ async function setupScene(app, splash) {
       mock: () => Promise.resolve(null),
     },
     {
+      key: 'wind',
+      group: 'Earth & weather',
+      label: 'Wind',
+      loadDef: () =>
+        import('./core/layers/wind/definition.js').then((m) => m.windDefinition),
+      // The current 10 m wind over a grid of the view (Open-Meteo, keyless).
+      proxy: async (c) => {
+        const { createWindSource } = await import('./core/layers/wind/source.js');
+        return createWindSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/wind/source.js').then((m) => m.createWindMockSource())
+          : Promise.resolve(null),
+    },
+    {
       key: 'cyclonecones',
       group: 'Earth & weather',
       label: 'Storm cones',
@@ -1187,6 +1203,32 @@ async function setupScene(app, splash) {
     ),
   );
   if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
+
+  // 3D aircraft close to the camera (glTF models per class), desktop default.
+  const { createModelLod } = await import('./core/scene/modelLod.js');
+  const models = createModelLod(app.viewer, {
+    getLayers: () => manager.active(),
+    tier: app.tier,
+  });
+  if (!desktop) models.setEnabled(false);
+  if (models.supported) {
+    view.push(
+      section(
+        '3D MODELS',
+        createSwitch({
+          label: 'Aircraft models',
+          on: models.enabled,
+          title: 'Close aircraft as 3D models of their class (below 800 km)',
+          onToggle: (on) => models.setEnabled(on),
+        }).el,
+        h(
+          'div.ct-section__note',
+          {},
+          'Nearest aircraft within 150 km. Models: CC BY 4.0.',
+        ),
+      ),
+    );
+  }
   view.push(section('TERRAIN', terrainChoice.el));
 
   // Satellites: Starlink dense mode (thousands of points), full tier only.
@@ -1402,12 +1444,37 @@ async function setupScene(app, splash) {
     intel.push(section('CERTIFICATE TRANSPARENCY', ctTicker.el));
   }
 
+  const { formatWind: windFormat } = await import('./core/layers/wind/field.js');
+
   // Time scrubber (Phase 17): rewind the scene through the ring-buffer history.
   const { createTimeScrubber } = await import('./core/ui/timeScrubber.js');
   const scrubber = createTimeScrubber({ clock });
 
   if (desktop) {
     for (const seg of readouts.createCameraReadout(app.viewer)) app.mount('strip', seg);
+    // The wind at the middle of the view, while the wind layer is on.
+    const windSeg = createSegment({
+      label: 'WIND',
+      value: '--',
+      title: 'Wind at the view centre',
+    });
+    windSeg.el.hidden = true;
+    app.mount('strip', windSeg);
+    let windT = 0;
+    app.viewer.scene.postRender.addEventListener(() => {
+      const now = performance.now();
+      if (now - windT < 500) return;
+      windT = now;
+      const wl = manager.isEnabled('wind') ? manager.getLayer('wind') : null;
+      windSeg.el.hidden = !wl;
+      if (!wl) return;
+      const c = app.viewer.camera.positionCartographic;
+      const sample = wl.sample?.(
+        (c.longitude * 180) / Math.PI,
+        (c.latitude * 180) / Math.PI,
+      );
+      windSeg.set(sample ? windFormat(sample) : '--');
+    });
     const timeSeg = createSegment({ label: 'T' });
     timeSeg.el.querySelector('.ct-seg__value').replaceWith(scrubber.el);
     app.mount('stripEnd', timeSeg);
@@ -1430,7 +1497,8 @@ async function setupScene(app, splash) {
         manager
           .list()
           .filter((l) => l.enabled)
-          .map((l) => l.key),
+          .map((l) => l.key)
+          .concat(models.enabled ? ['models'] : []),
     }).el,
   );
   for (const el of intel) app.mount('intel', el);

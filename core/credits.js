@@ -39,6 +39,7 @@ export const GROUP_LABELS = {
   osint: 'OSINT console',
   cockpit: 'Cockpit briefing',
   terminal: 'Terminal map',
+  models: '3D aircraft models',
 };
 
 const OSM_LAYERS = [
@@ -54,8 +55,38 @@ const OSM_LAYERS = [
 ];
 const ESRI_TERMS_URL = 'https://www.esri.com/en-us/legal/terms/full-master-agreement';
 
+// The bundled aircraft GLBs (public/models/README.md lists each modification).
+const MODEL_CREDITS = [
+  ['airplane', 'Boeing 747 by zairiq-123', 'boeing-747-9b16672038ba48f98e6d80a159044ed9'],
+  ['jet', 'Private Jet by Nick the Name', 'private-jet-cbdd1de6ced9461e950eafaa302cc82b'],
+  [
+    'bell206',
+    'Bell 206 JetRanger by terran4627',
+    'bell-206-jetranger-d2f7ba1d671549d4b26aaf834139a1dd',
+  ],
+  ['c172', 'Cessna 172 by e737', 'cessna-172-64cddaee5aff470682659a8c08525046'],
+  [
+    'citation2',
+    '1990 Cessna Citation by BlenderCommunityHead',
+    '1990-cessna-citation-texture-detailed-exterior-a78839624fe64900a8352cb23462350a',
+  ],
+  ['mq9', 'MQ-9 by IProZenoN', 'mq-9-fabe963feb354c5584b51f9c470c3f7e'],
+  ['b789', 'Boeing 787-9 by Nobilis 2', 'boeing-787-9-b6711e2e698e4e469675c1154a50b7a3'],
+  ['atr72', 'ATR 72-600 by Oyan3D', 'atr-72-600-1e1a7186f7444d288675262fcee44744'],
+].map(([file, name, slug]) => ({
+  id: `model-${file}`,
+  name,
+  terms: 'CC BY 4.0; optimized for gods-eye-view (see public/models/README.md)',
+  url: `https://sketchfab.com/3d-models/${slug}`,
+  layers: ['models'],
+  feeds: [],
+  hosts: ['sketchfab.com'], // where the original works are published
+  attribution: 'required',
+}));
+
 /** @type {Credit[]} */
 export const CREDITS = [
+  ...MODEL_CREDITS,
   // --- air and space ----------------------------------------------------------
   {
     id: 'opensky',
@@ -570,8 +601,8 @@ export const CREDITS = [
     terms:
       'CC BY 4.0 data with a linked "Weather data by Open-Meteo.com" credit beside it; the free API is for non-commercial use (about 10,000 calls a day)',
     url: 'https://open-meteo.com/en/licence',
-    layers: ['cockpit'],
-    feeds: ['openmeteo'],
+    layers: ['cockpit', 'wind'],
+    feeds: ['openmeteo', 'openmeteo-wind'],
     hosts: ['api.open-meteo.com'],
     attribution: 'required',
     nonCommercial: true,

@@ -39,6 +39,7 @@ const LAYER_GLYPH = {
   shodan: 'frame',
   threats: 'triangle',
   bgp: 'dot',
+  wind: 'dot',
 };
 
 function source(key) {
