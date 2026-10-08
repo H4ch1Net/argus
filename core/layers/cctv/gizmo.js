@@ -54,7 +54,7 @@ export function createPoseGizmo({ onChange }) {
     el,
     show(nextPose, name) {
       pose = { ...nextPose };
-      title.textContent = `Calibrate: ${name}`;
+      title.textContent = `POSE  ${String(name ?? '').toUpperCase()}`;
       for (const f of FIELDS) {
         const { input, value } = inputs.get(f.key);
         input.value = pose[f.key];

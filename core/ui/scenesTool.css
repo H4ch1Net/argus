@@ -1,0 +1,144 @@
+/* Scene director (TOOLS > SCENES). Theme greys and square corners only;
+   success marks the playing state and nothing else. */
+
+.ct-scenes__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 5px;
+  border-bottom: 1px solid var(--textSecondary);
+}
+.ct-scenes__field:focus-within {
+  border-bottom-color: var(--ctosGray);
+}
+.ct-scenes__label {
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-scenes__input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--textPrimary);
+  font-size: 13px;
+}
+.ct-scenes__input::placeholder {
+  color: var(--textSecondary);
+  text-transform: uppercase;
+}
+
+/* Shot rows: 01  48.86N 2.29E 12KM  [4]S  [^][v][x] */
+.ct-scenes__shots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+}
+.ct-scenes__shot {
+  display: grid;
+  grid-template-columns: 2.5ch minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 2px 6px;
+  border-left: 2px solid transparent;
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+}
+.ct-scenes__num {
+  color: var(--textSecondary);
+  font-variant-numeric: tabular-nums;
+}
+.ct-scenes__cap {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.ct-scenes__holdwrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  color: var(--textSecondary);
+}
+.ct-scenes__hold {
+  width: 4.5ch;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid var(--textSecondary);
+  border-radius: 0;
+  background: transparent;
+  color: var(--textPrimary);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.ct-scenes__hold::-webkit-outer-spin-button,
+.ct-scenes__hold::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.ct-scenes__hold:focus {
+  outline: 0;
+  border-bottom-color: var(--ctosGray);
+}
+.ct-scenes__hold:disabled {
+  opacity: 0.4;
+}
+.ct-btn.ct-scenes__icon {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+@media (pointer: coarse) {
+  .ct-btn.ct-scenes__icon {
+    min-width: 30px;
+    min-height: 30px;
+  }
+}
+
+/* Playing: the current shot and the readout in success green. */
+.ct-scenes__shot.is-playing {
+  border-left-color: var(--success);
+  background: var(--backgroundBright);
+  color: var(--textPrimary);
+}
+.ct-scenes__shot.is-playing .ct-scenes__num,
+.ct-scenes__status.is-playing {
+  color: var(--success);
+}
+
+/* A two-step button waiting for its second press. */
+.ct-scenes .ct-btn.is-armed {
+  border-color: var(--textPrimary);
+  color: var(--textPrimary);
+}
+
+/* Saved scenes */
+.ct-scenes__sub {
+  margin-top: 6px;
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+.ct-scenes__saved {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+}
+.ct-scenes__saved > .ct-row {
+  min-height: 30px;
+}
+.ct-scenes__saved > .ct-row:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

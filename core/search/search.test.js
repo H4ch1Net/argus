@@ -32,3 +32,15 @@ test('3+ characters go through the geocoder chain when there is one', async () =
   await s.search('LA');
   assert.deepEqual(asked, ['Paris, TX'], 'a 2-letter alias never reaches the network');
 });
+
+test('landmarks answer offline and fly to their own view', async () => {
+  const flown = [];
+  const cam = { flyTo: () => {}, flyAround: (v) => flown.push(v) };
+  const s = createSearch({ manager, camera: cam, onSelectEntity: () => {} });
+  const hit = (await s.search('eiffel')).find((r) => r.sub === 'landmark');
+  assert.ok(hit, 'a landmark result');
+  assert.match(hit.label, /eiffel/i);
+  await s.select(hit);
+  assert.equal(flown.length, 1);
+  assert.ok(flown[0].range > 0);
+});

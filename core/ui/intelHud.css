@@ -1,0 +1,264 @@
+/* Intel HUD (core/ui/intelHud.js): ISR telemetry over the globe in the ctOS
+   language. Small uppercase mono, grays and white, square corners, thin
+   corner frame, no glow; green only for the live REC state. Lines sit on a
+   ground plate (the panel token) so they read over bright imagery. The
+   whole layer passes pointer input through. It lives in viewer.container:
+   z-index 2 puts it above the tracking overlay canvas (1) and under the
+   shell panels (10).
+
+   Geometry matches the tracking overlay's frame (10px in from the free area,
+   14px arms) so the two coincide; the text rows start 32px in, clear of the
+   overlay's own corner labels. */
+
+.ct-intel {
+  --ct-intel-t: 0px;
+  --ct-intel-r: 0px;
+  --ct-intel-b: 0px;
+  --ct-intel-l: 0px;
+  --ct-intel-inset: 10px;
+  --ct-intel-arm: 14px;
+  --ct-intel-edge: 18px;
+  --ct-intel-row: 32px;
+  --ct-intel-ink: #ffffff8c;
+  --ct-intel-rule: #ffffff38;
+  --ct-intel-plate: var(--panel-translucent, #0e0e0eee);
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  contain: layout paint style;
+  pointer-events: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+  color: var(--textPrimaryDim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.ct-intel[hidden],
+.ct-intel [hidden] {
+  display: none !important;
+}
+
+/* The free area between panels; a size container for the breakpoints below. */
+.ct-intel__area {
+  position: absolute;
+  top: var(--ct-intel-t);
+  right: var(--ct-intel-r);
+  bottom: var(--ct-intel-b);
+  left: var(--ct-intel-l);
+  container: ct-intel / size;
+}
+
+/* Four L-corners, the theme's .ct-frame idiom at overlay scale. */
+.ct-intel__frame {
+  --c: var(--ct-intel-ink);
+  --arm: var(--ct-intel-arm);
+  position: absolute;
+  inset: var(--ct-intel-inset);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) top right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top right / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--arm);
+  background-repeat: no-repeat;
+}
+
+/* Marking banner: centred on the frame's top edge, rules running out to the
+   corner arms. */
+.ct-intel__banner {
+  position: absolute;
+  top: var(--ct-intel-inset);
+  left: calc(var(--ct-intel-inset) + var(--ct-intel-arm) + 8px);
+  right: calc(var(--ct-intel-inset) + var(--ct-intel-arm) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  color: var(--textPrimaryDimmer);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+.ct-intel__banner::before,
+.ct-intel__banner::after {
+  content: '';
+  flex: 1 1 0;
+  min-width: 0;
+  height: 1px;
+  background: var(--ct-intel-rule);
+}
+.ct-intel__cls {
+  flex: none;
+  padding: 0 6px;
+  background: var(--ct-intel-plate);
+}
+
+/* Corner blocks: two rows, each split left / right. */
+.ct-intel__top,
+.ct-intel__bottom {
+  position: absolute;
+  left: var(--ct-intel-edge);
+  right: var(--ct-intel-edge);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ct-intel__top {
+  top: var(--ct-intel-row);
+  align-items: flex-start;
+}
+.ct-intel__bottom {
+  bottom: var(--ct-intel-row);
+  align-items: flex-end;
+}
+.ct-intel__block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.ct-intel__block--end {
+  align-items: flex-end;
+  text-align: right;
+}
+.ct-intel__line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 1px 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  background: var(--ct-intel-plate);
+}
+.ct-intel__pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.ct-intel__k {
+  flex: none;
+  color: var(--textSecondary);
+}
+.ct-intel__v {
+  color: var(--textPrimary);
+}
+.ct-intel__v--near {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-intel__pair--near {
+  overflow: hidden;
+}
+.ct-intel__stamp {
+  color: var(--textPrimary);
+}
+.ct-intel__rec {
+  gap: 6px;
+}
+.ct-intel__tag {
+  flex: none;
+  align-self: center;
+  padding: 0 3px;
+  border: 1px solid var(--textSecondary);
+  color: var(--textSecondary);
+  font-size: 9px;
+  line-height: 11px;
+}
+
+/* REC: live state, so green; blinks every 800 ms (on 800, off 800). */
+.ct-intel__dot {
+  color: var(--success);
+  animation: ct-intel-blink 1600ms steps(1, end) infinite;
+}
+@keyframes ct-intel-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-intel__dot {
+    animation: none;
+  }
+}
+
+/* Centre reticle: the point the MGRS line names (canvas centre). */
+.ct-intel__reticle {
+  --c: var(--ct-intel-ink);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 21px;
+  height: 21px;
+  margin: -10px 0 0 -10px;
+  background:
+    linear-gradient(var(--c), var(--c)) left center / 7px 1px,
+    linear-gradient(var(--c), var(--c)) right center / 7px 1px,
+    linear-gradient(var(--c), var(--c)) center top / 1px 7px,
+    linear-gradient(var(--c), var(--c)) center bottom / 1px 7px;
+  background-repeat: no-repeat;
+}
+
+/* ---------- narrow free area (phones): stack the bottom, drop long lines ---------- */
+@container ct-intel (max-width: 560px) {
+  .ct-intel__x,
+  .ct-intel__xn {
+    display: none !important;
+  }
+  .ct-intel__banner,
+  .ct-intel__top,
+  .ct-intel__bottom {
+    font-size: 10px;
+  }
+  .ct-intel__top,
+  .ct-intel__bottom {
+    left: 14px;
+    right: 14px;
+  }
+  .ct-intel__bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .ct-intel__bottom .ct-intel__block--end {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .ct-intel__line {
+    gap: 8px;
+  }
+}
+
+/* Short free area (a raised bottom sheet): keep one line per corner. */
+@container ct-intel (max-height: 240px) {
+  .ct-intel__y {
+    display: none !important;
+  }
+}
+
+/* Too small to say anything useful: frame and banner only. */
+@container ct-intel (max-height: 130px) {
+  .ct-intel__top,
+  .ct-intel__bottom {
+    display: none;
+  }
+}
+@container ct-intel (max-width: 200px) {
+  .ct-intel__top,
+  .ct-intel__bottom {
+    display: none;
+  }
+}

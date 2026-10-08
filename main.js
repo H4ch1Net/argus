@@ -1374,7 +1374,36 @@ async function setupScene(app, splash) {
     isBusy: () => Boolean(tracking?.cockpit?.isActive()),
     onChange: (on) => orbitSwitch.set(on),
   });
-  view.push(section('DISPLAY', cleanSwitch.el, orbitSwitch.el));
+  // Intel HUD (H): ISR-style telemetry over the globe (MGRS, GSD and NIIRS,
+  // sun elevation, off-nadir angle, the nearest place). It sits in the same
+  // free area as the tracking overlay, so it follows the overlay's insets.
+  const { createIntelHud } = await import('./core/ui/intelHud.js');
+  const intelHud = createIntelHud(app.viewer, {
+    places: CITIES,
+    tier: app.tier,
+    getMode: () =>
+      String(
+        shaders ? (shaders.labels?.[shaders.sensor] ?? shaders.sensor) : 'normal',
+      ).toUpperCase(),
+  });
+  app.viewer.container.appendChild(intelHud.el);
+  intelHud.setVisible(false);
+  const overlayInsets = overlay.setInsets;
+  overlay.setInsets = (i) => {
+    overlayInsets(i);
+    intelHud.setInsets(i);
+  };
+  intelHud.setInsets(overlay.geometry().insets);
+  const setHud = (on) => {
+    intelHud.setVisible(on);
+    hudSwitch.set(on);
+  };
+  const hudSwitch = createSwitch({
+    label: 'Intel HUD',
+    title: 'MGRS, GSD and NIIRS, sun elevation, off-nadir angle (H)',
+    onToggle: (on) => intelHud.setVisible(on),
+  });
+  view.push(section('DISPLAY', hudSwitch.el, cleanSwitch.el, orbitSwitch.el));
 
   // Contact cycling (N / P, and the arrows on the target panel): walk the
   // contacts the overlay lists, from a snapshot taken when the walk starts, so
@@ -1403,6 +1432,7 @@ async function setupScene(app, splash) {
   app.mount('overlay', keyHelp.el);
   shortcuts.bindShortcuts({
     help: () => keyHelp.toggle(),
+    hud: () => setHud(!intelHud.visible()),
     clean: () => setClean(!cleanOn),
     orbit: () => orbit.toggle(),
     density: () => {
@@ -1517,6 +1547,71 @@ async function setupScene(app, splash) {
     tools.createDrawTool({ sketch, armTap, disarm }).el,
     tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
     tools.createShareTool({ encode: () => encodeView(), notify }).el,
+  );
+
+  // Scenes: views captured as shots and played back as a tour (fly, then
+  // hold), saved on this device or exported as JSON. Nothing is uploaded.
+  const [{ createScenesTool }, { createSceneCamera }, { createPoiTool }] =
+    await Promise.all([
+      import('./core/ui/scenesTool.js'),
+      import('./core/scene/sceneCamera.js'),
+      import('./core/ui/poiTool.js'),
+    ]);
+  const sceneCam = createSceneCamera(app.viewer);
+  const layerKeyOf = (t) =>
+    manager.active().find((a) => a.layer.getRecord(t.id)?.entity === t)?.key ?? null;
+  const scenes = createScenesTool({
+    capture: () => {
+      const t = tracker.trackedEntity;
+      const tk = t && layerKeyOf(t);
+      return {
+        camera: sceneCam.read(),
+        layers: manager.active().map((a) => a.key),
+        look: shaders?.sensor ?? 'none',
+        target: tk ? { layer: tk, id: String(t.id) } : undefined,
+      };
+    },
+    apply: async (shot) => {
+      orbit.stop();
+      setPreset(null);
+      await applyPreset(manager, { layers: shot.layers ?? [] });
+      if (shot.look && shaders) {
+        shaders.setSensor(shot.look);
+        syncSensorUi();
+      }
+      const rec = shot.target
+        ? manager.getLayer(shot.target.layer)?.getRecord(shot.target.id)
+        : null;
+      if (rec?.entity) tracker.select(rec.entity);
+      else tracker.deselect();
+    },
+    flyTo: (cam, ms, signal) => {
+      orbit.stop();
+      tracker.unfollow?.();
+      return sceneCam.flyTo(cam, ms, signal);
+    },
+    notify,
+    canvas: app.viewer.scene.canvas,
+  });
+  intel.push(scenes.el);
+
+  // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
+  intel.push(
+    createPoiTool({
+      flyTo: (v) => {
+        orbit.stop();
+        tracker.unfollow?.();
+        camera.flyAround({
+          longitude: v.lon,
+          latitude: v.lat,
+          height: v.targetM ?? 0,
+          groundM: v.groundM ?? 0,
+          range: v.alt,
+          heading: v.heading,
+          pitch: v.pitch,
+        });
+      },
+    }).el,
   );
   const { createRadioTuner } = await import('./core/ui/radioTuner.js');
   intel.push(
@@ -1961,9 +2056,13 @@ async function attachTracking(
   const cockpitEnabled = app.tier !== 'minimal';
 
   // CCTV pose gizmo: shown when a camera is the target, edits its pose live.
-  let calibrating = null; // { layer, id }
+  let calibrating = null; // { layer, id } (CCTV) or { projection: true }
   const gizmo = createPoseGizmo({
     onChange: (pose) => {
+      if (calibrating?.projection) {
+        projection.setPose(pose);
+        return;
+      }
       const rec = calibrating?.layer.getRecord(calibrating.id);
       if (rec) {
         rec.normalized.meta.pose = pose;
@@ -1973,13 +2072,71 @@ async function attachTracking(
   });
   app.mount('target', gizmo.el);
 
+  // PROJECT (traffic cameras): the camera's published still placed in 3D
+  // where it looks, as a frustum and a picture at its far end, its pose
+  // editable with the gizmo. Display only: nothing reads the pixels.
+  const [{ createCamProjection }, { loadStill }] = await Promise.all([
+    import('./core/layers/trafficcams/projection.js'),
+    import('./core/layers/trafficcams/still.js'),
+  ]);
+  const projection = createCamProjection(app.viewer);
+  let still = null;
+  let projecting = 0;
+  const projectedId = () => projection.active()?.id ?? null;
+  function unproject() {
+    projecting += 1;
+    projection.hide();
+    still?.revoke();
+    still = null;
+    if (calibrating?.projection) {
+      calibrating = null;
+      gizmo.hide();
+    }
+  }
+  async function project(rec) {
+    const id = String(rec.normalized.id);
+    if (projectedId() === id) {
+      unproject();
+      tracker.refresh();
+      return;
+    }
+    unproject();
+    const token = projecting;
+    let loaded = null;
+    try {
+      loaded = rec.metadata.image ? await loadStill(rec.metadata.image) : null;
+    } catch (err) {
+      notify({ title: 'NO STILL', body: String(err.message || err), level: 'low' });
+    }
+    if (token !== projecting) return loaded?.revoke();
+    still = loaded;
+    if (!projection.show(rec.normalized, still?.url ?? null)) return;
+    tracker.unfollow();
+    projection.flyToView();
+    calibrating = { projection: true };
+    gizmo.show(projection.active().pose, rec.metadata.title);
+    tracker.refresh();
+  }
+  const projectAction = (rec) => {
+    const on = projectedId() === String(rec.normalized.id);
+    return {
+      label: on ? 'UNPROJECT' : 'PROJECT',
+      pressed: on,
+      title: 'Place the published still in 3D where the camera looks',
+      onClick: () => project(rec),
+    };
+  };
+
   tracker = createTracker(app.viewer, {
     resolve,
     panel,
     overlay,
     notify,
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
-    extraActions: (target, rec) => extras?.actions(target, rec) ?? [],
+    extraActions: (target, rec) => [
+      ...(extras?.actions(target, rec) ?? []),
+      ...(rec.key === 'trafficcams' ? [projectAction(rec)] : []),
+    ],
     onChange: (target, rec) => {
       if (!quiet) app.focusTarget?.(Boolean(target));
       if (target && rec) extras?.onSelect(rec.key, rec.normalized);
@@ -1991,6 +2148,9 @@ async function attachTracking(
           nudgeIntoView(app.viewer, p, overlay.geometry().insets);
         }, 360);
       }
+      // A projection belongs to its camera: another selection takes it down.
+      if (projectedId() && (!target || String(target.id) !== projectedId())) unproject();
+      if (calibrating?.projection) return;
       const cctv = manager.getLayer('cctv');
       const cam = target && cctv ? cctv.getRecord(target.id) : null;
       if (cam?.normalized?.meta?.pose) {
