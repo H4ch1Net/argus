@@ -833,7 +833,8 @@ their upstreams. Pure logic is unit-tested with fixtures.
   server-side GRIB decoder dependency that could not be installed here
   (registry blocked). The Wind layer uses Open-Meteo's current wind grid
   instead, so there is no forecast timeline.
-- **WebUSB SDR, HLS camera video, the scene director**: deferred.
+- **WebUSB SDR, HLS camera video, hosted scene sharing**: deferred (the
+  scene director itself is in Phase F, local only).
 
 ### Verified in this pass
 
@@ -875,3 +876,56 @@ commit: 459 core passes at `8256f92`, 462 at `743734d`):
   real TLEs): need `satellite.js`.
 - Unchanged from earlier phases: keyed feeds without keys here, photoreal
   tiles, CertStream upstream silence, CCTV and threats demo-only.
+
+## Phase F: parity round 2 and the independent review
+
+Same environment limits as Phase E (no network, no real Cesium; the web UI
+was checked in the stub harness only).
+
+### Fixed from an independent review of Phase E
+
+| Finding                                                                                    | Status |
+| ------------------------------------------------------------------------------------------ | ------ |
+| The fifth notification froze the tab (a dismiss loop that never shrank)                    | Fixed  |
+| Target card buttons kept the previous target's actions when labels matched                 | Fixed  |
+| Taps on line layers (cables, perimeters, cones, arcs) no longer selected                   | Fixed  |
+| adsbdb enrichment never showed (a cached answer is wrapped as `{ value }`)                 | Fixed  |
+| A second REPLAY press during the detail fetch leaked a run and its render claim            | Fixed  |
+| Movers moved at half the paced frame rate                                                  | Fixed  |
+| Escape in the launcher or terminal also dropped the target                                 | Fixed  |
+| TxDOT JSON stills never displayed                                                          | Fixed  |
+| TRACE 24H barely showed (the trail took only the newest 48 fixes)                          | Fixed  |
+| Hub brackets drew for a target behind the globe                                            | Fixed  |
+| Polygons and lines re-tessellated on every poll                                            | Fixed  |
+| A radio stream could not be stopped after the Radio layer went off                         | Fixed  |
+| A 3D model hid its glyph before it drew; a missing model was re-requested twice a second   | Fixed  |
+| The first drill-pick won even when it was the trail or a sketch line                       | Fixed  |
+| Phone radio tuner steps switched the sheet to TARGET                                       | Fixed  |
+| The phone nudge lowered the camera on a tilted view                                        | Fixed  |
+| Route fly-along ignored terrain                                                            | Fixed  |
+| Share links: one unknown value discarded the whole link; VIEW controls did not repaint     | Fixed  |
+| Proxy relay: no nosniff / CSP, image feeds passed any body, redirects followed blindly     | Fixed  |
+| The wind budget was spent by a few minutes of panning                                      | Fixed  |
+| Satellite rings propagated while the layer was off; a decayed satellite could flicker back | Fixed  |
+| `gnews` / `gdelt` accept any printable text (the client sends place names only)            | Noted  |
+| Esri basemap and labels and radio audio load straight from their hosts, not via the proxy  | Noted  |
+
+### Added
+
+| Feature                                                                            | Status       | Tests                                     |
+| ---------------------------------------------------------------------------------- | ------------ | ----------------------------------------- |
+| Keyboard shortcuts (H, O, V, D, N / P, 1 to 6, ?) and the shortcut list            | Stub-checked | `core/ui/keymap.test.js`                  |
+| Intel HUD: MGRS, DMS, GSD and NIIRS, sun elevation, off-nadir angle, nearest place | Stub-checked | `core/geo/*.test.js`, `intelHudModel`     |
+| Clean view (V) with a UI chip to come back; orbit (O)                              | Stub-checked |                                           |
+| Contact cycling: N / P and PREV / NEXT on the contacts header                      | Stub-checked |                                           |
+| Presets give the view back on exit (the reference's Global Context)                | Stub-checked |                                           |
+| Scenes: capture, play as a tour, loop, save locally, export / import JSON          | Stub-checked | `core/share/scenes.test.js`               |
+| Landmarks: nine cities, public places only, in TOOLS and search                    | Stub-checked | `core/search/pois.test.js`, search tests  |
+| PROJECT: a traffic camera's still in 3D at its frustum's far plane, pose gizmo     | Stub-checked | `core/layers/trafficcams/projection.test` |
+| Cockpit weather: haze, fog, cloud, rain, snow, droplets, storm flashes             | Stub-checked |                                           |
+
+### Still unverified (and why)
+
+- All of the above on real Cesium: the orbit's `lookAt` handoff, the HUD's
+  centre pick, the projection quad's orientation and texture, the landmark
+  views' framing over real terrain, and scene playback timing.

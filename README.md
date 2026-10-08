@@ -127,18 +127,28 @@ on a dark mono basemap. Close up, aircraft become 3D models of their class.
 - **The target panel** opens when you click or tap a contact. The camera stays
   where it is; the panel shows the live tracking widget, the card with source
   links, actions (FOLLOW, FLY TO, COCKPIT, and per layer TRACE 24H, NEXT PASS,
-  REPLAY, NEAREST CAM), and CONTACTS: the nearest contacts with the same IDs as
-  the map. On the phone the target glides into view above the sheet.
+  REPLAY, NEAREST CAM, PROJECT), and CONTACTS: the nearest contacts with the
+  same IDs as the map, with PREV / NEXT to step through them. On the phone the
+  target glides into view above the sheet. PROJECT on a traffic camera places
+  its published still in 3D at the end of its frustum, with a gizmo to adjust
+  the pose.
 - **VIEW**: basemap (DARK, SAT, STREETS, RELIEF offline) and MONO; LABELS (city
   names offline, places + borders, street names); tracking density and the
   viewport frame; terrain; 3D MODELS (close aircraft as glTF models of their
   class, on by default on the desktop); Starlink dense (desktop); weather history; sensor
   looks (NVG, FLIR, Noir on every tier with shaders; Snow, CRT, sharpen and
-  bloom on the desktop); the system readout.
+  bloom on the desktop); DISPLAY (the Intel HUD with MGRS, GSD and NIIRS, sun
+  elevation and off-nadir angle; clean view; orbit); the system readout.
 - **TOOLS**: ROUTE, DRAW + MEASURE, RECENT IMAGERY, SHARE (the address bar always
-  holds the current view, so a reload or a copied link reopens it), RADIO, the
+  holds the current view, so a reload or a copied link reopens it), SCENES
+  (capture views as shots and play them as a tour; saved on this device or as
+  JSON files), LANDMARKS (public landmarks in nine cities), RADIO, the
   console, the Certificate Transparency ticker, and DATA CREDITS (on the phone
   the TIMELINE scrubber lives here too).
+- **Presets** give the view back: pressing the active preset again returns the
+  camera and layers to what they were before it.
+- **Cockpit** (desktop): a briefing strip (nearest contacts, regional news,
+  local info) and the observed weather below drawn over the view.
 - Notifications slide in top right (mako style), search is a rofi-style
   launcher, the terminal is a kitty-style window, and a short boot splash runs
   while the globe starts.
@@ -154,6 +164,13 @@ on a dark mono basemap. Close up, aircraft become 3D models of their class.
 | `/` or `Ctrl+K`          | Search launcher (arrows move, Enter picks, Esc closes)                           |
 | `` ` `` (backtick)       | Terminal (Up / Down for history, Esc closes)                                     |
 | `M` / `T` (desktop)      | Show or hide the menu / the target panel                                         |
+| `1` to `6`               | Presets NEAR, SKY, HAZ, ENV, WATCH, NET (again to leave and get the view back)   |
+| `N` / `P`                | Next / previous contact                                                          |
+| `H`                      | Intel HUD                                                                        |
+| `O`                      | Orbit the middle of the view (any press stops it)                                |
+| `D`                      | Tracking box density (off, low, med, high)                                       |
+| `V`                      | Clean view: hide the interface (the UI chip brings it back)                      |
+| `?`                      | The list of shortcuts                                                            |
 | Wheel, pinch, + / -      | Zoom; left-drag rotates; right- or middle-drag, or two fingers, tilt             |
 | N, TLT, whole Earth, GEO | North up, straight down or oblique, the whole Earth, your position               |
 
@@ -165,7 +182,8 @@ when served over trusted HTTPS.
 
 Rendering is built to stay cool: point and billboard layers draw on one Cesium
 BillboardCollection per layer (no Entity per contact), movers re-interpolate on
-a ~15 Hz fleet tick and only write a position after it moved more than a metre,
+a fleet tick that matches the paced frame rate (15 Hz for fleets of thousands)
+and only write a position after it moved more than a metre,
 the horizon cull allocates nothing per frame, and one shared frame pacer
 requests frames only while something animates (30 fps on the full tier, 20
 balanced, 15 minimal, 60 in cockpit). All tracking text is one 2D canvas, not
