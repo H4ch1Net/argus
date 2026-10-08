@@ -56,7 +56,10 @@ test('the first direction tag present wins', () => {
 });
 
 test('cones per camera: ALPR defaults, camera defaults, rings', () => {
-  const at = (tags) => ({ position: { longitude: -122.4, latitude: 37.8 }, meta: { tags } });
+  const at = (tags) => ({
+    position: { longitude: -122.4, latitude: 37.8 },
+    meta: { tags },
+  });
   const alpr = cameraCones(at({ 'surveillance:type': 'ALPR', direction: 'N' }));
   assert.equal(alpr.alpr, true);
   assert.equal(alpr.rangeM, 60);
@@ -87,7 +90,10 @@ test('a sector starts at the camera and its arc lies at the range, centred on th
   const metres = (x, y) => {
     const dx = ((x - lon) * Math.PI * 6378137 * Math.cos((lat * Math.PI) / 180)) / 180;
     const dy = ((y - lat) * Math.PI * 6378137) / 180;
-    return { d: Math.hypot(dx, dy), bearing: ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360 };
+    return {
+      d: Math.hypot(dx, dy),
+      bearing: ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360,
+    };
   };
   for (let i = 2; i < ring.length; i += 2) {
     assert.ok(near(metres(ring[i], ring[i + 1]).d, 100, 1e-6));
@@ -97,7 +103,9 @@ test('a sector starts at the camera and its arc lies at the range, centred on th
   assert.ok(near(metres(ring[2], ring[3]).bearing, 60, 1e-6));
   assert.ok(near(metres(ring[14], ring[15]).bearing, 120, 1e-6));
   // Default segment count grows with the width.
-  assert.ok(sectorDegrees(0, 0, 0, 120, 50).length > sectorDegrees(0, 0, 0, 30, 50).length);
+  assert.ok(
+    sectorDegrees(0, 0, 0, 120, 50).length > sectorDegrees(0, 0, 0, 30, 50).length,
+  );
 });
 
 test('a ring is a closed-able circle at the range', () => {

@@ -74,7 +74,10 @@ test('overlay pixels: transparent at low latitudes, mint over the oval', () => {
   const oval = at(-70, 60);
   assert.ok(oval[3] > 60, `alpha ${oval[3]}`);
   assert.ok(oval[1] >= oval[0], 'mint: green-leaning');
-  assert.equal(auroraPixels(null, 4, 2).every((v) => v === 0), true);
+  assert.equal(
+    auroraPixels(null, 4, 2).every((v) => v === 0),
+    true,
+  );
 });
 
 test('notes and readouts', () => {

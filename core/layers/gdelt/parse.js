@@ -48,7 +48,9 @@ export function gdeltArticles(html, limit = 5) {
   const out = [];
   const seen = new Set();
   const re = /<a\b([^>]*)>([\s\S]{0,400}?)<\/a>/gi;
-  for (const m of String(html ?? '').slice(0, 20_000).matchAll(re)) {
+  for (const m of String(html ?? '')
+    .slice(0, 20_000)
+    .matchAll(re)) {
     const attrs = m[1];
     const url = safeUrl(/\bhref\s*=\s*"([^"]{1,600})"/i.exec(attrs)?.[1] ?? '');
     if (!url || seen.has(url)) continue;
@@ -56,7 +58,11 @@ export function gdeltArticles(html, limit = 5) {
     const title = (
       decode(/\btitle\s*=\s*"([^"]{0,400})"/i.exec(attrs)?.[1] ?? '') || decode(m[2])
     ).slice(0, 160);
-    out.push({ title: title || new URL(url).hostname, url, domain: new URL(url).hostname.replace(/^www\./, '') });
+    out.push({
+      title: title || new URL(url).hostname,
+      url,
+      domain: new URL(url).hostname.replace(/^www\./, ''),
+    });
     if (out.length >= limit) break;
   }
   return out;
@@ -83,14 +89,21 @@ export function parseGdeltGeo(payload, theme) {
     const c = f?.geometry?.type === 'Point' ? f.geometry.coordinates : null;
     if (!Array.isArray(c)) continue;
     const [lon, lat] = c;
-    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90)
+    if (
+      !Number.isFinite(lon) ||
+      !Number.isFinite(lat) ||
+      Math.abs(lon) > 180 ||
+      Math.abs(lat) > 90
+    )
       continue;
     const id = `gdelt/${theme.id}/${lon.toFixed(3)},${lat.toFixed(3)}`;
     if (seen.has(id)) continue;
     seen.add(id);
     const p = f.properties ?? {};
     const articles = gdeltArticles(p.html);
-    const count = Number.isFinite(Number(p.count)) ? Math.max(0, Math.round(Number(p.count))) : articles.length;
+    const count = Number.isFinite(Number(p.count))
+      ? Math.max(0, Math.round(Number(p.count)))
+      : articles.length;
     out.push({
       id,
       type: 'event',

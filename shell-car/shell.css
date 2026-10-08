@@ -1,0 +1,177 @@
+/* Car shell (Android Auto), ctOS: the globe edge to edge, a status strip top
+   left, the nearest contacts bottom left, both in large type for a glance at
+   arm's length. Everything stays inside the area the car's own controls leave
+   free (--car-* insets, set by the app). */
+
+.argus-shell-car {
+  --car-top: 0px;
+  --car-right: 0px;
+  --car-bottom: 0px;
+  --car-left: 0px;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+  background: var(--background);
+  font-size: 15px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.argus-shell-car .argus-globe {
+  position: absolute;
+  inset: 0;
+}
+
+.argus-shell-car .argus-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.argus-shell-car .argus-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Attribution stays, small, out of the way of the car's controls. */
+.argus-shell-car .cesium-widget-credits {
+  left: calc(var(--car-left) + 8px) !important;
+  right: auto;
+  bottom: calc(var(--car-bottom) + 2px) !important;
+  opacity: 0.4;
+  font-size: 8px;
+}
+
+/* Desk-only chrome main may still attach: no place for it on a car screen. */
+.argus-shell-car .ct-intel,
+.argus-shell-car .ct-clean-exit {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------ status */
+.car-status {
+  position: absolute;
+  top: calc(var(--car-top) + 8px);
+  left: calc(var(--car-left) + 8px);
+  display: flex;
+  background: var(--panel-translucent);
+  border: 1px solid var(--date-border);
+  box-shadow: var(--window-shadow);
+}
+.car-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 10px 5px;
+  border-left: 1px solid var(--date-border);
+}
+.car-cell:first-child {
+  border-left: 0;
+}
+.car-cell__label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--textSecondary);
+}
+.car-cell__value {
+  font-size: 18px;
+  line-height: 1.1;
+  color: var(--textPrimary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.car-status.is-stale .car-cell:nth-child(n + 3) .car-cell__value {
+  color: var(--textSecondary);
+}
+
+/* --------------------------------------------------- nearest contacts */
+.car-readout {
+  position: absolute;
+  left: calc(var(--car-left) + 8px);
+  bottom: calc(var(--car-bottom) + 14px);
+  min-width: min(340px, calc(100% - var(--car-left) - var(--car-right) - 16px));
+  max-width: min(560px, calc(100% - var(--car-left) - var(--car-right) - 16px));
+  background: var(--panel-translucent);
+  border: 1px solid var(--date-border);
+  box-shadow: var(--window-shadow);
+}
+.car-readout[hidden] {
+  display: none;
+}
+.car-row {
+  display: grid;
+  grid-template-columns: 2.2em minmax(0, 1fr) auto 4.6em 1.4em;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--textPrimary);
+  border-left: 3px solid transparent;
+}
+.car-row + .car-row {
+  border-top: 1px solid #ffffff14;
+}
+.car-row.is-hub {
+  border-left-color: var(--success);
+}
+.car-row__id {
+  color: var(--textSecondary);
+  font-variant-numeric: tabular-nums;
+}
+.car-row__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.car-row__kind {
+  font-size: 12px;
+  color: var(--textPrimaryDimmer);
+  white-space: nowrap;
+}
+.car-row__range {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.car-row__dir {
+  display: flex;
+  justify-content: center;
+}
+.car-row__arrow {
+  display: inline-block;
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------ notifications */
+.car-notify {
+  position: absolute;
+  top: calc(var(--car-top) + 8px);
+  right: calc(var(--car-right) + 8px);
+  max-width: min(360px, 45%);
+}
+/* Only what the driver must know (no proxy, and the like). */
+.car-notify .ct-note:not(.ct-note--critical) {
+  display: none;
+}
+
+/* ------------------------------------------------------- own position */
+.car-self {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  filter: drop-shadow(0 0 3px #000000cc);
+  will-change: transform;
+}
+.car-self[hidden] {
+  display: none;
+}
+.car-self svg {
+  display: block;
+}

@@ -47,7 +47,9 @@ export function terminatorLine(date = new Date(), steps = 180) {
     const b = (i / steps) * 2 * Math.PI; // bearing from the subsolar point
     // Destination 90 degrees away along bearing b.
     const lat = Math.asin(Math.cos(lat0) * Math.cos(b));
-    const lon = sub.lon * D2R + Math.atan2(Math.sin(b) * Math.cos(lat0), -Math.sin(lat0) * Math.sin(lat));
+    const lon =
+      sub.lon * D2R +
+      Math.atan2(Math.sin(b) * Math.cos(lat0), -Math.sin(lat0) * Math.sin(lat));
     out.push([((((lon / D2R + 180) % 360) + 360) % 360) - 180, lat / D2R]);
   }
   return out;
@@ -105,7 +107,9 @@ export function nightPixels(
       }
       const n = nightness(s);
       const sa = n * shade;
-      const la = lights ? (lights[j * width + i] / 255) * smooth((-s - SIN2) / (SIN8 - SIN2)) : 0;
+      const la = lights
+        ? (lights[j * width + i] / 255) * smooth((-s - SIN2) / (SIN8 - SIN2))
+        : 0;
       const A = la + sa * (1 - la);
       if (A <= 0.004) {
         px[k + 3] = 0;

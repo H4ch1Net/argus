@@ -28,7 +28,10 @@ export function demoChpXml(now = Date.now()) {
     byCenter.set(center, (byCenter.get(center) ?? '') + log);
   });
   const centers = [...byCenter]
-    .map(([id, logs]) => `<Center ID="${id}"><Dispatch ID="${id}">${logs}</Dispatch></Center>`)
+    .map(
+      ([id, logs]) =>
+        `<Center ID="${id}"><Dispatch ID="${id}">${logs}</Dispatch></Center>`,
+    )
     .join('');
   return `<?xml version="1.0" encoding="utf-8"?><State ID="STATE">${centers}</State>`;
 }

@@ -38,7 +38,11 @@ export const auroraDefinition = {
       return {
         setField(field) {
           if (!field) return;
-          const canvas = pixelsToCanvas(auroraPixels(field, WIDTH, HEIGHT), WIDTH, HEIGHT);
+          const canvas = pixelsToCanvas(
+            auroraPixels(field, WIDTH, HEIGHT),
+            WIDTH,
+            HEIGHT,
+          );
           overlay.show(canvas, [-180, -90, 180, 90]);
         },
         setVisible: (on) => overlay.setVisible(on),

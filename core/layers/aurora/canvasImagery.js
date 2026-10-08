@@ -141,6 +141,9 @@ export function pixelsToCanvas(pixels, width, height) {
   const c = document.createElement('canvas');
   c.width = width;
   c.height = height;
-  c.getContext('2d').putImageData(new ImageData(pixels, width, height), 0, 0);
+  const g = c.getContext('2d');
+  const image = g.createImageData(width, height);
+  image.data.set(pixels);
+  g.putImageData(image, 0, 0);
   return c;
 }

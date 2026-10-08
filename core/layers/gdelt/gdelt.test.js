@@ -7,7 +7,12 @@ import {
   parseGdeltGeo,
   parseGdeltThemes,
 } from './parse.js';
-import { describeGdelt, gdeltColorHex, gdeltPixelSize, gdeltSearchText } from './format.js';
+import {
+  describeGdelt,
+  gdeltColorHex,
+  gdeltPixelSize,
+  gdeltSearchText,
+} from './format.js';
 import { createGdeltSource, createGdeltMockSource } from './source.js';
 import { INK } from '../../ui/palette.js';
 
@@ -26,7 +31,11 @@ const ANSWER = {
         html: '<a href="https://news.example.com/a?x=1&amp;y=2" title="Typhoon nears &quot;Luzon&quot;">Typhoon</a><BR><a href="javascript:alert(1)" title="bad">bad</a><a href="https://other.example.org/b">Floods <b>rise</b></a>',
       },
     },
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [500, 0] }, properties: {} },
+    {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [500, 0] },
+      properties: {},
+    },
     { type: 'Feature', geometry: null, properties: {} },
   ],
 };
@@ -38,7 +47,11 @@ test('fixed theme queries only, pinned in shape', () => {
   );
   for (const t of GDELT_THEMES) {
     assert.match(t.query, /^theme:[A-Z_]+$/);
-    assert.deepEqual(gdeltQuery(t), { query: t.query, mode: 'PointData', format: 'GeoJSON' });
+    assert.deepEqual(gdeltQuery(t), {
+      query: t.query,
+      mode: 'PointData',
+      format: 'GeoJSON',
+    });
   }
 });
 

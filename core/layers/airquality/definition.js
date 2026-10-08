@@ -41,7 +41,11 @@ export const airQualityDefinition = {
             overlay.clear();
             return;
           }
-          const canvas = pixelsToCanvas(airQualityPixels(field, WIDTH, HEIGHT), WIDTH, HEIGHT);
+          const canvas = pixelsToCanvas(
+            airQualityPixels(field, WIDTH, HEIGHT),
+            WIDTH,
+            HEIGHT,
+          );
           overlay.show(canvas, [field.west, field.south, field.east, field.north]);
         },
         setVisible: (on) => overlay.setVisible(on),

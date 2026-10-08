@@ -33,7 +33,10 @@ let warned = false;
  *   scaleFor returns a size factor for the camera height (0 hides the batch);
  *   a change of factor rebuilds the geometry once the camera settles.
  */
-export function createGroundBatch(scene, { collect, scaleFor = () => 1, debounceMs = 300 }) {
+export function createGroundBatch(
+  scene,
+  { collect, scaleFor = () => 1, debounceMs = 300 },
+) {
   const supported =
     Cesium.GroundPrimitive.isSupported(scene) &&
     Cesium.GroundPolylinePrimitive.isSupported(scene);
@@ -53,7 +56,8 @@ export function createGroundBatch(scene, { collect, scaleFor = () => 1, debounce
   let builtScale = -1;
 
   const drop = (p) => {
-    if (p && !p.isDestroyed?.() && scene.primitives.contains(p)) scene.primitives.remove(p);
+    if (p && !p.isDestroyed?.() && scene.primitives.contains(p))
+      scene.primitives.remove(p);
   };
 
   function applyShow() {

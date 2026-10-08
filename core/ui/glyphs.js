@@ -345,12 +345,12 @@ const SHAPES = {
       g.strokeStyle = stroke;
       g.lineWidth = width;
       g.beginPath();
-      for (const y of [5.5, 10.5]) {
+      for (const y of [px * 0.34, px * 0.66]) {
         g.moveTo(2, y + 1.5);
-        g.lineTo(5.5, y - 1.5);
-        g.lineTo(9, y + 1.5);
-        g.lineTo(12.5, y - 1.5);
-        g.lineTo(14, y);
+        g.lineTo(px * 0.34, y - 1.5);
+        g.lineTo(px * 0.56, y + 1.5);
+        g.lineTo(px * 0.78, y - 1.5);
+        g.lineTo(px - 2, y);
       }
       g.stroke();
     }

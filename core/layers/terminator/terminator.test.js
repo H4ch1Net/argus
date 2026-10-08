@@ -81,7 +81,9 @@ test('city lights show on the night side only', () => {
 });
 
 test('light intensities drop the dark background', () => {
-  const rgba = new Uint8ClampedArray([10, 10, 20, 255, 200, 180, 90, 255, 30, 30, 30, 255]);
+  const rgba = new Uint8ClampedArray([
+    10, 10, 20, 255, 200, 180, 90, 255, 30, 30, 30, 255,
+  ]);
   const L = lightsIntensity(rgba, 3, 1);
   assert.equal(L[0], 0);
   assert.equal(L[1], Math.floor((200 - 24) * 1.4));

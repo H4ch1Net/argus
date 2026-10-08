@@ -23,7 +23,12 @@ const ICONS = [1, 6, 9, 8, 3, 4, 6, 7, 14, 6];
 /** Dev / demo stand-in: TomTom-shaped incidents over the requested view. */
 export function createIncidentMockSource() {
   return async (query) => {
-    const b = incidentBox(query?.bbox) ?? { lomin: -0.2, lamin: 51.4, lomax: 0, lamax: 51.6 };
+    const b = incidentBox(query?.bbox) ?? {
+      lomin: -0.2,
+      lamin: 51.4,
+      lomax: 0,
+      lamax: 51.6,
+    };
     const incidents = ICONS.map((icon, i) => {
       const lon = rand(b.lomin, b.lomax);
       const lat = rand(b.lamin, b.lamax);
@@ -43,7 +48,9 @@ export function createIncidentMockSource() {
           id: `demo-${i}`,
           iconCategory: icon,
           magnitudeOfDelay: [3, 2, 1, 4, 0][i % 5],
-          events: [{ description: 'Demo incident (simulated)', code: 0, iconCategory: icon }],
+          events: [
+            { description: 'Demo incident (simulated)', code: 0, iconCategory: icon },
+          ],
           startTime: new Date(Date.now() - 3_600_000).toISOString(),
           endTime: null,
           from: 'Demo Street',

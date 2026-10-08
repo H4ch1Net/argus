@@ -144,3 +144,32 @@ test('feeds match by id, id pattern, host, or local equipment', () => {
   assert.deepEqual(creditsForFeed({ id: 'x', baseUrl: 'https://unknown.example' }), []);
   assert.deepEqual(creditsForFeed(null), []);
 });
+
+test('the context and traffic layers credit their sources', () => {
+  const ids = (layer) => creditsForLayer(layer).map((c) => c.id);
+  assert.deepEqual(ids('incidents'), ['tomtom']);
+  assert.deepEqual(ids('chp'), ['chp']);
+  assert.deepEqual(ids('aurora'), ['swpc']);
+  assert.deepEqual(ids('airquality'), ['open-meteo-aq']);
+  assert.deepEqual(ids('terminator'), ['nasa-gibs']);
+  assert.deepEqual(ids('tor'), ['tor-metrics']);
+  assert.deepEqual(ids('gdelt'), ['gdelt']);
+  assert.match(
+    creditById('open-meteo-aq').terms,
+    /Copernicus Atmosphere Monitoring Service/,
+  );
+  for (const [feed, credit] of [
+    ['tomtom-incidents', 'tomtom'],
+    ['chp-cad', 'chp'],
+    ['swpc', 'swpc'],
+    ['openmeteo-aq', 'open-meteo-aq'],
+    ['gibs-night', 'nasa-gibs'],
+    ['onionoo', 'tor-metrics'],
+    ['gdelt-geo', 'gdelt'],
+  ])
+    assert.deepEqual(
+      creditsForFeed(feed).map((c) => c.id),
+      [credit],
+      feed,
+    );
+});

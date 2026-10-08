@@ -9,7 +9,11 @@ import { blackMarbleQuery, BLACK_MARBLE_PATH } from './night.js';
  * @param {{ proxyClient?: object | null, lights?: boolean, width?: number }} [opts]
  *   width: the overlay width (1024 or 2048; terminatorWidth(fps) in definition.js)
  */
-export function createTerminatorSource({ proxyClient = null, lights = true, width = 1024 } = {}) {
+export function createTerminatorSource({
+  proxyClient = null,
+  lights = true,
+  width = 1024,
+} = {}) {
   let pending = null;
   return async () => {
     if (lights && proxyClient && !pending) {

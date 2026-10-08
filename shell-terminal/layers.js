@@ -31,6 +31,7 @@ import { createOverpassSource, areaTooLarge } from '../core/layers/overpass/clie
 import {
   describeSurveillance,
   surveillanceKind,
+  surveillanceHeading,
 } from '../core/layers/surveillance/format.js';
 import { describeLandmark } from '../core/layers/landmarks/format.js';
 import { parseShodanFacets } from '../core/layers/shodan/parse.js';
@@ -108,6 +109,22 @@ import {
   describeTrafficCam,
   trafficCamSearchText,
 } from '../core/layers/trafficcams/format.js';
+import { createWebcamSource } from '../core/layers/webcams/sources.js';
+import {
+  parseWebcams,
+  webcamNote,
+  describeWebcam,
+  webcamSearchText,
+  webcamColorHex,
+} from '../core/layers/webcams/format.js';
+import { createBorderWaitSource } from '../core/layers/borderwaits/source.js';
+import {
+  parseBorderWaits,
+  borderWaitNote,
+  describeBorderWait,
+  borderWaitSearchText,
+  borderWaitColorHex,
+} from '../core/layers/borderwaits/format.js';
 import { parseLandingPoints } from '../core/layers/cables/parse.js';
 import { describeLanding } from '../core/layers/cables/format.js';
 import {
@@ -116,6 +133,32 @@ import {
   mergeGroups,
 } from '../core/layers/constellations/groups.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
+import { parseTomTomIncidents } from '../core/layers/incidents/parse.js';
+import {
+  describeIncident,
+  incidentColorHex,
+  incidentSearchText,
+} from '../core/layers/incidents/format.js';
+import {
+  createIncidentSource,
+  createIncidentMockSource,
+} from '../core/layers/incidents/source.js';
+import { parseChpXml } from '../core/layers/chp/parse.js';
+import { describeChp, chpSearchText } from '../core/layers/chp/format.js';
+import { parseOnionoo, onionooQuery, ONIONOO_PATH } from '../core/layers/tor/parse.js';
+import {
+  describeTor,
+  torColorHex,
+  torNote,
+  torSearchText,
+} from '../core/layers/tor/format.js';
+import { parseGdeltThemes } from '../core/layers/gdelt/parse.js';
+import {
+  describeGdelt,
+  gdeltColorHex,
+  gdeltSearchText,
+} from '../core/layers/gdelt/format.js';
+import { createGdeltSource, createGdeltMockSource } from '../core/layers/gdelt/source.js';
 
 export const GLYPHS = {
   unicode: {
@@ -139,9 +182,21 @@ export const GLYPHS = {
     landing: '◇',
     navsat: '✧',
     trafficcam: '◘',
+    webcam: '◫',
+    border: '⊟',
     bike: '¤',
     perimeter: '▲',
     dam: '▬',
+    incident: {
+      accident: '✕',
+      jam: '≡',
+      roadworks: '▥',
+      closure: '⊘',
+      hazard: '!',
+      weather: '≈',
+    },
+    relay: { exit: '»', guard: '◙', middle: '∙' },
+    news: '¶',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -164,9 +219,21 @@ export const GLYPHS = {
     landing: '=',
     navsat: ':',
     trafficcam: 'T',
+    webcam: 'W',
+    border: 'B',
     bike: '$',
     perimeter: 'P',
     dam: '=',
+    incident: {
+      accident: 'x',
+      jam: '=',
+      roadworks: 'w',
+      closure: '0',
+      hazard: '!',
+      weather: '~',
+    },
+    relay: { exit: '>', guard: 'g', middle: 'o' },
+    news: 'n',
   },
 };
 
@@ -214,6 +281,9 @@ export function buildLayers({
   satGroup = 'stations',
 }) {
   const g = glyphs;
+  // Keyed networks (511 states, WSDOT, Windy, NPS) are offered only when the
+  // proxy reports their feed configured.
+  const keyed = (feed) => !demo && Boolean(health && feedConfigured(health, feed));
   const needs = (feed, secret) =>
     !demo && health && !feedConfigured(health, feed)
       ? `needs ${secret} in .env (proxy side)`
@@ -242,6 +312,16 @@ export function buildLayers({
       throw new Error('satellite.js is not installed (run npm install)');
     }
   };
+
+  // Road incidents (TomTom, CHP): glyph by kind, colour and rank by severity.
+  const incidentGlyph = (n) => ({
+    ch: g.incident[n.meta.kind] ?? g.incident.hazard,
+    color: incidentColorHex(n.meta.severity),
+    bold: n.meta.severity === 'critical',
+  });
+  const incidentPriority = (n) =>
+    n.meta.severity === 'critical' ? 2 : n.meta.severity === 'notable' ? 1 : 0;
+  let torStatus = '';
 
   const layers = [
     {
@@ -412,15 +492,21 @@ export function buildLayers({
       describe: describeSurveillance,
       searchText: (n) =>
         `${n.meta.tags.operator || ''} ${n.meta.tags['surveillance:type'] || ''}`,
-      glyph: (n) =>
-        surveillanceKind(n.meta.tags) === 'ALPR'
-          ? { ch: g.alpr, color: '#ff4d4d', bold: true }
-          : { ch: g.camera, color: '#ffb454' },
+      // A camera mapped with a facing draws as an arrow that way (the
+      // terminal's direction tick); one without keeps its glyph.
+      glyph: (n) => {
+        const alpr = surveillanceKind(n.meta.tags) === 'ALPR';
+        const facing = surveillanceHeading(n);
+        const color = alpr ? '#ff4d4d' : '#ffb454';
+        if (facing != null) return { ch: arrowFor(facing, g), color, bold: alpr };
+        return alpr ? { ch: g.alpr, color, bold: true } : { ch: g.camera, color };
+      },
       statusNote: (q) =>
         !demo && q.bbox && areaTooLarge(q.bbox, OVERPASS_MAX_DEG)
           ? 'zoom in to a city to load'
           : '',
-      legend: () => `${g.camera} camera  ${g.alpr} ALPR reader (locations only)`,
+      legend: () =>
+        `${g.camera} camera  ${g.alpr} ALPR reader  ${g.arrows[1]} mapped facing (red ALPR; locations only)`,
     },
     {
       key: 'military',
@@ -626,7 +712,7 @@ export function buildLayers({
           ? (
               await import('../core/layers/trafficcams/mockSource.js')
             ).createTrafficCamMockSource({ viewer })
-          : createTrafficCamSource({ proxyClient: client }),
+          : createTrafficCamSource({ proxyClient: client, isConfigured: keyed }),
       normalize: (raw) => parseTrafficCams(raw),
       // The card carries the still's proxy URL as a link (a terminal shows no images).
       describe: describeTrafficCam,
@@ -634,6 +720,61 @@ export function buildLayers({
       glyph: () => ({ ch: g.trafficcam, color: '#5fe3ff' }),
       statusNote: (_q, raw) => trafficCamNote(raw),
       legend: () => `${g.trafficcam} public traffic cameras (stills on request)`,
+    },
+    {
+      key: 'webcams',
+      label: 'Public webcams',
+      mode: 'poll',
+      intervalMs: 5 * 60_000,
+      viewportBounded: true,
+      maxEntities: 1500,
+      // Windy (WINDY_WEBCAMS_KEY) and NPS (NPS_API_KEY) only when the proxy has
+      // their keys; NASA EPIC and the observatory stills are keyless.
+      makeSource: async () => {
+        if (!demo)
+          return createWebcamSource({ proxyClient: client, isConfigured: keyed });
+        const m = await import('../core/layers/webcams/mockSource.js');
+        return m.createWebcamMockSource({ viewer });
+      },
+      normalize: (raw) => parseWebcams(raw),
+      // The card carries the still's proxy URL as a link (a terminal shows no images).
+      describe: describeWebcam,
+      searchText: webcamSearchText,
+      glyph: (n) => ({ ch: g.webcam, color: webcamColorHex(n.meta.category) }),
+      statusNote: (_q, raw) => webcamNote(raw),
+      legend: () =>
+        `${g.webcam} public webcams (Windy, NPS, NASA EPIC; stills on request)`,
+    },
+    {
+      key: 'borderwaits',
+      label: 'Border waits',
+      mode: 'poll',
+      intervalMs: 5 * 60_000,
+      viewportBounded: true,
+      maxEntities: 200,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/borderwaits/mockSource.js')
+            ).createBorderWaitMockSource()
+          : createBorderWaitSource({
+              proxyClient: client,
+              cameraSource: createTrafficCamSource({
+                proxyClient: client,
+                isConfigured: keyed,
+              }),
+            }),
+      normalize: (raw) => parseBorderWaits(raw),
+      describe: describeBorderWait,
+      searchText: borderWaitSearchText,
+      glyph: (n) => ({
+        ch: g.border,
+        color: borderWaitColorHex(n.meta),
+        bold: !n.meta.closed,
+      }),
+      priority: (n) => (n.meta.maxDelay ?? 0) / 60,
+      statusNote: (_q, raw) => borderWaitNote(raw),
+      legend: () => `${g.border} land border waits (CBP, CBSA; brighter = longer)`,
     },
     {
       key: 'bikeshare',
@@ -810,6 +951,90 @@ export function buildLayers({
       statusNote: (q) =>
         !demo && q.bbox && areaTooLarge(q.bbox, DAM_MAX_DEG) ? 'zoom in to load' : '',
       legend: () => `${g.dam} dams (OSM)`,
+    },
+    {
+      key: 'incidents',
+      label: 'Traffic incidents',
+      mode: 'poll',
+      intervalMs: 5 * 60_000,
+      viewportBounded: true,
+      maxEntities: 2000,
+      unavailable: needs('tomtom-incidents', 'TOMTOM_API_KEY'),
+      makeSource: async () => {
+        if (demo) return createIncidentMockSource();
+        if (needs('tomtom-incidents', 'TOMTOM_API_KEY')) return null;
+        return createIncidentSource({ proxyClient: client });
+      },
+      normalize: (raw) => parseTomTomIncidents(raw?.json ?? raw),
+      describe: describeIncident,
+      searchText: incidentSearchText,
+      glyph: incidentGlyph,
+      priority: incidentPriority,
+      statusNote: (_q, raw) => (raw?.clipped ? 'nearest 80 km' : ''),
+      legend: () =>
+        `${g.incident.accident} accident ${g.incident.jam} jam ${g.incident.roadworks} works ${g.incident.closure} closed (TomTom; red = critical)`,
+    },
+    {
+      key: 'chp',
+      label: 'CHP incidents',
+      mode: 'poll',
+      intervalMs: 2 * 60_000,
+      maxEntities: 2000,
+      makeSource: async () =>
+        demo
+          ? (await import('../core/layers/chp/mockSource.js')).createChpMockSource()
+          : (_q, signal) => client.getText('chp-cad', '/sa.xml', { signal }),
+      normalize: (xml) => parseChpXml(xml),
+      describe: (n) => describeChp(n),
+      searchText: chpSearchText,
+      glyph: incidentGlyph,
+      priority: incidentPriority,
+      legend: () =>
+        `${g.incident.accident} CHP dispatch incidents, California (red = critical)`,
+    },
+    {
+      key: 'tor',
+      label: 'Tor relays',
+      mode: 'poll',
+      intervalMs: 60 * 60_000,
+      maxEntities: 9000,
+      makeSource: async () =>
+        demo
+          ? (await import('../core/layers/tor/mockSource.js')).createTorMockSource()
+          : (_q, signal) =>
+              client.getJson('onionoo', ONIONOO_PATH, { params: onionooQuery(), signal }),
+      normalize: (raw) => {
+        const list = parseOnionoo(raw);
+        torStatus = torNote(list);
+        return list;
+      },
+      statusNote: () => torStatus,
+      describe: describeTor,
+      searchText: torSearchText,
+      glyph: (n) => ({
+        ch: g.relay[n.meta.role] ?? g.relay.middle,
+        color: torColorHex(n),
+        bold: n.meta.role === 'exit',
+      }),
+      priority: (n) => (n.meta.role === 'exit' ? 1 : n.meta.role === 'guard' ? 0.5 : 0),
+      legend: () =>
+        `${g.relay.exit} exit ${g.relay.guard} guard ${g.relay.middle} middle Tor relays (Onionoo)`,
+    },
+    {
+      key: 'gdelt',
+      label: 'News events',
+      mode: 'poll',
+      intervalMs: 15 * 60_000,
+      maxEntities: 3000,
+      makeSource: async () =>
+        demo ? createGdeltMockSource() : createGdeltSource({ proxyClient: client }),
+      normalize: (raw) => parseGdeltThemes(raw),
+      describe: describeGdelt,
+      searchText: gdeltSearchText,
+      glyph: (n) => ({ ch: g.news, color: gdeltColorHex(n) }),
+      priority: (n) => Math.log10(Math.max(1, n.meta.count)),
+      legend: () =>
+        `${g.news} GDELT event reports, 24 h (red conflict, white disaster, gray unrest)`,
     },
   ];
 

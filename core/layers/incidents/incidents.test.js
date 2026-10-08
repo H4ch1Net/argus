@@ -27,7 +27,11 @@ test('a city view is asked as is, snapped outward to the grid', () => {
   assert.equal(b.clipped, false);
   assert.ok(b.lomin <= city.lomin && b.lomax >= city.lomax);
   assert.ok(b.lamin <= city.lamin && b.lamax >= city.lamax);
-  assert.deepEqual(incidentBox({ ...city, lomin: -0.199 }), b, 'nearby views share a box');
+  assert.deepEqual(
+    incidentBox({ ...city, lomin: -0.199 }),
+    b,
+    'nearby views share a box',
+  );
   const q = incidentQuery(city);
   assert.equal(q.bbox, `${b.lomin},${b.lamin},${b.lomax},${b.lamax}`);
   assert.equal(q.fields, TOMTOM_INCIDENT_FIELDS);
@@ -90,7 +94,11 @@ const SAMPLE = {
       geometry: { type: 'Point', coordinates: [4.92, 52.35] },
       properties: { id: 'p2', iconCategory: 9, magnitudeOfDelay: 0 },
     },
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [999, 0] }, properties: {} },
+    {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [999, 0] },
+      properties: {},
+    },
     { type: 'Feature', geometry: null, properties: { id: 'nogeo' } },
     {
       type: 'Feature',

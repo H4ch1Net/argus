@@ -91,7 +91,8 @@ test('hostile or oversized documents are refused', () => {
   assert.deepEqual(parseChpXml('x'.repeat(9 * 1024 * 1024)), []);
   // A coordinate outside California is a bad one.
   assert.equal(parseChpLatLon('51500000:120000'), null);
-  assert.equal(parseChpLatLon('34000000:118000000').length, 2);
+  assert.deepEqual(parseChpLatLon('34000000:118000000'), [-118, 34]);
+  assert.deepEqual(parseChpLatLon('34000000:-118000000'), [-118, 34]);
   assert.equal(parseChpLatLon('-1:2'), null);
   assert.equal(chpText('"a &#60;b&#62; &#0; c"'), 'a <b> c');
 });

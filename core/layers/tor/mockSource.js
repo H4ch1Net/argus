@@ -10,7 +10,11 @@ export function demoOnionoo(count = 160) {
     if (i % 3 === 0) flags.push('Guard');
     return {
       nickname: `demoRelay${i}`,
-      fingerprint: (i * 2654435761).toString(16).toUpperCase().padStart(40, '0').slice(-40),
+      fingerprint: (i * 2654435761)
+        .toString(16)
+        .toUpperCase()
+        .padStart(40, '0')
+        .slice(-40),
       country: COUNTRIES[i % COUNTRIES.length],
       country_name: 'Demo (simulated)',
       as: `AS${64500 + (i % 10)}`,

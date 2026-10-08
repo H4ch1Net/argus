@@ -84,6 +84,33 @@ const MODEL_CREDITS = [
   attribution: 'required',
 }));
 
+// The 511-platform state camera networks (core/layers/trafficcams/sources.js,
+// proxy/feeds/webcams.js), each with its own developer key. Terms per each
+// network's developer page; not re-checked online when written.
+const FIVE11_CREDITS = [
+  ['ny511', '511NY (New York State DOT)', '511ny.org'],
+  ['az511', 'AZ511 (Arizona DOT)', 'az511.gov'],
+  ['ga511', '511GA (Georgia DOT)', '511ga.org'],
+  ['wi511', '511WI (Wisconsin DOT)', '511wi.gov'],
+  ['id511', 'Idaho 511 (Idaho Transportation Department)', '511.idaho.gov'],
+  ['udot', 'UDOT Traffic (Utah DOT)', 'udottraffic.utah.gov'],
+  ['ak511', 'Alaska 511 (Alaska DOT&PF)', '511.alaska.gov'],
+  ['nvroads', 'NVroads (Nevada DOT)', 'www.nvroads.com'],
+  ['la511', '511LA (Louisiana DOTD)', 'www.511la.org'],
+  ['ctroads', 'CTroads (Connecticut DOT)', 'ctroads.org'],
+].map(([id, name, host]) => ({
+  id,
+  name,
+  terms:
+    "The network's developer API terms with your own key; camera stills with a courtesy credit to the network",
+  url: `https://${host}/`,
+  layers: ['trafficcams'],
+  feeds: [id, `${id}-img`],
+  hosts: [host],
+  attribution: 'courtesy',
+  keyed: true,
+}));
+
 /** @type {Credit[]} */
 export const CREDITS = [
   ...MODEL_CREDITS,
@@ -252,13 +279,24 @@ export const CREDITS = [
     id: 'tomtom',
     name: 'TomTom Traffic',
     terms:
-      'TomTom for Developers terms with your own key (free tier about 200,000 tiles a month); attribution required: "Traffic flow data © TomTom"',
+      'TomTom for Developers terms with your own key (free tier about 200,000 tiles a month, and about 2,500 non-tile requests a day for incidents); attribution required: "Traffic flow data © TomTom", and "© TomTom" beside incidents',
     url: 'https://docs.tomtom.com/legal/terms-and-conditions',
-    layers: ['trafficflow'],
-    feeds: ['tomtom-flow'],
+    layers: ['trafficflow', 'incidents'],
+    feeds: ['tomtom-flow', 'tomtom-incidents'],
     hosts: ['api.tomtom.com'],
     attribution: 'required',
     keyed: true,
+  },
+  {
+    id: 'chp',
+    name: 'California Highway Patrol',
+    terms:
+      'Public CHP CAD incident list (type, place, time); California public information with a courtesy credit "California Highway Patrol". Dispatch notes are never read',
+    url: 'https://cad.chp.ca.gov/',
+    layers: ['chp'],
+    feeds: ['chp-cad'],
+    hosts: ['media.chp.ca.gov'],
+    attribution: 'courtesy',
   },
   {
     id: 'osrm',
@@ -354,8 +392,9 @@ export const CREDITS = [
       'NASA open data, no restrictions; acknowledgement: "We acknowledge the use of imagery provided by services from NASA\'s Global Imagery Browse Services (GIBS), part of NASA\'s Earth Science Data and Information System (ESDIS)"',
     url: 'https://gibs.earthdata.nasa.gov',
     // Also the Blue Marble and Black Marble basemaps (VIEW > BASEMAP).
-    layers: ['imagery', 'basemap'],
-    feeds: ['gibs', 'wvs'],
+    layers: ['imagery', 'basemap', 'terminator'],
+    // gibs-night: the Black Marble night lights over the terminator's night side.
+    feeds: ['gibs', 'wvs', 'gibs-night'],
     hosts: [
       'gibs.earthdata.nasa.gov',
       'gibs-a.earthdata.nasa.gov',
@@ -561,6 +600,121 @@ export const CREDITS = [
     hosts: ['webcam.warendorf.de'],
     attribution: 'courtesy',
   },
+  {
+    id: 'nycdot',
+    name: 'NYC DOT (webcams.nyctmc.org)',
+    terms: 'Public traffic camera stills, courtesy credit: "NYC DOT"',
+    url: 'https://webcams.nyctmc.org',
+    layers: ['trafficcams'],
+    feeds: ['nycdot', 'nycdot-img'],
+    hosts: ['webcams.nyctmc.org'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'lta-sg',
+    name: 'Land Transport Authority, Singapore (data.gov.sg)',
+    terms:
+      'Singapore Open Data Licence v1.0, attribution required: "Contains information from Traffic Images accessed from data.gov.sg, made available under the Singapore Open Data Licence version 1.0"',
+    url: 'https://data.gov.sg/open-data-licence',
+    layers: ['trafficcams'],
+    feeds: ['lta-sg', 'lta-sg-img'],
+    hosts: ['api.data.gov.sg', 'images.data.gov.sg'],
+    attribution: 'required',
+  },
+  {
+    id: 'wsdot',
+    name: 'Washington State DOT (WSDOT)',
+    terms:
+      'WSDOT Traveler Information API with your own access code; courtesy credit "WSDOT"; partner cameras are named on each card',
+    url: 'https://wsdot.wa.gov/traffic/api/',
+    layers: ['trafficcams'],
+    feeds: ['wsdot', 'wsdot-img'],
+    hosts: ['www.wsdot.wa.gov', 'images.wsdot.wa.gov'],
+    attribution: 'courtesy',
+    keyed: true,
+  },
+  ...FIVE11_CREDITS,
+
+  // --- public webcams -----------------------------------------------------------
+  {
+    id: 'windy-webcams',
+    name: 'Windy.com Webcams',
+    terms:
+      'Windy Webcams API terms with your own key (free tier: preview-size stills whose links expire after about 10 minutes); attribution with a link back to windy.com required: "Webcams provided by windy.com"',
+    url: 'https://api.windy.com/webcams/docs',
+    layers: ['webcams'],
+    feeds: ['windy', 'windy-img', 'windy-imgproxy'],
+    hosts: ['api.windy.com', 'images-webcams.windy.com', 'imgproxy.windy.com'],
+    attribution: 'required',
+    keyed: true,
+  },
+  {
+    id: 'nps',
+    name: 'U.S. National Park Service',
+    terms:
+      'NPS Data API with your own free key; US federal data, generally public domain; webcam images may carry their own credit, shown on each card',
+    url: 'https://www.nps.gov/subjects/developer/index.htm',
+    layers: ['webcams'],
+    feeds: ['nps-webcams', 'nps-img'],
+    hosts: ['developer.nps.gov', 'www.nps.gov'],
+    attribution: 'courtesy',
+    keyed: true,
+  },
+  {
+    id: 'nasa-epic',
+    name: 'NASA EPIC (DSCOVR)',
+    terms: 'NASA imagery, public domain; credit "NASA EPIC Team"',
+    url: 'https://epic.gsfc.nasa.gov/about',
+    layers: ['webcams'],
+    feeds: ['epic', 'epic-img'],
+    hosts: ['epic.gsfc.nasa.gov'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'nasa-sdo',
+    name: 'NASA Solar Dynamics Observatory',
+    terms:
+      'NASA imagery, public domain; credit "Courtesy of NASA/SDO and the AIA, EVE, and HMI science teams"',
+    url: 'https://sdo.gsfc.nasa.gov/data/',
+    layers: ['webcams'],
+    feeds: ['sdo-img'],
+    hosts: ['sdo.gsfc.nasa.gov'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'soho',
+    name: 'SOHO (ESA & NASA)',
+    terms: 'Free use with credit: "SOHO (ESA & NASA)"',
+    url: 'https://soho.nascom.nasa.gov/data/realtime-images.html',
+    layers: ['webcams'],
+    feeds: ['soho-img'],
+    hosts: ['soho.nascom.nasa.gov'],
+    attribution: 'required',
+  },
+
+  // --- border crossings -----------------------------------------------------------
+  {
+    id: 'cbp-bwt',
+    name: 'U.S. Customs and Border Protection (Border Wait Times)',
+    terms:
+      'US federal data, public domain; courtesy credit "U.S. Customs and Border Protection"',
+    url: 'https://bwt.cbp.gov',
+    layers: ['borderwaits'],
+    feeds: ['cbp-bwt'],
+    hosts: ['bwt.cbp.gov'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'cbsa-bwt',
+    name: 'Canada Border Services Agency (Border Wait Times)',
+    terms:
+      'Open Government Licence - Canada: "Contains information licensed under the Open Government Licence - Canada"',
+    url: 'https://open.canada.ca/en/open-government-licence-canada',
+    layers: ['borderwaits'],
+    feeds: ['cbsa-bwt'],
+    hosts: ['www.cbsa-asfc.gc.ca'],
+    attribution: 'required',
+  },
 
   // --- signals ----------------------------------------------------------------
   {
@@ -617,6 +771,42 @@ export const CREDITS = [
     attribution: 'courtesy',
   },
 
+  // --- context layers: aurora, air quality, Tor ------------------------------
+  {
+    id: 'swpc',
+    name: 'NOAA Space Weather Prediction Center',
+    terms:
+      'Public domain under the NOAA disclaimer: the OVATION aurora nowcast and the planetary K index',
+    url: 'https://www.swpc.noaa.gov/products/aurora-30-minute-forecast',
+    layers: ['aurora'],
+    feeds: ['swpc'],
+    hosts: ['services.swpc.noaa.gov'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'open-meteo-aq',
+    name: 'Open-Meteo Air Quality (Copernicus CAMS)',
+    terms:
+      'CC BY 4.0 with a linked "Open-Meteo.com" credit and "Contains modified Copernicus Atmosphere Monitoring Service information"; the free API is for non-commercial use',
+    url: 'https://open-meteo.com/en/docs/air-quality-api',
+    layers: ['airquality'],
+    feeds: ['openmeteo-aq'],
+    hosts: ['air-quality-api.open-meteo.com'],
+    attribution: 'required',
+    nonCommercial: true,
+  },
+  {
+    id: 'tor-metrics',
+    name: 'The Tor Project (Tor Metrics, Onionoo)',
+    terms:
+      'Tor Metrics data under CC BY 3.0 US: "The Tor Project"; public relay descriptors (the operator contact field is never requested)',
+    url: 'https://metrics.torproject.org/onionoo.html',
+    layers: ['tor'],
+    feeds: ['onionoo'],
+    hosts: ['onionoo.torproject.org'],
+    attribution: 'required',
+  },
+
   // --- cockpit briefing -------------------------------------------------------
   {
     id: 'open-meteo',
@@ -636,8 +826,8 @@ export const CREDITS = [
     terms:
       "Free for any use with a citation and a link to the GDELT Project; linked articles keep their publishers' terms",
     url: 'https://www.gdeltproject.org/about.html#termsofuse',
-    layers: ['cockpit'],
-    feeds: ['gdelt'],
+    layers: ['cockpit', 'gdelt'],
+    feeds: ['gdelt', 'gdelt-geo'],
     hosts: ['api.gdeltproject.org'],
     attribution: 'required',
   },

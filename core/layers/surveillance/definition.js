@@ -43,7 +43,8 @@ export function createSurveillanceDefinition({ tier } = {}) {
       }
       if (specs.length * 1.2 > CONE_CAP) {
         const cosLat = Math.cos((center.lat * Math.PI) / 180);
-        const d2 = (s) => ((s.lon - center.lon) * cosLat) ** 2 + (s.lat - center.lat) ** 2;
+        const d2 = (s) =>
+          ((s.lon - center.lon) * cosLat) ** 2 + (s.lat - center.lat) ** 2;
         specs.sort((a, b) => d2(a) - d2(b));
       }
       const fills = [];
@@ -83,7 +84,9 @@ export function createSurveillanceDefinition({ tier } = {}) {
     fetch: { mode: 'viewport' },
     // The Overpass client skips views wider than a few degrees; say so.
     statusNote: (q, raw) =>
-      q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length ? 'zoom in to load' : '',
+      q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length
+        ? 'zoom in to load'
+        : '',
     interpolate: false,
     maxEntities: 4000,
     normalize: (json) => parseOverpass(json),

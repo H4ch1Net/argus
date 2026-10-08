@@ -118,7 +118,13 @@ export const TOMTOM_ICON_LABELS = {
   11: 'Flooding',
   14: 'Broken-down vehicle',
 };
-export const TOMTOM_DELAY_LABELS = ['Unknown', 'Minor', 'Moderate', 'Major', 'Indefinite'];
+export const TOMTOM_DELAY_LABELS = [
+  'Unknown',
+  'Minor',
+  'Moderate',
+  'Major',
+  'Indefinite',
+];
 
 const text = (v, n = 120) =>
   typeof v === 'string' || typeof v === 'number'

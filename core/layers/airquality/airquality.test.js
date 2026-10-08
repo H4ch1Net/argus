@@ -48,7 +48,14 @@ test('parse keeps every pollutant, NaN where missing, and samples bilinearly', (
   assert.equal(s.pm10, null);
   assert.equal(sampleAirQuality(f, 100, 0), null, 'outside the grid');
   assert.equal(parseAirQuality([{}], g), null, 'wrong length');
-  assert.equal(parseAirQuality(answer(g, () => ({})), g), null, 'nothing measured');
+  assert.equal(
+    parseAirQuality(
+      answer(g, () => ({})),
+      g,
+    ),
+    null,
+    'nothing measured',
+  );
 });
 
 test('AQI categories, readout and colours', () => {

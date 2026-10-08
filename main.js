@@ -19,6 +19,8 @@ import { detectCapabilities } from './core/index.js';
 function pickShell(caps) {
   const override = new URLSearchParams(location.search).get('shell');
   if (override === 'mobile' || override === 'desktop') return override;
+  // The Android Auto map (android/, shell-car/): only ever chosen explicitly.
+  if (override === 'car') return 'car';
 
   const handheld =
     caps.input.coarsePointer && !caps.input.hover && caps.screen.longEdge <= 1600;
@@ -64,9 +66,11 @@ async function main() {
 
   try {
     const { mountShell } =
-      shellName === 'mobile'
-        ? await import('./shell-mobile/index.js')
-        : await import('./shell-desktop/index.js');
+      shellName === 'car'
+        ? await import('./shell-car/index.js')
+        : shellName === 'mobile'
+          ? await import('./shell-mobile/index.js')
+          : await import('./shell-desktop/index.js');
 
     // Settings (core/settings/store.js) shape the boot: tier, frame rate,
     // resolution and globe detail. Everything else applies once it is up.

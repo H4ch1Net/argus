@@ -55,13 +55,16 @@ export function chpText(raw, n = 120) {
   return String(raw ?? '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<[^>]*>/g, ' ')
-    .replace(/&(?:#(\d{1,6})|#x([0-9a-fA-F]{1,5})|(amp|lt|gt|quot|apos));/g, (_, d, h, e) => {
-      if (e) return ENTITIES[e];
-      const c = d ? Number(d) : parseInt(h, 16);
-      return c > 31 && c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff)
-        ? String.fromCodePoint(c)
-        : ' ';
-    })
+    .replace(
+      /&(?:#(\d{1,6})|#x([0-9a-fA-F]{1,5})|(amp|lt|gt|quot|apos));/g,
+      (_, d, h, e) => {
+        if (e) return ENTITIES[e];
+        const c = d ? Number(d) : parseInt(h, 16);
+        return c > 31 && c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff)
+          ? String.fromCodePoint(c)
+          : ' ';
+      },
+    )
     .replace(/\p{Cc}/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -75,7 +78,20 @@ const field = (body, tag) => {
   return m ? chpText(m[1]) : '';
 };
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 /** Day of month of the nth Sunday (n >= 1) of a month, or the first when n = 1. */
 function nthSunday(year, month, n) {
@@ -105,7 +121,8 @@ export function parseChpTime(s) {
   const day = Number(m[2]);
   let hour = Number(m[4]);
   const minute = Number(m[5]);
-  if (month < 0 || day < 1 || day > 31 || hour < 1 || hour > 12 || minute > 59) return null;
+  if (month < 0 || day < 1 || day > 31 || hour < 1 || hour > 12 || minute > 59)
+    return null;
   if (/pm/i.test(m[6]) && hour !== 12) hour += 12;
   if (/am/i.test(m[6]) && hour === 12) hour = 0;
   return pacificToUtcMs(Number(m[3]), month, day, hour, minute);
@@ -113,11 +130,17 @@ export function parseChpTime(s) {
 
 /** "34052235:118243683" -> [lon, lat] in California, or null. */
 export function parseChpLatLon(s) {
-  const m = /^(\d{7,9}):(\d{7,10})$/.exec(String(s ?? '').trim());
+  // The longitude normally comes unsigned; tolerate an explicit minus too.
+  const m = /^(\d{7,9}):-?(\d{7,10})$/.exec(String(s ?? '').trim());
   if (!m) return null;
   const lat = Number(m[1]) / 1e6;
   const lon = -Number(m[2]) / 1e6;
-  if (lon < CA_BOX.lomin || lon > CA_BOX.lomax || lat < CA_BOX.lamin || lat > CA_BOX.lamax)
+  if (
+    lon < CA_BOX.lomin ||
+    lon > CA_BOX.lomax ||
+    lat < CA_BOX.lamin ||
+    lat > CA_BOX.lamax
+  )
     return null;
   return [lon, lat];
 }
@@ -130,7 +153,11 @@ export function chpKind(type) {
   if (/closure|closed|road clos/.test(t)) return 'closure';
   if (/construction|maintenance|road ?work|caltrans/.test(t)) return 'roadworks';
   if (/weather|flood|fog|snow|wind|\bice\b|chain control|rain/.test(t)) return 'weather';
-  if (/sig ?alert|traffic advisory|traffic break|congestion|traffic control|\b1184\b/.test(t))
+  if (
+    /sig ?alert|traffic advisory|traffic break|congestion|traffic control|\b1184\b/.test(
+      t,
+    )
+  )
     return 'jam';
   return 'hazard';
 }
@@ -144,7 +171,8 @@ export function chpSeverity(type) {
     )
   )
     return 'critical';
-  if (/collision|hit and run|fire|\b(1181|1182|1125)\b|pedestrian/.test(t)) return 'notable';
+  if (/collision|hit and run|fire|\b(1181|1182|1125)\b|pedestrian/.test(t))
+    return 'notable';
   return 'minor';
 }
 

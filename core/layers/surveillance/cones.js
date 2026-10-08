@@ -81,9 +81,10 @@ export function parseDirections(value) {
       continue;
     }
     // A range "a-b" (a may itself be negative: "-30-30").
-    const m = /^([-+]?\d{1,3}(?:\.\d+)?|[A-Za-z]{1,3})\s*-\s*(\d{1,3}(?:\.\d+)?|[A-Za-z]{1,3})$/.exec(
-      part,
-    );
+    const m =
+      /^([-+]?\d{1,3}(?:\.\d+)?|[A-Za-z]{1,3})\s*-\s*(\d{1,3}(?:\.\d+)?|[A-Za-z]{1,3})$/.exec(
+        part,
+      );
     if (!m) continue;
     const a = parseBearing(m[1]);
     const b = parseBearing(m[2]);

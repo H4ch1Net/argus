@@ -17,3 +17,6 @@ app/libnode/
 *.jks
 *.keystore
 keystore.properties
+
+# Download cache (android/fetch-libnode.sh)
+.cache/

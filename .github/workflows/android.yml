@@ -1,0 +1,175 @@
+# Builds the Android app (android/, docs/ANDROID.md): the globe, its proxy
+# running on the phone (nodejs-mobile) and the Android Auto map, as one APK.
+#
+#   push to main  -> rolling prerelease "android-latest" (argus-android.apk)
+#   tag v*        -> that tag's release (argus-<tag>.apk)
+#   manual run    -> workflow artifact only (plus the above on main or a tag)
+#
+# Signing: with the repository secrets ANDROID_KEYSTORE_BASE64,
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD the
+# APK is signed with your key (updates install over each other). Without them
+# it is signed with a debug key (cached between runs, but replaced when the
+# cache expires: then the next update needs an uninstall first).
+
+name: android
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODEJS_MOBILE_VERSION: '18.20.4'
+  # TODO: pin the checksum of nodejs-mobile-v18.20.4-android.zip. The job prints
+  # it (a warning annotation) on every run until this is set; copy it here once
+  # and from then on a changed download fails the build.
+  NODEJS_MOBILE_SHA256: ''
+  NDK_VERSION: '27.2.12479018'
+  CMAKE_VERSION: '3.22.1'
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the web app
+        run: npm run build
+
+      - name: Stage the Node project for the APK
+        run: node scripts/android-bundle.mjs
+
+      - name: Cache nodejs-mobile
+        uses: actions/cache@v4
+        with:
+          path: android/.cache
+          key: nodejs-mobile-${{ env.NODEJS_MOBILE_VERSION }}
+
+      - name: Fetch nodejs-mobile (libnode.so)
+        run: |
+          bash android/fetch-libnode.sh
+          sum="$(sha256sum "android/.cache/nodejs-mobile-v${NODEJS_MOBILE_VERSION}-android.zip" | cut -d' ' -f1)"
+          if [ -z "$NODEJS_MOBILE_SHA256" ]; then
+            echo "::warning title=Pin nodejs-mobile::NODEJS_MOBILE_SHA256 is not set in .github/workflows/android.yml. Downloaded sha256: $sum"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-35" "build-tools;35.0.0" \
+            "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}"
+
+      # Keeps the fallback debug signature stable between runs while the cache
+      # lives, so updates install over each other even without the secrets.
+      - name: Cache the debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: argus-android-debug-keystore-v1
+
+      - name: Release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            ks="$RUNNER_TEMP/argus-release.jks"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ks"
+            {
+              echo "ARGUS_KEYSTORE_FILE=$ks"
+              echo "ARGUS_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "ARGUS_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "ARGUS_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the release key."
+          else
+            echo "::warning title=Debug-signed APK::No ANDROID_KEYSTORE_BASE64 secret: the APK is signed with a debug key (see docs/ANDROID.md, Signing)."
+          fi
+
+      - name: Version
+        id: version
+        run: |
+          base="$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            name="${GITHUB_REF_NAME#v}"
+            file="argus-${GITHUB_REF_NAME}.apk"
+          else
+            name="${base}-${GITHUB_REF_NAME//\//-}.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::7}"
+            file="argus-android.apk"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "Version $name (code $GITHUB_RUN_NUMBER) -> $file"
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon --stacktrace assembleRelease \
+            -PargusVersionCode="${GITHUB_RUN_NUMBER}" \
+            -PargusVersionName="${{ steps.version.outputs.name }}"
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/${{ steps.version.outputs.file }}"
+          ls -l "$RUNNER_TEMP/apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argus-android
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
+
+      - name: Release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/apk/*.apk
+          generate_release_notes: true
+
+      - name: Move the android-latest tag to this commit
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f android-latest "$GITHUB_SHA"
+          git push -f origin refs/tags/android-latest
+          gh release delete-asset android-latest argus-android.apk -y 2>/dev/null || true
+
+      - name: Release (android-latest)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Android (latest main)
+          prerelease: true
+          make_latest: false
+          files: ${{ runner.temp }}/apk/argus-android.apk
+          body: |
+            The newest Android build from main (commit ${{ github.sha }}).
+            On the phone: download argus-android.apk below and open it.
+            Install, Android Auto and keys: docs/ANDROID.md.

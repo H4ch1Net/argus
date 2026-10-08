@@ -23,7 +23,9 @@ export function describeGdelt(n) {
       ['Theme', m.themeLabel],
       ['Place', m.place || '—'],
       ['Reports', String(m.count)],
-      ...m.articles.slice(1, 4).map((a, i) => [`Also ${i + 1}`, `${a.title} (${a.domain})`]),
+      ...m.articles
+        .slice(1, 4)
+        .map((a, i) => [`Also ${i + 1}`, `${a.title} (${a.domain})`]),
       [
         'Coordinates',
         `${n.position.latitude.toFixed(3)}, ${n.position.longitude.toFixed(3)}`,

@@ -1,6 +1,11 @@
 import { ink } from '../sdk/colors.js';
 import { parseGdeltThemes } from './parse.js';
-import { describeGdelt, gdeltInkName, gdeltPixelSize, gdeltSearchText } from './format.js';
+import {
+  describeGdelt,
+  gdeltInkName,
+  gdeltPixelSize,
+  gdeltSearchText,
+} from './format.js';
 
 // GDELT events (the master plan's "News / events", Disaster preset) as a Layer
 // SDK point layer: places reported in the last 24 hours under a few fixed

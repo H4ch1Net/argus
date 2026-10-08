@@ -12,11 +12,25 @@ import { lightsIntensity, nightPixels, terminatorWidth } from './night.js';
 
 const REFRESH_MS = 2 * 60_000;
 
+/** PNG bytes -> a decoded image element (through a Blob URL, revoked after). */
+async function decodePng(bytes) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export const terminatorDefinition = {
   id: 'terminator',
   fetch: { mode: 'viewport', intervalMs: REFRESH_MS },
   fieldKey: () => 'global',
-  normalize: (raw) => (raw ? { at: raw.at ?? Date.now(), lights: raw.lights ?? null, count: 1 } : null),
+  normalize: (raw) =>
+    raw ? { at: raw.at ?? Date.now(), lights: raw.lights ?? null, count: 1 } : null,
   statusNote: (_q, field) =>
     field ? `${new Date(field.at).toISOString().slice(11, 16)}Z` : '',
   render: {
@@ -42,14 +56,17 @@ export const terminatorDefinition = {
         try {
           const bytes = await promise;
           if (!bytes || lightsFrom !== promise) return;
-          const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+          const img = await decodePng(bytes);
           const c = document.createElement('canvas');
           c.width = width;
           c.height = height;
           const cg = c.getContext('2d', { willReadFrequently: true });
-          cg.drawImage(bitmap, 0, 0, width, height);
-          bitmap.close?.();
-          lights = lightsIntensity(cg.getImageData(0, 0, width, height).data, width, height);
+          cg.drawImage(img, 0, 0, width, height);
+          lights = lightsIntensity(
+            cg.getImageData(0, 0, width, height).data,
+            width,
+            height,
+          );
           if (last) draw(last);
         } catch {
           // No lights (offline, refused): the shade and line still show.

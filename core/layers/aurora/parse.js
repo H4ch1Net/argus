@@ -12,8 +12,9 @@
 
 import { INK } from '../../ui/palette.js';
 
-export const AURORA_PATH = '/json/ovation_aurora_latest.json';
-export const KP_PATH = '/json/planetary_k_index_1m.json';
+// Sub-paths under the proxy's 'swpc' feed (based at services.swpc.noaa.gov/json).
+export const AURORA_PATH = '/ovation_aurora_latest.json';
+export const KP_PATH = '/planetary_k_index_1m.json';
 
 const NX = 360;
 const NY = 181; // latitude -90..90
@@ -60,12 +61,15 @@ export function parseKp(json) {
   let best = null;
   const take = (kp, time) => {
     const v = Number(kp);
-    if (Number.isFinite(v) && v >= 0 && v <= 9) best = { kp: v, time: String(time ?? '').slice(0, 32) };
+    if (Number.isFinite(v) && v >= 0 && v <= 9)
+      best = { kp: v, time: String(time ?? '').slice(0, 32) };
   };
   if (Array.isArray(json[0])) {
     // [["time_tag", "Kp", ...], ["2026-10-08 09:00:00.000", "2.33", ...], ...]
     const head = json[0].map((h) => String(h).toLowerCase());
-    const k = head.findIndex((h) => h === 'kp' || h === 'kp_index' || h === 'estimated_kp');
+    const k = head.findIndex(
+      (h) => h === 'kp' || h === 'kp_index' || h === 'estimated_kp',
+    );
     const t = head.indexOf('time_tag');
     if (k < 0) return null;
     for (const row of json.slice(1)) if (Array.isArray(row)) take(row[k], row[t]);

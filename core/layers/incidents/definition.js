@@ -44,7 +44,11 @@ export const incidentsDefinition = {
   maxEntities: 2000,
   normalize: (raw) => parseTomTomIncidents(raw?.json ?? raw),
   statusNote: (_q, raw) =>
-    raw?.clipped ? 'nearest 80 km' : raw && !raw.json?.incidents?.length ? 'none here' : '',
+    raw?.clipped
+      ? 'nearest 80 km'
+      : raw && !raw.json?.incidents?.length
+        ? 'none here'
+        : '',
   render: {
     renderType: 'point',
     style: (n) => ({

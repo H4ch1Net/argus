@@ -1,7 +1,11 @@
 import { ink } from '../sdk/colors.js';
 import { parseChpXml } from './parse.js';
 import { describeChp, chpSearchText } from './format.js';
-import { incidentGlyph, incidentInkName, incidentPixelSize } from '../incidents/format.js';
+import {
+  incidentGlyph,
+  incidentInkName,
+  incidentPixelSize,
+} from '../incidents/format.js';
 
 // California Highway Patrol dispatch incidents (keyless public CAD feed) as a
 // Layer SDK point layer: type, place and time per incident, glyph by kind and

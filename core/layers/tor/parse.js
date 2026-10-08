@@ -79,7 +79,12 @@ export function relayRole(flags) {
 }
 
 const text = (v, n = 64) =>
-  typeof v === 'string' ? v.replace(/\p{Cc}/gu, ' ').trim().slice(0, n) : '';
+  typeof v === 'string'
+    ? v
+        .replace(/\p{Cc}/gu, ' ')
+        .trim()
+        .slice(0, n)
+    : '';
 const GOLDEN = 137.50776 * (Math.PI / 180);
 
 /**
@@ -106,7 +111,9 @@ export function parseOnionoo(json) {
         fingerprint: fp,
         nickname: text(r.nickname, 19) || 'Unnamed',
         role: relayRole(r.flags),
-        flags: (Array.isArray(r.flags) ? r.flags : []).map((f) => text(f, 16)).slice(0, 16),
+        flags: (Array.isArray(r.flags) ? r.flags : [])
+          .map((f) => text(f, 16))
+          .slice(0, 16),
         country,
         countryName: text(r.country_name, 48),
         as: text(r.as, 12),

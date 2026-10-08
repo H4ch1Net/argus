@@ -7,7 +7,13 @@ import {
   onionooQuery,
   ONIONOO_FIELDS,
 } from './parse.js';
-import { describeTor, formatBandwidth, torColorHex, torNote, torSearchText } from './format.js';
+import {
+  describeTor,
+  formatBandwidth,
+  torColorHex,
+  torNote,
+  torSearchText,
+} from './format.js';
 import { demoOnionoo } from './mockSource.js';
 import { INK } from '../../ui/palette.js';
 
@@ -105,7 +111,10 @@ test('cards, colours and search', () => {
   assert.equal(rows.Network, 'AS1101 Example Net');
   assert.equal(rows.Country, 'Netherlands');
   assert.match(rows.Placement, /centroid/);
-  assert.equal(card.links[0].url, `https://metrics.torproject.org/rs.html#details/${FP('F')}`);
+  assert.equal(
+    card.links[0].url,
+    `https://metrics.torproject.org/rs.html#details/${FP('F')}`,
+  );
   assert.equal(torColorHex(exit), INK.white);
   assert.match(torSearchText(exit), /exitOne/);
   assert.equal(formatBandwidth(950), '950 B/s');
