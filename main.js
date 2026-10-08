@@ -1899,6 +1899,108 @@ async function setupScene(app, splash) {
     }).el,
   );
 
+  // WATCH AREAS: proximity alerts for moving contacts (core/geo/geofence.js).
+  const [{ createGeofences }, { createWatchTool }, { createTourTool }] =
+    await Promise.all([
+      import('./core/geo/geofence.js'),
+      import('./core/ui/watchTool.js'),
+      import('./core/ui/tourTool.js'),
+    ]);
+  const MOVERS = ['flights', 'military', 'localadsb', 'ships', 'transit'];
+  let watchTool = null;
+  const fences = createGeofences({
+    onEnter: (area, c) =>
+      notifier.push({
+        title: `ENTERED ${area.name.toUpperCase()}`,
+        body: `${c.label} (${c.key})`,
+        key: `fence-${area.id}-${c.key}-${c.id}`,
+        level: 'normal',
+        action: c.target
+          ? { label: 'SELECT', onClick: () => tracker.select(c.target) }
+          : undefined,
+      }),
+    onExit: (area, k) =>
+      notifier.push({
+        title: `LEFT ${area.name.toUpperCase()}`,
+        body: k.split(':').slice(1).join(':'),
+        key: `fence-out-${area.id}-${k}`,
+        level: 'low',
+      }),
+  });
+  setInterval(() => {
+    if (!fences.size || document.hidden) return;
+    const contacts = [];
+    for (const { key, layer } of manager.active()) {
+      if (!MOVERS.includes(key)) continue;
+      layer.forEachRecord?.((target, n) =>
+        contacts.push({
+          key,
+          id: String(n.id),
+          lat: n.position.latitude,
+          lon: n.position.longitude,
+          label: String(n.meta?.callsign || n.meta?.name || n.id).trim(),
+          target,
+        }),
+      );
+    }
+    fences.check(contacts);
+    watchTool?.render();
+  }, 5000);
+  const viewCentre = () => {
+    const cv = app.viewer.scene.canvas;
+    return sketchMod.windowToLatLon(app.viewer, {
+      x: cv.clientWidth / 2,
+      y: cv.clientHeight / 2,
+    });
+  };
+  watchTool = createWatchTool({
+    fences,
+    sketch,
+    centre: viewCentre,
+    pick: (fn) => armTap(fn, 'TAP THE CENTRE OF THE AREA'),
+    flyTo: (a) =>
+      camera.flyAround({
+        longitude: a.lon,
+        latitude: a.lat,
+        range: a.radiusM * 3.2,
+        pitch: -60,
+      }),
+    notify,
+  });
+  intel.push(watchTool.el);
+
+  // SITUATION TOUR: the ambient mode, round the hotspots of the layers on.
+  const tour = createTourTool({
+    getEntries: () => {
+      const out = [];
+      for (const { key, layer } of manager.active()) {
+        let n = 0;
+        layer.forEachRecord?.((_t, rec) => {
+          if (n++ < 3000) out.push({ key, n: rec });
+        });
+      }
+      return out;
+    },
+    flyTo: (spot) =>
+      camera.flyAround({
+        longitude: spot.lon,
+        latitude: spot.lat,
+        range: spot.range,
+        pitch: -40,
+        heading: Math.random() * 360,
+        duration: 3,
+      }),
+    onArrive: () => orbit.start(),
+    select: (spot) => {
+      const rec = manager.getLayer(spot.key)?.getRecord(spot.id);
+      if (rec?.entity) tracking.selectQuiet(rec.entity);
+    },
+    stopMotion: () => orbit.stop(),
+    notify,
+    canvas: app.viewer.scene.canvas,
+  });
+  intel.push(tour.el);
+
   // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
   intel.push(
     createPoiTool({
@@ -2456,16 +2558,43 @@ async function attachTracking(
     };
   };
 
+  // COMPARE: PIN on a card puts the contact in a tray of up to three.
+  const [{ createCompareTray }, unitFmt] = await Promise.all([
+    import('./core/ui/compareTray.js'),
+    import('./core/settings/store.js'),
+  ]);
+  const compare = createCompareTray({
+    resolve,
+    onSelect: (t) => tracker.select(t),
+    formatDistance: (m) => unitFmt.formatDistance(m, app.settings?.get('units')),
+    formatAltitude: (m) => unitFmt.formatAltitude(m, app.settings?.get('units')),
+  });
+  app.mount('float', compare.el);
+  const pinAction = (target, rec) =>
+    rec.mover
+      ? {
+          label: compare.has(target) ? 'UNPIN' : 'PIN',
+          pressed: compare.has(target),
+          title: 'Compare side by side (up to three)',
+          onClick: () => {
+            compare.toggle(target);
+            tracker.refresh();
+          },
+        }
+      : null;
+
   tracker = createTracker(app.viewer, {
     resolve,
     panel,
     overlay,
     notify,
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
-    extraActions: (target, rec) => [
-      ...(extras?.actions(target, rec) ?? []),
-      ...(rec.key === 'trafficcams' ? [projectAction(rec)] : []),
-    ],
+    extraActions: (target, rec) =>
+      [
+        ...(extras?.actions(target, rec) ?? []),
+        rec.key === 'trafficcams' ? projectAction(rec) : null,
+        pinAction(target, rec),
+      ].filter(Boolean),
     onChange: (target, rec) => {
       if (!quiet) app.focusTarget?.(Boolean(target));
       if (target && rec) extras?.onSelect(rec.key, rec.normalized);

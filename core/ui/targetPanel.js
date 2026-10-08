@@ -288,9 +288,10 @@ export function createTargetPanel({
       for (const c of list) {
         // A closing contact shows its closest approach (distance and time);
         // one on a conflicting pass is marked (core/geo/cpa.js limits).
-        // (Within ten minutes: a pass an hour away is noise, not information.)
+        // (Within ten minutes and 20 km: a pass an hour or a country away is
+        // noise, not information.)
         const cpa =
-          c.cpaM != null && (c.conflict || c.tcpaS < 600)
+          c.cpaM != null && (c.conflict || (c.tcpaS < 600 && c.cpaM < 20_000))
             ? `CPA ${fmtDist(c.cpaM)} ${formatTcpa(c.tcpaS)}`
             : null;
         contactsEl.appendChild(
