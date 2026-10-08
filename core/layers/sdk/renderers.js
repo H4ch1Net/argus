@@ -202,22 +202,45 @@ function stylePolygon(entity, normalized, render) {
   }
   const style = render.style ? render.style(normalized) : {};
   const color = style.color ?? Cesium.Color.WHITE;
-  entity.polygon.material = color.withAlpha(style.fillAlpha ?? render.fillAlpha ?? 0.15);
-  entity.polyline.material = style.outlineColor ?? color.withAlpha(0.85);
-  if (style.width != null) entity.polyline.width = style.width;
+  const fill = color.withAlpha(style.fillAlpha ?? render.fillAlpha ?? 0.15);
+  const outline = style.outlineColor ?? color.withAlpha(0.85);
+  if (changed(entity, 'fill', fill)) entity.polygon.material = fill;
+  if (changed(entity, 'line', outline)) entity.polyline.material = outline;
+  if (style.width != null && changed(entity, 'width', style.width))
+    entity.polyline.width = style.width;
 }
 
 function stylePolyline(entity, normalized, render) {
   const style = render.style ? render.style(normalized) : {};
-  if (style.color) entity.polyline.material = style.color;
-  if (style.width != null) entity.polyline.width = style.width;
+  if (style.color && changed(entity, 'line', style.color))
+    entity.polyline.material = style.color;
+  if (style.width != null && changed(entity, 'width', style.width))
+    entity.polyline.width = style.width;
+}
+
+// Assigning a material or width, even an equal one, wraps it in a new Property
+// and makes Cesium rebuild the geometry: every poll would re-tessellate every
+// polygon and line. Assign only what actually changed.
+function changed(entity, slot, value) {
+  // Colours compare by value, other objects (material properties) by identity.
+  const key =
+    value instanceof Cesium.Color
+      ? `${value.red},${value.green},${value.blue},${value.alpha}`
+      : typeof value === 'object'
+        ? value
+        : String(value);
+  const memo = (entity._argusStyle ??= {});
+  if (memo[slot] === key) return false;
+  memo[slot] = key;
+  return true;
 }
 
 function styleArc(entity, normalized, render) {
   const style = render.style ? render.style(normalized) : {};
   const color = style.color ?? Cesium.Color.CYAN;
-  entity.polyline.material.color = color;
-  if (style.width != null) entity.polyline.width = style.width;
+  if (changed(entity, 'line', color)) entity.polyline.material.color = color;
+  if (style.width != null && changed(entity, 'width', style.width))
+    entity.polyline.width = style.width;
   entity.point.color = style.pulseColor ?? color.withAlpha(1);
   entity.point.pixelSize = style.pulseSize ?? render.pulseSize ?? 6;
 }

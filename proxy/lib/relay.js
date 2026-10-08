@@ -40,6 +40,25 @@ export function buildUpstreamUrl(feed, subpath, search) {
   return target;
 }
 
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 4;
+
+// Every relayed body is data, never a page: the browser must not sniff it into
+// HTML, and if it is ever opened directly it runs sandboxed with nothing
+// allowed. The proxy serves the app on the same origin, so this matters.
+const SAFE_HEADERS = Object.freeze({
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "sandbox; default-src 'none'",
+});
+
+/** A host this machine or its network answers: loopback, LAN, link-local. */
+export function isPrivateHost(hostname) {
+  const h = String(hostname)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  return isLocalHost(h) || h === '0.0.0.0' || /^169\.254\./.test(h) || /^fe80:/.test(h);
+}
+
 /** Loopback, RFC 1918 IPv4, IPv6 loopback / unique-local, localhost, *.local. */
 export function isLocalHost(hostname) {
   const h = String(hostname)
@@ -243,18 +262,43 @@ export async function handleRelay(
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       try {
-        const up = await fetch(target, {
-          method: req.method,
-          headers: outbound,
-          body: body && body.length ? body : undefined,
-          signal: controller.signal,
-          // Equipment you own must not bounce the proxy to some other host.
-          redirect: feed.localOnly ? 'error' : 'follow',
-        });
-        // Read the body inside the same timeout window: a stalled body must
-        // abort too, not only a slow connection or headers.
-        const b = Buffer.from(await up.arrayBuffer());
-        return { up, b };
+        // Redirects are followed by hand, so each hop can be checked: equipment
+        // you own (localOnly) never redirects, no hop downgrades https to http,
+        // and a public feed is never bounced onto this machine or the LAN.
+        let url = target;
+        let method = req.method;
+        let sendBody = body && body.length ? body : undefined;
+        for (let hop = 0; ; hop += 1) {
+          const up = await fetch(url, {
+            method,
+            headers: outbound,
+            body: sendBody,
+            signal: controller.signal,
+            redirect: 'manual',
+          });
+          const location = REDIRECTS.has(up.status) ? up.headers.get('location') : null;
+          if (!location) {
+            // Read the body inside the same timeout window: a stalled body must
+            // abort too, not only a slow connection or headers.
+            const b = Buffer.from(await up.arrayBuffer());
+            return { up, b };
+          }
+          await up.body?.cancel();
+          const next = new URL(location, url);
+          if (feed.localOnly || hop >= MAX_REDIRECTS) throw new Error('redirect refused');
+          if (
+            next.protocol !== 'https:' &&
+            !(next.protocol === 'http:' && url.protocol === 'http:')
+          )
+            throw new Error('redirect downgrade refused');
+          if (isPrivateHost(next.hostname) && !isPrivateHost(target.hostname))
+            throw new Error('redirect to a private host refused');
+          if (up.status === 303) {
+            method = 'GET';
+            sendBody = undefined;
+          }
+          url = next;
+        }
       } finally {
         clearTimeout(timer);
       }
@@ -312,9 +356,14 @@ export async function handleRelay(
     if (cacheCfg && (upstream.status === 429 || upstream.status >= 500)) {
       if (fromCache(staleMs, 'stale')) return;
     }
-    const kept = {};
+    const kept = { ...SAFE_HEADERS };
     const ct = upstream.headers.get('content-type');
     if (ct) kept['content-type'] = ct;
+    // An image feed serves images only: an HTML or script body on the app's
+    // own origin would be a way in.
+    if (feed.imageOnly && upstream.status === 200 && !/^image\//i.test(ct || '')) {
+      throw new RelayError(502, `feed ${feed.id} answered with a non-image body`);
+    }
     const cc = upstream.headers.get('cache-control');
     if (cc) kept['cache-control'] = cc;
     if (cacheCfg && upstream.status === 200) {

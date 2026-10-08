@@ -120,7 +120,7 @@ test('decoding fails closed on anything malformed', () => {
   );
 });
 
-test('optional allowlists reject values the shell does not know', () => {
+test('optional allowlists drop values the shell does not know', () => {
   const allow = {
     layerKeys: ['flights', 'quakes'],
     sensorModes: ['none', 'nvg', 'flir'],
@@ -129,12 +129,16 @@ test('optional allowlists reject values the shell does not know', () => {
     labelKeys: ['places', 'entities'],
   };
   assert.ok(decodeShareHash(encodeShareHash({ ...FULL, track: undefined }), allow));
-  assert.equal(decodeShareHash('#v=1&layers=flights,ufo', allow), null);
-  assert.equal(decodeShareHash('#v=1&sensor=crt', allow), null);
-  assert.equal(decodeShareHash('#v=1&imagery=google', allow), null);
-  assert.equal(decodeShareHash('#v=1&terrain=lunar', allow), null);
-  assert.equal(decodeShareHash('#v=1&labels=roads.1', allow), null);
-  assert.equal(decodeShareHash('#v=1&track=ships:123', allow), null);
+  // A link from another device still opens: unknown values are left out.
+  assert.deepEqual(decodeShareHash('#v=1&layers=flights,ufo', allow).layers, ['flights']);
+  assert.equal(decodeShareHash('#v=1&sensor=crt', allow).sensor, undefined);
+  assert.equal(decodeShareHash('#v=1&imagery=google', allow).imagery, undefined);
+  assert.equal(decodeShareHash('#v=1&terrain=lunar', allow).terrain, undefined);
+  assert.deepEqual(decodeShareHash('#v=1&labels=roads.1', allow).labels, {});
+  assert.equal(decodeShareHash('#v=1&track=ships:123', allow).track, undefined);
+  // Malformed values still fail the whole link.
+  assert.equal(decodeShareHash('#v=1&layers=Flights!', allow), null);
+  assert.equal(decodeShareHash('#v=1&sensor=NV G', allow), null);
   assert.deepEqual(decodeShareHash('#v=1&track=flights:~a1b2c3', allow).track, {
     layer: 'flights',
     id: '~a1b2c3',

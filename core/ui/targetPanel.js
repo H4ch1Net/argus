@@ -89,27 +89,53 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
 
   let selected = false;
   let actionsSig = '';
+  let currentActions = [];
   let blobUrl = null;
   let lastContactsKey = '';
 
+  // The card refreshes every second: an image is (re)loaded only when its
+  // source changes. A still that arrives as JSON wrapping a base64 JPEG (format
+  // 'json-base64-jpeg', TxDOT) is fetched, decoded and shown via a Blob URL.
+  let imageKey = null;
+  let imageAbort = null;
+  function showBlob(blob, alt) {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+    imageEl.src = blobUrl;
+    imageEl.alt = alt || '';
+    imageEl.hidden = false;
+  }
   function setImage(img) {
-    const url = img?.blob ? null : /^https?:\/\//i.test(img?.url || '') ? img.url : null;
-    if (img?.blob) {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-      blobUrl = URL.createObjectURL(img.blob);
-      imageEl.src = blobUrl;
-      imageEl.alt = img.alt || '';
-      imageEl.hidden = false;
-      return;
-    }
+    const url = /^https?:\/\//i.test(img?.url || '') ? img.url : null;
+    const key = img?.blob ?? (url ? `${img.format ?? ''}|${url}` : null);
+    if (key === imageKey) return;
+    imageKey = key;
+    imageAbort?.abort();
+    imageAbort = null;
+    if (img?.blob) return showBlob(img.blob, img.alt);
     if (!url) {
       imageEl.hidden = true;
       imageEl.removeAttribute('src');
-    } else if (imageEl.getAttribute('src') !== url) {
-      imageEl.alt = img.alt || '';
-      imageEl.src = url;
-      imageEl.hidden = false;
+      return;
     }
+    if (img.format === 'json-base64-jpeg') {
+      imageEl.hidden = true;
+      const ac = (imageAbort = new AbortController());
+      Promise.all([
+        fetch(url, { signal: ac.signal }).then((r) => (r.ok ? r.json() : null)),
+        import('../layers/trafficcams/format.js'),
+      ])
+        .then(([json, fmt]) => {
+          const bytes = json && fmt.jpegFromSnapshotJson(json, img.field);
+          if (ac.signal.aborted || !bytes) return;
+          showBlob(new Blob([bytes], { type: 'image/jpeg' }), img.alt);
+        })
+        .catch(() => {});
+      return;
+    }
+    imageEl.alt = img.alt || '';
+    imageEl.src = url;
+    imageEl.hidden = false;
   }
 
   return {
@@ -166,11 +192,12 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
       linksEl.hidden = !linksEl.children.length;
       // Rebuild the buttons only when they change: the card refreshes every
       // second, and replacing a button mid-press would swallow the click.
+      currentActions = actions;
       const sig = actions.map((a) => `${a.label}:${a.pressed}`).join('|');
       if (sig === actionsSig) return;
       actionsSig = sig;
       actionsEl.innerHTML = '';
-      for (const a of actions) {
+      for (const [i, a] of actions.entries()) {
         actionsEl.appendChild(
           h(
             `button.ct-btn${a.ok ? '.ct-btn--ok' : ''}`,
@@ -178,7 +205,10 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
               type: 'button',
               title: a.title || a.label,
               'aria-pressed': a.pressed === undefined ? false : String(a.pressed),
-              onclick: a.onClick,
+              // The latest actions, not the ones the button was built with:
+              // two targets can share labels, and a kept button must act on
+              // the current one.
+              onclick: (e) => currentActions[i]?.onClick?.(e),
             },
             a.label,
           ),

@@ -28,9 +28,28 @@ export function nudgeIntoView(viewer, position, { top = 0, bottom = 0 } = {}) {
   const fovy = camera.frustum.fovy ?? camera.frustum.fov ?? Math.PI / 3;
   const metresPerPx = (2 * dist * Math.tan(fovy / 2)) / h;
   const total = (win.y - want) * metresPerPx; // > 0: the point is too low
+  // Glide parallel to the ground, so the altitude stays: along the camera's up
+  // vector flattened onto the local horizontal (backwards for a point that is
+  // too low). On a tilted view only |sin(pitch)| of that motion shifts the
+  // picture, so the distance grows by its inverse.
+  const normal = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(
+    camera.positionWC,
+    new Cesium.Cartesian3(),
+  );
+  const up = Cesium.Cartesian3.clone(camera.upWC, new Cesium.Cartesian3());
+  const along = Cesium.Cartesian3.multiplyByScalar(
+    normal,
+    Cesium.Cartesian3.dot(up, normal),
+    new Cesium.Cartesian3(),
+  );
+  const flat = Cesium.Cartesian3.subtract(up, along, new Cesium.Cartesian3());
+  if (Cesium.Cartesian3.magnitude(flat) < 1e-6) return;
+  Cesium.Cartesian3.normalize(flat, flat);
+  const sinPitch = Math.max(0.25, Math.abs(Math.sin(camera.pitch)));
+  const perStep = -total / sinPitch / STEPS;
   let i = 0;
   const step = () => {
-    camera.moveDown(total / STEPS);
+    camera.move(flat, perStep);
     scene.requestRender();
     if (++i < STEPS) requestAnimationFrame(step);
   };

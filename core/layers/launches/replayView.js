@@ -76,8 +76,10 @@ export function createReplayView(viewer, { proxyClient, mount, notify, onChange 
   const toCart = (p) =>
     Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, Math.max(0, p.altitude ?? 0));
 
+  let startToken = 0;
   async function start(n) {
     stop();
+    const token = startToken;
     const now = Date.now();
     const past = n.meta.launches.filter((l) => l.net != null && l.net <= now);
     const launch = past[past.length - 1] ?? primaryLaunch(n.meta.launches);
@@ -93,6 +95,8 @@ export function createReplayView(viewer, { proxyClient, mount, notify, onChange 
         detail = null;
       }
     }
+    // A second press, or STOP, while the detail loaded: this start is stale.
+    if (token !== startToken) return;
     detail ??= {
       ...launch,
       pad: { latitude: n.position.latitude, longitude: n.position.longitude },
@@ -207,6 +211,7 @@ export function createReplayView(viewer, { proxyClient, mount, notify, onChange 
   }
 
   function stop() {
+    startToken += 1; // cancels a start still waiting for its detail
     if (!run) return;
     clearInterval(run.timer);
     for (const e of run.entities) viewer.entities.remove(e);

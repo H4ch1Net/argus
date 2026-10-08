@@ -48,7 +48,13 @@ export function createNotifier() {
     );
     el.prepend(card);
     if (key) byKey.set(key, card);
-    while (el.children.length > MAX_VISIBLE) dismiss(el.lastElementChild);
+    // Past the limit, the oldest cards go now (not after the fade-out, or the
+    // count would never drop inside this loop).
+    const live = [...el.children].filter((c) => !c.classList.contains('is-out'));
+    for (const c of live.slice(MAX_VISIBLE)) {
+      dismiss(c);
+      c.remove();
+    }
     const ms = timeoutMs ?? (level === 'critical' ? 0 : TIMEOUT_MS);
     if (ms > 0) setTimeout(() => dismiss(card), ms);
     return () => dismiss(card);

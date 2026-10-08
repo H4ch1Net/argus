@@ -9,7 +9,7 @@ import * as Cesium from 'cesium';
 // where it is. Layer-agnostic: resolve(target) supplies the card model and the
 // history, so every layer reuses it unchanged.
 
-const TRAIL_MAX_POINTS = 48;
+const TRAIL_MAX_POINTS = 96;
 const FOLLOW_MIN_RANGE_M = 1500;
 const FOLLOW_MAX_RANGE_M = 600_000;
 
@@ -37,16 +37,27 @@ export function createTracker(
   const positionNow = (target, result) =>
     target.position.getValue(viewer.clock.currentTime, result);
 
+  // The whole history, thinned to TRAIL_MAX_POINTS (a fetched 24 h trace is
+  // older than the live fixes, so taking the tail would cut it), rebuilt only
+  // when a fix arrives; the live head is appended every frame.
+  let trailCache = { key: '', positions: [] };
   function trailPositions() {
     if (!tracked) return [];
-    const fixes = tracked.rec.getHistoryFixes?.().slice(-TRAIL_MAX_POINTS) ?? [];
-    const positions = fixes.map((f) =>
-      Cesium.Cartesian3.fromDegrees(
-        f.longitude,
-        f.latitude,
-        Math.max(0, f.altitude ?? 0),
-      ),
-    );
+    const all = tracked.rec.getHistoryFixes?.() ?? [];
+    const key = `${all.length}:${all[0]?.t}:${all[all.length - 1]?.t}`;
+    if (key !== trailCache.key) {
+      trailCache = {
+        key,
+        positions: thinFixes(all, TRAIL_MAX_POINTS).map((f) =>
+          Cesium.Cartesian3.fromDegrees(
+            f.longitude,
+            f.latitude,
+            Math.max(0, f.altitude ?? 0),
+          ),
+        ),
+      };
+    }
+    const positions = trailCache.positions.slice();
     // The live interpolated head, so the trail meets the moving contact.
     const p = positionNow(tracked.target, head);
     if (p) positions.push(Cesium.Cartesian3.clone(p));
@@ -206,7 +217,10 @@ export function createTracker(
       deselect();
       return;
     }
-    if (tracked?.target !== target) unfollow(false);
+    if (tracked?.target !== target) {
+      unfollow(false);
+      trailCache = { key: '', positions: [] };
+    }
     tracked = { target, rec };
     if (!trailEntity) addTrail();
     panel.showTarget(rec.metadata, actionsFor(target, rec));
@@ -261,4 +275,19 @@ export function createTracker(
       document.removeEventListener('keydown', onKeyDown);
     },
   };
+}
+
+/**
+ * Keep at most `max` fixes: the most recent 24 exactly, the older ones evenly
+ * sampled (oldest kept), so a long trace keeps its shape at a bounded cost.
+ */
+export function thinFixes(fixes, max) {
+  if (fixes.length <= max) return fixes;
+  const keep = Math.min(24, max - 2);
+  const older = fixes.slice(0, fixes.length - keep);
+  const n = max - keep;
+  const step = older.length / n;
+  const out = [];
+  for (let i = 0; i < n; i += 1) out.push(older[Math.floor(i * step)]);
+  return out.concat(fixes.slice(fixes.length - keep));
 }

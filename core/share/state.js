@@ -138,11 +138,14 @@ export function decodeShareHash(hash, allow = {}) {
     out.camera = camera;
   }
 
+  // A well-formed value this device does not offer (a layer that needs a key
+  // here, a look the phone tier lacks) is dropped, not fatal: the rest of the
+  // link still opens. A malformed value still fails the whole link.
   if (params.has('layers')) {
     const layers = keyList(params.get('layers'), SHARE_MAX_LAYERS);
+    if (!layers) return null;
     const set = asSet(allow.layerKeys);
-    if (!layers || !layers.every((k) => allowed(set, k))) return null;
-    out.layers = layers;
+    out.layers = layers.filter((k) => allowed(set, k));
   }
 
   for (const [field, allowKey] of [
@@ -152,8 +155,8 @@ export function decodeShareHash(hash, allow = {}) {
   ]) {
     if (!params.has(field)) continue;
     const v = params.get(field);
-    if (!KEY.test(v) || !allowed(asSet(allow[allowKey]), v)) return null;
-    out[field] = v;
+    if (!KEY.test(v)) return null;
+    if (allowed(asSet(allow[allowKey]), v)) out[field] = v;
   }
 
   if (params.has('labels')) {
@@ -164,16 +167,16 @@ export function decodeShareHash(hash, allow = {}) {
     const labels = {};
     for (const item of items) {
       const m = /^(.+)\.([01])$/.exec(item);
-      if (!m || !KEY.test(m[1]) || m[1] in labels || !allowed(set, m[1])) return null;
-      labels[m[1]] = m[2] === '1';
+      if (!m || !KEY.test(m[1]) || m[1] in labels) return null;
+      if (allowed(set, m[1])) labels[m[1]] = m[2] === '1';
     }
     out.labels = labels;
   }
 
   if (params.has('track')) {
     const track = parseTrack(params.get('track'));
-    if (!track || !allowed(asSet(allow.layerKeys), track.layer)) return null;
-    out.track = track;
+    if (!track) return null;
+    if (allowed(asSet(allow.layerKeys), track.layer)) out.track = track;
   }
 
   return out;

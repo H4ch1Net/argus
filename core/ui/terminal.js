@@ -139,6 +139,7 @@ export function createTerminal({ run }) {
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
+      e.stopPropagation(); // close only: keep the target and any armed tool
     }
   });
 

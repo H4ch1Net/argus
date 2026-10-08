@@ -60,8 +60,12 @@ export function createTargetExtras({
     const out = [];
     if (AIRCRAFT.has(key) && enrichNow) {
       const k = enrichNow.keys(n.meta);
-      const aircraft = k.aircraft ? enrichNow.queue.peek(k.aircraft) : null;
-      const route = k.route ? enrichNow.queue.peek(k.route) : null;
+      // peek() wraps a cached answer as { value } (a cached miss is
+      // { value: null }); the rows want the answer itself.
+      const aircraft = k.aircraft
+        ? (enrichNow.queue.peek(k.aircraft)?.value ?? null)
+        : null;
+      const route = k.route ? (enrichNow.queue.peek(k.route)?.value ?? null) : null;
       if (aircraft || route) out.push(...enrichNow.rows(n.meta, { aircraft, route }));
     }
     const p = passes.get(`${key}:${n.id}`);

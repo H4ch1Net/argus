@@ -17,6 +17,7 @@ function trackToCartesians(satrec) {
 }
 
 const ringCollections = new WeakMap(); // scene -> PolylineCollection
+const realigners = new Set(); // one per ring, to realign at once when shown
 function ringCollection(scene) {
   let rings = ringCollections.get(scene);
   if (!rings || rings.isDestroyed()) {
@@ -55,18 +56,27 @@ export const satellitesDefinition = {
       width: 1,
       material: RING_MATERIAL(),
     });
-    const timer = setInterval(() => {
+    const realign = () => {
       ring.positions = trackToCartesians(n.meta.satrec);
       scene.requestRender();
+    };
+    realigners.add(realign);
+    const timer = setInterval(() => {
+      // Hidden (layer off) or the tab in the background: skip the propagation.
+      if (rings.show && !document.hidden) realign();
     }, ORBIT_REALIGN_MS);
     return () => {
+      realigners.delete(realign);
       clearInterval(timer);
       if (!rings.isDestroyed()) rings.remove(ring);
     };
   },
 
   onShow: (on, { scene }) => {
-    ringCollection(scene).show = on;
+    const rings = ringCollection(scene);
+    rings.show = on;
+    // Back on: realign every ring now rather than up to 30 s late.
+    if (on) for (const realign of realigners) realign();
   },
 
   describe: (n) => describeSatellite(n),

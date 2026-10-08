@@ -62,6 +62,7 @@ export function createModelLod(viewer, { getLayers, tier }) {
   let enabled = cap > 0;
   let lastPick = 0;
   let epoch = 0;
+  const failed = new Set(); // model URLs that did not load
   const hpr = new Cesium.HeadingPitchRoll();
   const pos = new Cesium.Cartesian3();
 
@@ -81,6 +82,9 @@ export function createModelLod(viewer, { getLayers, tier }) {
     const kind = classifyAircraft(e.n.meta);
     const spec = modelSpecFor(e.key, kind);
     const myEpoch = epoch;
+    // A model that failed once (missing file, bad network) is not asked for
+    // again: the contact keeps its glyph.
+    if (failed.has(spec.url)) return;
     try {
       const model = await Cesium.Model.fromGltfAsync({
         url: spec.url,
@@ -99,11 +103,19 @@ export function createModelLod(viewer, { getLayers, tier }) {
       e.model = model;
       place(target, e);
       collection.add(model);
-      // Hide the glyph only once the model is in place (never neither).
-      e.layer.suppress?.(target.id, true);
+      // Hide the glyph only once the model draws (never neither): the model
+      // finishes loading its buffers over the next frames, then raises ready.
+      const swap = () => {
+        if (live.get(target) !== e || myEpoch !== epoch) return;
+        e.layer.suppress?.(target.id, true);
+        scene.requestRender();
+      };
+      if (model.ready || !model.readyEvent) swap();
+      else model.readyEvent.addEventListener(swap);
       scene.requestRender();
     } catch {
-      release(target);
+      failed.add(spec.url);
+      // Keep the entry (with no model) so the next pass does not retry it.
     }
   }
 

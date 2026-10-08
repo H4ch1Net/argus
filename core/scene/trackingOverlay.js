@@ -103,8 +103,9 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
   ro.observe(host);
   resize();
 
+  // Window position of a world point, or null behind the camera or the planet.
   const project = (pos) => {
-    if (!pos) return null;
+    if (!pos || !occluder.isPointVisible(pos)) return null;
     const p = Cesium.SceneTransforms.worldToWindowCoordinates(scene, pos, win);
     return p ? { x: p.x, y: p.y } : null;
   };
@@ -225,8 +226,8 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
     // Thousands of contacts in view: re-choose the boxes less often (each pass
     // projects every visible contact), keeping phones cool.
     const interval = summary.total > 2000 ? PICK_INTERVAL_MS * 3 : PICK_INTERVAL_MS;
-    if (now - lastPick > interval) pick(now);
     occluder.cameraPosition = scene.camera.positionWC;
+    if (now - lastPick > interval) pick(now);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     let moving = false;

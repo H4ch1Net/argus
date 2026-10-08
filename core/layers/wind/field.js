@@ -54,6 +54,54 @@ export function windGrid(bbox, { nx = WIND_GRID.nx, ny = WIND_GRID.ny } = {}) {
   return { nx, ny, west, east, south, north, lats, lons };
 }
 
+/**
+ * The view box grown by `f` of its span on every side (latitude clamped), so
+ * the fetched field covers small pans and the next request waits until the
+ * view actually leaves it.
+ */
+export function padBbox(bbox, f = 0.3) {
+  let west = bbox.wrap ? bbox.wrap.west : bbox.lomin;
+  let east = bbox.wrap ? bbox.wrap.east : bbox.lomax;
+  if (east <= west) east += 360;
+  const dx = Math.min(90, (east - west) * f);
+  const dy = (bbox.lamax - bbox.lamin) * f;
+  return {
+    lamin: Math.max(-85, bbox.lamin - dy),
+    lamax: Math.min(85, bbox.lamax + dy),
+    lomin: west - dx,
+    lomax: east + dx,
+    wrap: { west: west - dx, east: east + dx },
+  };
+}
+
+/**
+ * Whether a fetched field still serves this view: the view lies inside it and
+ * the field is not much coarser than the view (zooming far in refetches).
+ */
+export function fieldCovers(field, bbox) {
+  if (!field || !bbox) return false;
+  let west = bbox.wrap ? bbox.wrap.west : bbox.lomin;
+  let east = bbox.wrap ? bbox.wrap.east : bbox.lomax;
+  if (east <= west) east += 360;
+  while (west < field.west) {
+    west += 360;
+    east += 360;
+  }
+  while (west >= field.west + 360) {
+    west -= 360;
+    east -= 360;
+  }
+  const spanX = east - west;
+  const spanY = bbox.lamax - bbox.lamin;
+  return (
+    east <= field.east &&
+    bbox.lamin >= field.south &&
+    bbox.lamax <= field.north &&
+    field.east - field.west <= Math.max(4 * spanX, 2) &&
+    field.north - field.south <= Math.max(4 * spanY, 2)
+  );
+}
+
 /** Query params for the proxy's 'openmeteo-wind' feed. */
 export function windQuery(grid) {
   return {

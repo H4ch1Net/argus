@@ -90,7 +90,7 @@ export function createLayer(viewer, def, ctx) {
   let shown = true;
   let timer = null;
   let aborter = null;
-  let holdsRender = false;
+  let holdsRender = 0; // the frame rate claimed for movers, 0 for none
   let dirty = true; // positions or visibility must be recomputed next frame
   // Contacts drawn by something else for now (a 3D model close to the camera):
   // their glyph stays hidden while they keep counting as visible.
@@ -188,6 +188,9 @@ export function createLayer(viewer, def, ctx) {
         rec.billboard = renderer.create(collection, rec.target, normalized, def.render);
       } else {
         rec.entity = ds.entities.add({ id: normalized.id });
+        // A tap on the drawn line picks the Entity; the picker maps it back to
+        // the layer target, which is what getRecord() and the tracker know.
+        rec.entity._argusTarget = rec.target;
         rec.entity.position = new Cesium.CallbackProperty(
           (time, result) => positionOf(rec, result),
           false,
@@ -234,6 +237,7 @@ export function createLayer(viewer, def, ctx) {
       upsert(n, batchTimeMs);
     }
     for (const id of [...records.keys()]) if (!seen.has(id)) removeRecord(id);
+    if (holdsRender) moversActive(true); // the fleet size sets the pace
     scene.requestRender();
   }
 
@@ -245,19 +249,25 @@ export function createLayer(viewer, def, ctx) {
   );
   const lastCamera = new Cesium.Cartesian3();
 
-  // Movers re-interpolate on a fleet tick (~15 Hz), not every frame: camera
-  // moves render at full rate but leave world positions unchanged, so those
-  // frames only redo the horizon cull. A billboard's position is written only
-  // when it moved more than a metre, since every write re-uploads the vertex
-  // data of the whole collection. (Techniques from gods-eye-view's fleet tick.)
-  const FLEET_TICK_MS = 66;
+  // Movers re-interpolate on a fleet tick, not every frame: camera moves
+  // render at full rate but leave world positions unchanged, so those frames
+  // only redo the horizon cull. The tick matches the paced frame rate, except
+  // for a big fleet (thousands of contacts), which ticks and paces at 15 Hz so
+  // no paced frame is spent on unchanged positions. A billboard's position is
+  // written only when it moved more than a metre, since every write
+  // re-uploads the vertex data of the whole collection. (Techniques from
+  // gods-eye-view's fleet tick.)
+  const BIG_FLEET = 3000;
+  const bigFleet = () => records.size > BIG_FLEET;
+  const paceFps = () => (bigFleet() ? Math.min(fps, 15) : fps);
+  const tickMs = () => Math.max(12, 1000 / paceFps() - 4);
   let lastTick = 0;
   function onPreRender() {
     if (!running || !shown || !primitive) return;
     const cam = scene.camera.positionWC;
     const cameraMoved = !Cesium.Cartesian3.equalsEpsilon(cam, lastCamera, 0, 1);
     const now = performance.now();
-    const tick = dirty || (isMover && now - lastTick >= FLEET_TICK_MS);
+    const tick = dirty || (isMover && now - lastTick >= tickMs());
     if (!tick && !cameraMoved) return;
     if (tick) lastTick = now;
     Cesium.Cartesian3.clone(cam, lastCamera);
@@ -267,6 +277,8 @@ export function createLayer(viewer, def, ctx) {
         if (!positionOf(rec, rec.world)) {
           if (rec.billboard.show) rec.billboard.show = false;
           rec.visible = false;
+          // Forget the old write, or camera-move frames would show it again.
+          rec.written = undefined;
           continue;
         }
         if (
@@ -341,15 +353,18 @@ export function createLayer(viewer, def, ctx) {
   function sweepStale() {
     const cutoff = Date.now() - staleMs;
     for (const [id, rec] of records) if (rec.lastSeen < cutoff) removeRecord(id);
+    if (holdsRender) moversActive(true);
     scene.requestRender();
   }
 
   function moversActive(on) {
     // Movers request frames at their pace, shared across layers (renderMode.js).
-    if (!isMover || on === holdsRender) return;
-    holdsRender = on;
-    if (on) acquireContinuousRender(scene, fps);
-    else releaseContinuousRender(scene, fps);
+    if (!isMover) return;
+    const rate = on ? paceFps() : 0;
+    if (rate === holdsRender) return;
+    if (holdsRender) releaseContinuousRender(scene, holdsRender);
+    holdsRender = rate;
+    if (rate) acquireContinuousRender(scene, rate);
   }
 
   function pausePolling() {
@@ -516,11 +531,6 @@ export function createLayer(viewer, def, ctx) {
         getHistoryFixes: () => rec.history.toArray(),
       };
     },
-    /**
-     * Visit the targets drawn right now (in front of the planet), with their
-     * world position as of the last rendered frame. The selection overlay and the
-     * contacts roster use this; it allocates nothing.
-     */
     /** Hide (or restore) one contact's glyph while something else draws it. */
     suppress(id, on) {
       if (on) suppressed.add(id);
@@ -532,6 +542,11 @@ export function createLayer(viewer, def, ctx) {
     forEachRecord(fn) {
       for (const rec of records.values()) fn(rec.target, rec.normalized);
     },
+    /**
+     * Visit the targets drawn right now (in front of the planet), with their
+     * world position as of the last rendered frame. The selection overlay and the
+     * contacts roster use this; it allocates nothing.
+     */
     forEachVisible(fn) {
       if (!running || !shown) return;
       for (const rec of records.values()) {

@@ -63,6 +63,7 @@ export const feeds = [
   },
   {
     id: 'on511-img',
+    imageOnly: true,
     baseUrl: 'https://511on.ca/map/Cctv',
     methods: ['GET'],
     allowPaths: [/^\/map\/Cctv\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}$/],
@@ -86,6 +87,7 @@ export const feeds = [
   },
   {
     id: 'drivebc-img',
+    imageOnly: true,
     baseUrl: 'https://www.drivebc.ca/images',
     methods: ['GET'],
     allowPaths: [/^\/images\/\d{1,7}\.jpg$/],
@@ -109,6 +111,7 @@ export const feeds = [
   {
     // Stills on the city's own host (the catalogue's http:// URLs are upgraded).
     id: 'calgary-img',
+    imageOnly: true,
     baseUrl: 'https://trafficcam.calgary.ca',
     methods: ['GET'],
     allowPaths: [/^\/[A-Za-z0-9_-]{1,64}\.jpg$/],
@@ -133,6 +136,7 @@ export const feeds = [
   {
     // A preset still: C + station + two-digit view. Refreshed upstream every 10 min.
     id: 'fintraffic-img',
+    imageOnly: true,
     baseUrl: 'https://weathercam.digitraffic.fi',
     methods: ['GET'],
     allowPaths: [/^\/C\d{7}\.jpg$/],
@@ -184,6 +188,7 @@ export const feeds = [
   },
   {
     id: 'austin-img',
+    imageOnly: true,
     baseUrl: 'https://cctv.austinmobility.io/image',
     methods: ['GET'],
     allowPaths: [/^\/image\/\d{1,7}\.jpg$/],
@@ -209,6 +214,7 @@ export const feeds = [
   {
     // Still file names rotate with each capture; the catalogue cache keeps them current.
     id: 'tarktee-img',
+    imageOnly: true,
     baseUrl: 'https://tarktee.transpordiamet.ee/images',
     methods: ['GET'],
     allowPaths: [/^\/images\/\d{1,6}\/[A-Za-z0-9_-]{1,64}\.jpe?g$/],
@@ -221,6 +227,7 @@ export const feeds = [
     // curated and bundled (core/layers/trafficcams/data/tallinn.js).
     // Per the reference implementation, not live-tested here.
     id: 'tallinn-img',
+    imageOnly: true,
     baseUrl: 'https://ristmikud.tallinn.ee/last',
     methods: ['GET'],
     allowPaths: [/^\/last\/cam\d{3}\.jpg$/],
@@ -234,6 +241,7 @@ export const feeds = [
     // browser only ever sees it on the proxy's HTTPS origin.
     // Per the reference implementation, not live-tested here.
     id: 'warendorf-img',
+    imageOnly: true,
     baseUrl: 'http://webcam.warendorf.de/image',
     methods: ['GET'],
     allowPaths: [exactPath('/image/jpeg.cgi')],

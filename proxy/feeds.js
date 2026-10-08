@@ -31,6 +31,7 @@
 // @property {string} [baseUrlEnv]      env var that may point the feed at another instance
 // @property {boolean} [localOnly]      upstream exists only when baseUrlEnv names a host on
 //                                      this machine or the LAN (e.g. a home SDR receiver)
+// @property {boolean} [imageOnly]      a still-image feed: anything but an image/* body is refused
 // @property {boolean} [enabled=true]
 //
 // @typedef {Object} OAuth2Auth

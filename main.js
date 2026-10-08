@@ -966,7 +966,14 @@ async function setupScene(app, splash) {
     getObserver: async () => {
       const fix = await app.observer?.();
       if (fix) return fix;
-      // Desktop: the point under the middle of the view.
+      // Desktop: the ground point in the middle of the view (the point under
+      // the camera when the middle is sky).
+      const cv = app.viewer.scene.canvas;
+      const mid = sketchMod.windowToLatLon(app.viewer, {
+        x: cv.clientWidth / 2,
+        y: cv.clientHeight / 2,
+      });
+      if (mid) return { latitude: mid.lat, longitude: mid.lon };
       const c = app.viewer.camera.positionCartographic;
       return {
         latitude: (c.latitude * 180) / Math.PI,
@@ -1142,15 +1149,35 @@ async function setupScene(app, splash) {
   });
 
   const view = [];
+  const imageryChoice = createChoice({
+    label: 'Base imagery',
+    options: IMAGERY_SOURCES,
+    current: imagery.current(),
+    onSelect: (id) => imagery.set(id),
+  });
+  // The label switches, kept so a share link can repaint them.
+  const labelSwitches = {
+    cities: createSwitch({
+      label: 'City names',
+      on: true,
+      title: 'Bundled city names (works offline)',
+      onToggle: (on) => overlay.setOptions({ cities: on }),
+    }),
+    places: createSwitch({
+      label: 'Places + borders',
+      title: 'Country, region and place names from map tiles',
+      onToggle: (on) => labels.set('places', on),
+    }),
+    roads: createSwitch({
+      label: 'Street names',
+      title: 'Roads and street names from map tiles',
+      onToggle: (on) => labels.set('roads', on),
+    }),
+  };
   view.push(
     section(
       'BASEMAP',
-      createChoice({
-        label: 'Base imagery',
-        options: IMAGERY_SOURCES,
-        current: imagery.current(),
-        onSelect: (id) => imagery.set(id),
-      }).el,
+      imageryChoice.el,
       createSwitch({
         label: 'Mono imagery',
         on: imagery.mono(),
@@ -1162,22 +1189,9 @@ async function setupScene(app, splash) {
   view.push(
     section(
       'LABELS',
-      createSwitch({
-        label: 'City names',
-        on: true,
-        title: 'Bundled city names (works offline)',
-        onToggle: (on) => overlay.setOptions({ cities: on }),
-      }).el,
-      createSwitch({
-        label: 'Places + borders',
-        title: 'Country, region and place names from map tiles',
-        onToggle: (on) => labels.set('places', on),
-      }).el,
-      createSwitch({
-        label: 'Street names',
-        title: 'Roads and street names from map tiles',
-        onToggle: (on) => labels.set('roads', on),
-      }).el,
+      labelSwitches.cities.el,
+      labelSwitches.places.el,
+      labelSwitches.roads.el,
     ),
   );
   view.push(
@@ -1409,7 +1423,7 @@ async function setupScene(app, splash) {
       manager,
       proxyClient,
       notify,
-      select: (t) => tracker.select(t),
+      select: (t) => tracking.selectQuiet(t),
     }).el,
   );
   intel.push(
@@ -1678,7 +1692,10 @@ async function setupScene(app, splash) {
         pitch: shared.camera.pitch ?? -90,
       });
     }
-    if (shared.imagery) imagery.set(shared.imagery);
+    if (shared.imagery) {
+      imagery.set(shared.imagery);
+      imageryChoice.paint(shared.imagery);
+    }
     if (shared.terrain) terrainChoice.set(shared.terrain);
     if (shared.sensor && shaders) {
       shaders.setSensor(shared.sensor);
@@ -1687,6 +1704,7 @@ async function setupScene(app, splash) {
     for (const [k, on] of Object.entries(shared.labels ?? {})) {
       if (k === 'cities') overlay.setOptions({ cities: on });
       else labels.set(k, on);
+      labelSwitches[k]?.set(on);
     }
     for (const key of shared.layers ?? DEFAULT_LAYERS) await manager.enable(key);
     // The target appears once its layer has data: wait for it (up to 30 s).
@@ -1781,6 +1799,7 @@ async function attachTracking(
   const isDemo = (key) => Boolean(manager.list().find((l) => l.key === key)?.demo);
 
   let tracker;
+  let quiet = false; // see selectQuiet below
   // Cockpit briefing strip (desktop): live signals, regional news, local info.
   const [{ createBriefingStrip }, { targetLatLon }] = await Promise.all([
     import('./core/ui/briefingStrip.js'),
@@ -1853,7 +1872,7 @@ async function attachTracking(
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
     extraActions: (target, rec) => extras?.actions(target, rec) ?? [],
     onChange: (target, rec) => {
-      app.focusTarget?.(Boolean(target));
+      if (!quiet) app.focusTarget?.(Boolean(target));
       if (target && rec) extras?.onSelect(rec.key, rec.normalized);
       // On the phone the card covers the lower half: glide the target into
       // the free area above it (sideways only, never a zoom).
@@ -1875,6 +1894,7 @@ async function attachTracking(
     },
   });
   createPicker(app.viewer, {
+    accept: (target) => Boolean(resolve(target)),
     onPick: (target, pos) => {
       if (interceptTap?.(pos)) return;
       tracker.select(target);
@@ -1898,7 +1918,17 @@ async function attachTracking(
     const t = resolve(target)?.metadata?.title;
     return t ? String(t).toUpperCase().slice(0, 18) : null;
   };
-  return { tracker, labelFor };
+  // Select without bringing the target panel forward (the phone's radio
+  // tuner lives in TOOLS: stepping the dial must not switch the sheet away).
+  const selectQuiet = (target) => {
+    quiet = true;
+    try {
+      tracker.select(target);
+    } finally {
+      quiet = false;
+    }
+  };
+  return { tracker, labelFor, selectQuiet };
 }
 
 // The card model plus what the panel shows around it: tags for the layer and

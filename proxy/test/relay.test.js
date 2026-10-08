@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createRequestHandler } from '../lib/app.js';
 import { loadConfig } from '../lib/config.js';
-import { buildUpstreamUrl, RelayError } from '../lib/relay.js';
+import { buildUpstreamUrl, isPrivateHost, RelayError } from '../lib/relay.js';
 
 function listen(handler) {
   return new Promise((resolve) => {
@@ -501,4 +501,74 @@ test('a localOnly feed never follows a redirect off the device', async (t) => {
     delete process.env.TEST_RX2_URL;
   });
   assert.equal((await fetch(`${base(proxy)}/feed/rx2/aircraft.json`)).status, 502);
+});
+
+test('relayed bodies carry nosniff and a sandbox CSP', async (t) => {
+  const up = await startEcho();
+  t.after(() => up.close());
+  const proxy = await startProxy([{ id: 'echo', baseUrl: `${base(up)}/api` }]);
+  t.after(() => proxy.close());
+  const res = await fetch(`${base(proxy)}/feed/echo/x`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(res.headers.get('content-security-policy'), /sandbox/);
+});
+
+test('an image-only feed refuses a body that is not an image', async (t) => {
+  let type = 'text/html';
+  const up = await listen((req, res) => {
+    res.writeHead(200, { 'content-type': type });
+    res.end(
+      type === 'image/jpeg' ? Buffer.from([0xff, 0xd8, 0xff]) : '<script>1</script>',
+    );
+  });
+  t.after(() => up.close());
+  const proxy = await startProxy([
+    { id: 'cam-img', baseUrl: `${base(up)}/img`, imageOnly: true },
+  ]);
+  t.after(() => proxy.close());
+  assert.equal((await fetch(`${base(proxy)}/feed/cam-img/a.jpg`)).status, 502);
+  type = 'image/jpeg';
+  const ok = await fetch(`${base(proxy)}/feed/cam-img/a.jpg`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+});
+
+test('redirects are followed on the same host, a bounded number of times', async (t) => {
+  const up = await listen((req, res) => {
+    const n = Number(new URL(req.url, 'http://x').searchParams.get('n') || 0);
+    if (req.url.startsWith('/api/final')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+    } else if (req.url.startsWith('/api/loop')) {
+      res.writeHead(302, { location: `/api/loop?n=${n + 1}` });
+      res.end();
+    } else {
+      res.writeHead(301, { location: '/api/final' });
+      res.end();
+    }
+  });
+  t.after(() => up.close());
+  const proxy = await startProxy([{ id: 'r', baseUrl: `${base(up)}/api` }]);
+  t.after(() => proxy.close());
+  const res = await fetch(`${base(proxy)}/feed/r/start`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.equal((await fetch(`${base(proxy)}/feed/r/loop`)).status, 502);
+});
+
+test('private hosts: loopback, LAN, link-local', () => {
+  for (const h of [
+    '127.0.0.1',
+    '10.1.2.3',
+    '192.168.0.9',
+    '169.254.169.254',
+    '0.0.0.0',
+    '[::1]',
+    'fe80::1',
+    'printer.local',
+  ])
+    assert.equal(isPrivateHost(h), true, h);
+  for (const h of ['example.org', '8.8.8.8', '172.32.0.1'])
+    assert.equal(isPrivateHost(h), false, h);
 });

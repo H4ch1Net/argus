@@ -22,6 +22,8 @@ export function createFieldLayer(viewer, def, ctx) {
   async function poll(force = false) {
     if (!running || document.hidden) return;
     const query = computeViewportQuery(viewer);
+    // The field already fetched still serves this view: nothing to fetch.
+    if (!force && field && def.covers?.(field, query)) return;
     const key = def.fieldKey ? def.fieldKey(query) : JSON.stringify(query.bbox ?? {});
     if (!force && key === lastKey && field) return;
     lastKey = key;

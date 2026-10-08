@@ -128,8 +128,12 @@ export function createLauncher({ onQuery, onSelect, placeholder = 'SEARCH' }) {
     if (e.key === 'ArrowDown') move(1);
     else if (e.key === 'ArrowUp') move(-1);
     else if (e.key === 'Enter') pick(sel);
-    else if (e.key === 'Escape') close();
-    else return;
+    else if (e.key === 'Escape') {
+      close();
+      // Closing the launcher is all Escape does here: it must not also
+      // release the target or disarm a tool further up.
+      e.stopPropagation();
+    } else return;
     e.preventDefault();
   });
 

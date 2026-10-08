@@ -63,6 +63,8 @@ export function createRadioTuner({ manager, select, proxyClient, notify }) {
     if (layer && manager.isEnabled('radio'))
       layer.forEachRecord((target, n) => list.push({ ...n, target }));
     stations = model.tunerStations(list);
+    // The layer went off: hiding the dial hides STOP too, so stop the stream.
+    if (!stations.length) stop();
     body.hidden = !stations.length;
     hint.hidden = Boolean(stations.length);
     if (current >= stations.length) current = stations.length - 1;

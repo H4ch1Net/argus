@@ -1,12 +1,13 @@
-import { windGrid, windQuery } from './field.js';
+import { padBbox, windGrid, windQuery } from './field.js';
 
-// The wind source: the grid for the view, fetched through the proxy's pinned
-// 'openmeteo-wind' feed. Returns { grid, payload } for the definition.
+// The wind source: the grid for the view (padded, so small pans stay inside
+// it), fetched through the proxy's pinned 'openmeteo-wind' feed. Returns
+// { grid, payload } for the definition.
 
 export function createWindSource({ proxyClient }) {
   return async (query, signal) => {
     if (!query?.bbox) return null;
-    const grid = windGrid(query.bbox);
+    const grid = windGrid(padBbox(query.bbox));
     const payload = await proxyClient.getJson('openmeteo-wind', '/forecast', {
       params: windQuery(grid),
       signal,
@@ -19,7 +20,7 @@ export function createWindSource({ proxyClient }) {
 export function createWindMockSource() {
   return async (query) => {
     if (!query?.bbox) return null;
-    const grid = windGrid(query.bbox);
+    const grid = windGrid(padBbox(query.bbox));
     const t = Date.now() / 600_000;
     const payload = grid.lats.map((lat, k) => {
       const lon = grid.lons[k];

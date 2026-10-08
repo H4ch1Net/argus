@@ -119,7 +119,7 @@ export function targetLatLon(viewer, target) {
 }
 
 /**
- * Fly the camera along a route at low altitude, looking ahead (no banking, so
+ * Fly the camera along a route, low over the ground, looking ahead (no banking, so
  * it stays steady on a phone). Any pointer press or Escape stops it.
  * @param {{ at: (m: number) => { lon: number, lat: number, headingDeg: number }, totalM: number }} path
  */
@@ -129,6 +129,7 @@ export function flyAlongPath(viewer, path, { altitudeM = 450, onEnd } = {}) {
   const t0 = performance.now();
   let raf = 0;
   let headingRad = null;
+  let groundM = null;
   const stop = () => {
     cancelAnimationFrame(raf);
     viewer.scene.canvas.removeEventListener('pointerdown', stop);
@@ -152,8 +153,13 @@ export function flyAlongPath(viewer, path, { altitudeM = 450, onEnd } = {}) {
         p.lon -
         (Math.sin(headingRad) * back) /
           (111_320 * Math.cos(Cesium.Math.toRadians(p.lat)));
+      // Above the ground under the camera, not the ellipsoid: with terrain on,
+      // high ground would otherwise swallow the camera. Eased like the heading.
+      const ground =
+        viewer.scene.globe?.getHeight?.(Cesium.Cartographic.fromDegrees(lon, lat)) ?? 0;
+      groundM = groundM === null ? ground : groundM + (ground - groundM) * 0.1;
       viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(lon, lat, altitudeM),
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, groundM + altitudeM),
         orientation: { heading: headingRad, pitch: Cesium.Math.toRadians(-22), roll: 0 },
       });
       viewer.scene.requestRender();
