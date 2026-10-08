@@ -5,7 +5,15 @@
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function loadConfig(env = process.env) {
-  const port = Number(env.PROXY_PORT) || 8787;
+  // 0 is allowed (an ephemeral port, used when another process embeds the proxy).
+  const portNum = Number.parseInt(env.PROXY_PORT ?? '', 10);
+  const port =
+    Number.isInteger(portNum) && portNum >= 0 && portNum < 65536 ? portNum : 8787;
+  // Bind address. Unset = every interface, so a phone on the LAN can reach it;
+  // set PROXY_HOST=127.0.0.1 to keep the proxy (and your keys) local-only.
+  const host = env.PROXY_HOST || null;
+  // Optional directory holding the built web app, served from the same origin.
+  const staticDir = env.PROXY_STATIC_DIR || null;
   const https = String(env.PROXY_HTTPS).toLowerCase() === 'true';
   const tls = {
     keyPath: env.PROXY_TLS_KEY || null,
@@ -26,7 +34,7 @@ export function loadConfig(env = process.env) {
 
   const timeoutMs = Number(env.PROXY_UPSTREAM_TIMEOUT_MS) || 15000;
 
-  return { port, https, tls, cors, timeoutMs };
+  return { port, host, staticDir, https, tls, cors, timeoutMs };
 }
 
 /**

@@ -84,6 +84,39 @@
   text-transform: uppercase;
 }
 
+.argus-card__image {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  margin: 4px 0 10px;
+  border-radius: 6px;
+  background: #050a10;
+}
+.argus-card__image[hidden] {
+  display: none;
+}
+
+.argus-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+}
+.argus-card__links[hidden] {
+  display: none;
+}
+.argus-card__link {
+  color: #5fe3ff;
+  font-size: 12px;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(95, 227, 255, 0.35);
+  padding: 4px 0; /* a taller tap target on touch */
+}
+.argus-card__link:hover {
+  color: #e8f1ff;
+}
+
 .argus-card__actions {
   display: flex;
   gap: 8px;

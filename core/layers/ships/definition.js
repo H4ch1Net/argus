@@ -1,5 +1,5 @@
 import * as Cesium from 'cesium';
-import { describeShip } from './format.js';
+import { describeShip, shipHeading, shipToNormalized, shipSearchText } from './format.js';
 
 // Ships (AIS) as a Layer SDK definition. This is the first PUSH layer: reports
 // stream in over the proxy websocket, entities are upserted as they report and
@@ -26,21 +26,6 @@ function shipImage() {
   return c;
 }
 
-const headingOf = (n) => {
-  const h = n.meta.heading;
-  return h != null && h !== 511 ? h : (n.meta.cog ?? 0);
-};
-
-function toNormalized(ship) {
-  return {
-    id: String(ship.mmsi),
-    type: 'ship',
-    position: { longitude: ship.lon, latitude: ship.lat, altitude: 0 },
-    velocity: { speed: ship.sog, heading: ship.heading, course: ship.cog },
-    meta: ship,
-  };
-}
-
 export const shipsDefinition = {
   id: 'ships',
   fetch: { mode: 'push' },
@@ -48,16 +33,16 @@ export const shipsDefinition = {
   interpolateLagMs: 5000, // AIS reports are irregular; a modest render delay
   staleMs: 180_000, // drop a vessel after 3 min without a report
   maxEntities: 3000,
-  normalize: (ships) => ships.map(toNormalized),
+  normalize: (ships) => ships.map(shipToNormalized),
   render: {
     renderType: 'billboard',
     style: (n) => ({
       image: shipImage(),
       scale: 0.6,
-      rotationRadians: -Cesium.Math.toRadians(headingOf(n)),
+      rotationRadians: -Cesium.Math.toRadians(shipHeading(n)),
       color: Cesium.Color.fromCssColorString('#7fd4ff'),
     }),
   },
   describe: (n) => describeShip(n),
-  searchText: (n) => `${n.meta.name || ''} ${n.meta.mmsi}`,
+  searchText: shipSearchText,
 };

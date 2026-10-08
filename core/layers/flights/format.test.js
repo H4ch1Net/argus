@@ -49,3 +49,20 @@ test('formatAircraft falls back to id when callsign is blank', () => {
   const card = formatAircraft({ id: 'xyz', callsign: '  ', onGround: true });
   assert.equal(card.title, 'xyz');
 });
+
+test('formatAircraft adds adsb.lol extras and the source when present', () => {
+  const card = formatAircraft({
+    id: 'a1b2c3',
+    callsign: 'UAL123',
+    registration: 'N12345',
+    typeCode: 'B738',
+    squawk: '1200',
+    source: 'adsb.lol',
+  });
+  const map = Object.fromEntries(card.rows);
+  assert.equal(card.subtitle, 'B738 · N12345');
+  assert.equal(map.Registration, 'N12345');
+  assert.equal(map.Type, 'B738');
+  assert.equal(map.Squawk, '1200');
+  assert.equal(map.Source, 'adsb.lol');
+});

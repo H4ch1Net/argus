@@ -68,3 +68,21 @@ test('source skips broad views, queries + caches narrow ones', async () => {
   assert.equal(parseOverpass(a).length, 1);
   assert.deepEqual(a, b);
 });
+
+test('a 200 with a runtime-error remark is an error and is not cached', async () => {
+  let calls = 0;
+  const proxyClient = {
+    getJson: async () => {
+      calls += 1;
+      return {
+        elements: [],
+        remark: 'runtime error: Query timed out in "query" at line 1',
+      };
+    },
+  };
+  const src = createOverpassSource({ proxyClient, filters: ['node["x"="remark-test"]'] });
+  const bbox = { lamin: 10, lomin: 10, lamax: 10.2, lomax: 10.2 };
+  await assert.rejects(src({ bbox }), /Overpass: runtime error/);
+  await assert.rejects(src({ bbox }));
+  assert.equal(calls, 2);
+});

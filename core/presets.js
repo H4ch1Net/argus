@@ -1,24 +1,34 @@
 // Presets: first-class core UX (master plan 8). "Everything on" is unusable mud
 // and a phone-killer; presets make omniscience navigable. Each preset is a named
-// set of layers. Only presets whose layers exist today are listed; more join as
-// their layers land (Surveillance, Environment, etc.).
+// set of layers. A shell that lacks a layer (the terminal has no imagery
+// overlays) simply skips it.
 //
 // Pure over the manager interface, so applyPreset is unit-testable with a fake.
 
 export const PRESETS = [
-  { id: 'around-me', label: 'Around Me', layers: ['flights', 'quakes'], geolocate: true },
-  { id: 'sky', label: 'Sky', layers: ['flights', 'satellites'] },
-  { id: 'disaster', label: 'Disaster', layers: ['quakes', 'fires'] },
-  { id: 'environment', label: 'Environment', layers: ['fires'] },
+  {
+    id: 'around-me',
+    label: 'Around Me',
+    layers: ['flights', 'quakes', 'transit', 'bikeshare'],
+    geolocate: true,
+  },
+  { id: 'sky', label: 'Sky', layers: ['flights', 'military', 'satellites', 'launches'] },
+  {
+    id: 'disaster',
+    label: 'Disaster',
+    layers: ['quakes', 'fires', 'cyclones', 'clouds'],
+  },
+  { id: 'environment', label: 'Environment', layers: ['fires', 'clouds', 'radar'] },
   {
     id: 'surveillance',
     label: 'Surveillance',
-    layers: ['surveillance', 'landmarks', 'cctv'],
+    layers: ['surveillance', 'trafficcams', 'cctv', 'installations'],
   },
+  { id: 'internet', label: 'Internet', layers: ['bgp', 'cables', 'datacenters'] },
 ];
 
-/** The default-on set (master plan 8): flights + earthquakes (+ one transit, N/A yet). */
-export const DEFAULT_LAYERS = ['flights', 'quakes'];
+/** The default-on set (master plan 8): flights + earthquakes + one transit feed. */
+export const DEFAULT_LAYERS = ['flights', 'quakes', 'transit'];
 
 /**
  * Enable exactly the preset's layers, disabling the rest.

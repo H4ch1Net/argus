@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStates } from './parse.js';
+import {
+  parseStates,
+  parseAdsb,
+  parseFlights,
+  bboxToPointQuery,
+  adsbPointPath,
+  ADSB_MAX_RADIUS_NM,
+} from './parse.js';
 
 const vector = (over = {}) => {
   const s = [
@@ -51,4 +58,103 @@ test('tolerates missing/empty payloads', () => {
   assert.deepEqual(parseStates(null), { time: null, aircraft: [] });
   assert.deepEqual(parseStates({}), { time: null, aircraft: [] });
   assert.deepEqual(parseStates({ states: 'nope' }), { time: null, aircraft: [] });
+});
+
+test('OpenSky aircraft are labelled with their source; demo payloads say demo', () => {
+  assert.equal(parseStates({ states: [vector()] }).aircraft[0].source, 'OpenSky');
+  assert.equal(
+    parseStates({ states: [vector()], demo: true }).aircraft[0].source,
+    'demo (simulated)',
+  );
+});
+
+const adsbAc = (over = {}) => ({
+  hex: 'A1B2C3',
+  flight: 'UAL123  ',
+  r: 'N12345',
+  t: 'B738',
+  alt_baro: 35000,
+  alt_geom: 35500,
+  gs: 450,
+  track: 270.5,
+  baro_rate: -640,
+  squawk: '1200',
+  lat: 37.6,
+  lon: -122.4,
+  ...over,
+});
+
+test('parseAdsb converts readsb units to the SI aircraft shape', () => {
+  const { time, aircraft } = parseAdsb({ ac: [adsbAc()], now: 1_700_000_000_500 });
+  assert.equal(time, 1_700_000_001);
+  const a = aircraft[0];
+  assert.equal(a.id, 'a1b2c3');
+  assert.equal(a.callsign, 'UAL123');
+  assert.equal(a.registration, 'N12345');
+  assert.equal(a.typeCode, 'B738');
+  assert.equal(a.onGround, false);
+  assert.ok(Math.abs(a.baroAltitude - 10668) < 1); // 35000 ft
+  assert.ok(Math.abs(a.geoAltitude - 10820.4) < 1);
+  assert.ok(Math.abs(a.velocity - 231.5) < 0.5); // 450 kt
+  assert.ok(Math.abs(a.verticalRate - -3.25) < 0.01); // -640 ft/min
+  assert.equal(a.trueTrack, 270.5);
+  assert.equal(a.source, 'adsb.lol');
+});
+
+test('parseAdsb handles ground, TIS-B ids, and drops positionless aircraft', () => {
+  const { aircraft } = parseAdsb({
+    ac: [
+      adsbAc({ hex: '~abc', alt_baro: 'ground', alt_geom: undefined }),
+      adsbAc({ lat: undefined }),
+      null,
+      { lat: 1, lon: 2 }, // no hex
+    ],
+  });
+  assert.equal(aircraft.length, 1);
+  assert.equal(aircraft[0].id, 'abc');
+  assert.equal(aircraft[0].onGround, true);
+  assert.equal(aircraft[0].baroAltitude, 0);
+  assert.equal(aircraft[0].geoAltitude, null);
+  assert.deepEqual(parseAdsb(null), { time: null, aircraft: [] });
+});
+
+test('parseFlights detects the payload format', () => {
+  assert.equal(parseFlights({ ac: [adsbAc()] }).aircraft[0].source, 'adsb.lol');
+  assert.equal(parseFlights({ states: [vector()] }).aircraft[0].source, 'OpenSky');
+  assert.deepEqual(parseFlights(undefined), { time: null, aircraft: [] });
+});
+
+test('bboxToPointQuery centres on the view, snaps the anchor, and caps the radius', () => {
+  const small = bboxToPointQuery({ lamin: 37, lamax: 38, lomin: -123, lomax: -122 });
+  assert.equal(small.latitude, 37.5);
+  assert.equal(small.longitude, -122.5);
+  // ~38 nm to the corner, plus the snap slack (~11 nm)
+  assert.ok(small.radiusNm > 40 && small.radiusNm < 60, String(small.radiusNm));
+  const world = bboxToPointQuery({ lamin: -90, lamax: 90, lomin: -180, lomax: 180 });
+  assert.equal(world.radiusNm, ADSB_MAX_RADIUS_NM);
+  const tiny = bboxToPointQuery({ lamin: 1, lamax: 1.001, lomin: 1, lomax: 1.001 });
+  assert.ok(tiny.radiusNm >= 5 && tiny.radiusNm < 15);
+  assert.equal(tiny.latitude, 1);
+  // a small pan keeps the same anchor (and so the same cached URL)
+  const a = bboxToPointQuery({ lamin: 37.01, lamax: 38.01, lomin: -123, lomax: -122 });
+  assert.equal(a.latitude, small.latitude);
+  assert.equal(
+    adsbPointPath({ lamin: 37, lamax: 38, lomin: -123, lomax: -122 }),
+    `/v2/lat/37.5/lon/-122.5/dist/${small.radiusNm}`,
+  );
+});
+
+test('a view across the antimeridian centres on the Pacific, not on 0', async () => {
+  const { rectangleRadiansToBBox } = await import('../sdk/viewport.js');
+  const D = Math.PI / 180;
+  const bbox = rectangleRadiansToBBox({
+    west: 175 * D,
+    east: -175 * D,
+    south: -20 * D,
+    north: -10 * D,
+  });
+  assert.equal(bbox.lomin, -180);
+  const q = bboxToPointQuery(bbox);
+  assert.equal(Math.abs(q.longitude), 180);
+  assert.ok(q.radiusNm < 600);
 });

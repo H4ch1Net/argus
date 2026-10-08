@@ -62,6 +62,8 @@ export async function createViewer(container, { profile, onContextChange } = {})
   viewer.resolutionScale = profile.resolutionScale;
   viewer.targetFrameRate = profile.targetFrameRate;
   scene.globe.maximumScreenSpaceError = profile.maximumScreenSpaceError;
+  // Cap the globe's tile cache per tier (phones get a small one).
+  if (profile.tileCacheSize) scene.globe.tileCacheSize = profile.tileCacheSize;
 
   if (profile.msaaSamples && scene.msaaSamples !== undefined) {
     scene.msaaSamples = profile.msaaSamples;

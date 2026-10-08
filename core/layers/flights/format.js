@@ -36,17 +36,44 @@ export function formatHeading(deg) {
  * @returns {{ id: string, title: string, subtitle: string, rows: [string, string][] }}
  */
 export function formatAircraft(a) {
+  const rows = [
+    ['ICAO24', a.id ?? '—'],
+    ['Status', a.onGround ? 'on ground' : 'airborne'],
+    ['Altitude', formatAltitude(a.geoAltitude ?? a.baroAltitude)],
+    ['Speed', formatSpeed(a.velocity)],
+    ['Heading', formatHeading(a.trueTrack)],
+    ['Vertical rate', formatVerticalRate(a.verticalRate)],
+  ];
+  // Extra fields only the adsb.lol feed carries (registration, ICAO type, squawk).
+  if (a.registration) rows.push(['Registration', a.registration]);
+  if (a.typeCode) rows.push(['Type', a.typeCode]);
+  if (a.squawk) rows.push(['Squawk', a.squawk]);
+  // Only the military layer sets this (an armed service or agency); civil
+  // aircraft never carry an owner field, since that can name a private person.
+  if (a.operator) rows.push(['Operator', a.operator]);
+  if (a.source) rows.push(['Source', a.source]);
   return {
     id: a.id,
     title: (a.callsign && a.callsign.trim()) || a.id || 'unknown',
-    subtitle: a.originCountry || '',
-    rows: [
-      ['ICAO24', a.id ?? '—'],
-      ['Status', a.onGround ? 'on ground' : 'airborne'],
-      ['Altitude', formatAltitude(a.geoAltitude ?? a.baroAltitude)],
-      ['Speed', formatSpeed(a.velocity)],
-      ['Heading', formatHeading(a.trueTrack)],
-      ['Vertical rate', formatVerticalRate(a.verticalRate)],
-    ],
+    subtitle: a.originCountry || [a.typeCode, a.registration].filter(Boolean).join(' · '),
+    rows,
   };
 }
+
+/** A parsed aircraft (either feed) -> the SDK's normalized entity shape. */
+export function aircraftToNormalized(a) {
+  return {
+    id: a.id,
+    type: 'aircraft',
+    position: {
+      longitude: a.longitude,
+      latitude: a.latitude,
+      altitude: a.geoAltitude ?? a.baroAltitude ?? 0,
+    },
+    velocity: { speed: a.velocity, heading: a.trueTrack, verticalRate: a.verticalRate },
+    meta: a,
+  };
+}
+
+export const aircraftSearchText = (n) =>
+  `${n.meta.callsign} ${n.id} ${n.meta.originCountry || ''} ${n.meta.registration || ''}`;

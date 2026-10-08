@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { acquireContinuousRender, releaseContinuousRender } from '../scene/renderMode.js';
 
 // Sensor shaders: NVG (night vision), FLIR (thermal), and a CRT overlay, as
 // Cesium PostProcessStages. The danger zone on mobile (full-screen fragment
@@ -85,7 +86,7 @@ export function createSensorShaders(viewer, { tier }) {
   let crtStage = null;
   let sensor = 'none';
   let crtOn = false;
-  let savedRenderMode = null;
+  let holdsRender = false;
 
   const makeStage = (name, fragmentShader, uniforms) =>
     new Cesium.PostProcessStage({ name, fragmentShader, uniforms, textureScale });
@@ -117,17 +118,16 @@ export function createSensorShaders(viewer, { tier }) {
     scene.requestRender();
   }
 
-  // Animated shaders need frames; force continuous render while any stage is on.
-  // Save the mode when the first stage activates (capturing whatever the movers
-  // set) and restore it when the last turns off.
+  // Animated shaders need frames; hold one continuous-render claim while any
+  // stage is on (shared with the moving layers, core/scene/renderMode.js).
   function updateRenderMode() {
     const anyActive = sensor !== 'none' || (crtOn && crtSupported);
-    if (anyActive && savedRenderMode === null) {
-      savedRenderMode = scene.requestRenderMode;
-      scene.requestRenderMode = false;
-    } else if (!anyActive && savedRenderMode !== null) {
-      scene.requestRenderMode = savedRenderMode;
-      savedRenderMode = null;
+    if (anyActive && !holdsRender) {
+      holdsRender = true;
+      acquireContinuousRender(scene);
+    } else if (!anyActive && holdsRender) {
+      holdsRender = false;
+      releaseContinuousRender(scene);
     }
   }
 

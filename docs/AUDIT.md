@@ -308,8 +308,8 @@ honest warnings that OpenSky and AISStream keys are unset. Feed allowlist enforc
 | 4. HTTPS terminator                | Working (by code)                                        | `npm run start:https` / self-signed; not run in HTTPS this session.             |
 | 5. Stateful AIS websocket consumer | Working (by code + tests)                                | `proxy/lib/ais.js`, `/ws/ais`; needs `AISSTREAM_API_KEY`.                       |
 | 6. Rate / budget governor          | Working                                                  | `proxy/lib/governor.js`; `/health` shows ripestat budget usage incrementing.    |
-| Extra: BGP RIS Live `/ws/bgp`      | Working (by code + tests)                                | Keyless; lazy upstream connect on client subscribe.                             |
-| Extra: CT CertStream `/ws/ct`      | Partial                                                  | Implemented; upstream often silent, needs `CT_STREAM_URL`.                      |
+| Extra: BGP RIS Live `/ws/bgp`      | Broken, fixed in Phase C                                 | Never connected beside `/ws/ais` (ws path mismatch answered 400). See Phase C.  |
+| Extra: CT CertStream `/ws/ct`      | Partial; routing fixed in Phase C                        | Same 400 bug as BGP; upstream often silent, needs `CT_STREAM_URL`.              |
 | Feed allowlist (anti-SSRF)         | Working                                                  | Off-allowlist path -> 403 "path not in feed allowlist".                         |
 
 Fixed (Phase B): `/health` now reports `configured` truthfully for every feed, not
@@ -456,3 +456,217 @@ What **remains genuinely incomplete** (and why):
 - **Minor**: a small dark patch at the exact north pole (elevation tileset has no
   coverage there); and the keyless Esri tile services can transiently 502 under
   heavy rapid loads (proxy-side tile caching would harden this for production).
+
+---
+
+## Phase C: finishing for personal use (phone, PC, Kali, terminal)
+
+Goal of this pass: make the project usable day to day on all three targets and
+add the requested dedicated terminal version, then fix whatever stood in the
+way. Same honesty rule as before: "verified" below means run and observed.
+
+### Environment limits of this pass (read first)
+
+- **The npm registry was blocked** by the build environment's network policy,
+  so Cesium, Vite, `satellite.js`, and `ws` could not be installed. The web app
+  was therefore **not built or run in a browser in this pass**. Its changes are
+  lint-clean and unit-tested where pure, but browser behaviour is unverified.
+- **Outbound access to every data host was blocked** (USGS, adsb.lol, CelesTrak,
+  RIPEstat, Overpass, jsDelivr, RIS Live). Live feed paths were exercised only
+  through tests with fixtures and through demo data. adsb.lol's current terms
+  and endpoint could not be re-checked (see SETUP.md).
+- `ws` was exercised with the copy bundled inside Playwright, by mapping the
+  import in a scratch loader (not shipped).
+
+### Broken before, fixed now
+
+| #   | Problem                                                                                                          | Cause                                                                                                                        | Fix / evidence                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `/ws/bgp` and `/ws/ct` never connected through the real proxy (BGP layer and CT ticker dead with a proxy)        | Three `WebSocketServer({ server, path })` on one HTTP server; ws v8 answers **400** to any path but the first-attached one   | Single upgrade router + `noServer` servers (`proxy/lib/wsRoutes.js`). Reproduced the 400 with a real ws server; the new regression test fails on the old code, passes now                                |
+| 2   | Keys in `.env` were ignored by the proxy, although SETUP.md said to put them there                               | Nothing loaded `.env`                                                                                                        | `proxy/lib/env.js` (repo `.env`, `proxy/.env`, `~/.config/argus/.env`; real env wins). Tested                                                                                                            |
+| 3   | `npm test` failed on Node 22 (the audit's 108 passes were from an older Node)                                    | `node --test core` runs `core/index.js` as a module on Node 22 (imports Cesium + CSS)                                        | `scripts/run-tests.js` lists test files explicitly; works on Node 20 and 22. Verified on Node 22                                                                                                         |
+| 4   | A production build only worked with `VITE_PROXY_BASE_URL` baked in; the phone over LAN could not reach the proxy | The app only knew an absolute proxy URL; `https://phone-page` -> `http://localhost:8787` is the wrong host and mixed content | The proxy serves the built app (`npm start`), the dev server forwards proxy routes, and the app discovers a proxy at its own origin. Proxy side verified with curl; browser side unverified (see limits) |
+| 5   | Default-on flights showed `error 502` with no OpenSky key                                                        | OpenSky is the only flights source                                                                                           | Keyless adsb.lol fallback chosen from `/health`; parser + point query unit-tested. Live endpoint unverified                                                                                              |
+| 6   | Layer errors showed only a status code                                                                           | The proxy client discarded the proxy's JSON reason                                                                           | Errors carry the reason (e.g. which key is missing); shown on hover in the readout and in the terminal shell. Tested                                                                                     |
+| 7   | Phone re-prompted for the certificate on every proxy restart                                                     | A new self-signed cert per start, with no LAN IP in it                                                                       | Generated once (with LAN IPs) and kept in `~/.config/argus/tls`; mkcert path documented for a trusted cert                                                                                               |
+| 8   | CLAUDE.md mobile requirements missing: thermal ladder, 3D-tile cache caps, PWA manifest + service worker         | Never built                                                                                                                  | `core/capability/thermalLadder.js` (+ scene binding), per-tier `tileCacheSize` and tileset byte caps, `public/manifest.webmanifest`, `public/sw.js`, generated icons                                     |
+
+### New
+
+- **Terminal shell** (`shell-terminal/`, `argus tui`): braille world map with
+  coastlines (built-in coarse outline offline, Natural Earth when fetched and
+  cached), graticule, place names, all nine real layers as glyphs, selection,
+  tracking with trails and orbits, metadata cards, presets, the shared command
+  language, CT ticker, passive OSINT plotting, JSON export, mouse support. It is
+  built from core's own parsers, normalizers, formatters, push clients, and
+  mocks (pure helpers were moved out of the Cesium definitions so every shell
+  shares them). Embedded loopback proxy, `--proxy URL`, or `--demo`.
+- **Scriptable CLI**: `argus query|correlate|quakes|flights|sats|fires|geocode|bgp|ct|health`, text or `--json`.
+- **Launcher + installer**: `bin/argus.js` (`web`, `proxy`, `tui`, CLI) and
+  `scripts/install-linux.sh` (command on PATH, keys file, menu launchers, GPU check).
+
+### Independent review of this pass (fixed)
+
+A separate review of the whole Phase C diff, which reproduced each issue with
+scratch scripts, found these; all are fixed with regression tests that fail on
+the earlier code:
+
+- Terminal: on a terminal smaller than 40x12 every frame was treated as a resize
+  (flicker, and viewport feeds refetched about once a second).
+- Terminal: while tracking, viewport feeds and the AIS subscription box never
+  followed the tracked entity (drift was measured frame to frame).
+- Terminal: coastlines of world-spanning rings (Eurasia, Antarctica) vanished
+  when zoomed in east of their first point (wrapped copies were skipped).
+- Terminal: a fast layer toggle could subscribe a push stream twice and leak a
+  socket and a timer (start/stop race); same for the CT ticker.
+- Thermal ladder: recovery could cycle forever on a device that reheats
+  (frame intervals are capped, so headroom is invisible); it now backs off. Idle
+  gaps now reset the evidence, the budget follows cockpit mode's 60 fps cap, and
+  a rung that does nothing on the device (post-processing without shaders) is
+  skipped.
+- `.env`: a quoted value followed by a comment kept its quotes.
+- Dev forwarding ignored the proxy's `PROXY_PORT` / `PROXY_HTTPS`.
+- Service worker caches are now versioned per build, so a Cesium upgrade cannot
+  mix old and new code on the first load.
+- The terminal is restored on an external SIGINT; `argus ... | head` exits quietly.
+
+### Verified in this pass
+
+- Unit tests: `npm test` passes everything except the 2 suites that need
+  `satellite.js` / `cesium`, which could not be installed here. Proxy: 54 of 54
+  pass when run with a `ws` implementation (Playwright's bundled copy).
+- Proxy run with `--static`: `/health`, app files with correct types and cache
+  headers, traversal attempts refused (404), unknown feeds refused.
+- Terminal shell: rendered headless on demo data at several sizes and zooms, and
+  driven inside a real pseudo-terminal (`script`): keys, command line, `goto`,
+  selection and tracking, quit restoring the terminal (exit code 0).
+- CLI: `health`, `query`/`correlate`/`geocode` on demo data, refusal of a
+  person's name (`query "jane smith"` exits 2: assets only), usage errors.
+- Installer: run against a scratch `HOME`; the symlinked `argus` resolves the repo.
+- Service worker routing: run in a VM sandbox; feeds, websockets, `/health`,
+  brokered tiles, and third-party tiles are never intercepted.
+- PWA icons: generated and inspected.
+
+### Still unverified or incomplete (and why)
+
+- **Web app in a browser** (all Phase C client changes): blocked by the registry
+  limit above. First thing to check on a real machine: `npm install && npm start`,
+  then the globe, the network tab (requests go to the page's own origin), and a
+  flights layer with no OpenSky key (adsb.lol).
+- **Live data end to end** from the terminal shell and CLI: blocked by the egress
+  limit above.
+- **Thermal ladder on a real phone**: logic tested with synthetic frame-time
+  sequences; thresholds may need tuning on the S25.
+- **PWA install**: needs trusted HTTPS on the phone (SETUP.md, mkcert).
+- Unchanged from Phase B: keyed feeds without keys here, photoreal tiles,
+  CertStream upstream silence, `raster` renderType, CCTV/threats demo-only.
+
+## Phase D: parity with the reference project, Android standalone
+
+Goal of this pass: compare Argus with the reference project
+(`bilawalsidhu/gods-eye-view`), port what was missing and fits the guardrails,
+make Android work without a PC, and merge to `main`. The full feature-by-feature
+comparison, including what was left out on purpose and why, is in
+[COMPARISON.md](COMPARISON.md).
+
+### Environment limits of this pass (read first)
+
+Same as Phase C: the npm registry answered 403 and every data host was blocked,
+so the web app was **not built or run in a browser**, and **no new upstream was
+reached live**. Endpoints, parameters and field names for the ported layers come
+from the reference project's working source; they are marked "per the reference
+implementation, not live-tested here" in `proxy/feeds.js`. Globe-side code was
+exercised against a Cesium stub (a scratch loader, not shipped).
+
+### Broken before, fixed now
+
+| #   | Problem                                                                           | Cause                                                                                                            | Fix / evidence                                                                                                                          |
+| --- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Surveillance and landmarks stayed empty on the globe with a live proxy            | `mode: 'viewport'` layers never received a bounding box (only `viewportBounded` polls did); the dev mocks hid it | `createLayer` always bounds viewport-mode queries. Stub harness shows the bbox now reaches the source                                   |
+| 2   | Turning off one moving layer froze the others (e.g. flights off while ships move) | Each mover saved and restored `requestRenderMode` on its own                                                     | Reference-counted per scene. Stub harness: two movers on, one off, still continuous; both off, on-demand again                          |
+| 3   | OSM layers and CelesTrak bulk groups likely refused by public servers             | Requests carried Node's default User-Agent (the reference project hit 406s from Overpass)                        | Every feed sends a descriptive User-Agent with a contact URL; `OVERPASS_URL` points Overpass elsewhere                                  |
+| 4   | An Overpass timeout was cached as "nothing here" for 10 minutes                   | Overpass reports runtime errors as HTTP 200 with a `remark`                                                      | Treated as an error and never cached. Tested                                                                                            |
+| 5   | `argus web` crashed in Termux                                                     | `os.networkInterfaces()` throws EACCES under Android's sandbox                                                   | Tolerated (no LAN list on Android). Tested                                                                                              |
+| 6   | Keyless flights used `/v2/point/...`, a path the reference does not use           | Guessed from docs at build time                                                                                  | Switched to the reference's live-used `/v2/lat/../lon/../dist/..`, anchor snapped to 0.25 degrees so pans share the proxy cache. Tested |
+
+### New
+
+- **Layers** (each config against the Layer SDK; pure parse/format shared by the
+  globe and the terminal; demo sources; tests): military air, my receiver
+  (`LOCAL_ADSB_URL`), navigation and GEO satellites, launches, transit (7
+  GTFS-RT operators, default-on), bikeshare (16 GBFS systems), cyclones, IR
+  clouds, US radar, lightning density, traffic cameras (Caltrans, TfL, Statens
+  vegvesen), radio, data centres, installations, submarine cables (cable landing
+  points in the terminal).
+- **SDK**: `raster` render type (imagery overlays through the same interface),
+  `polyline` render type, `positionCacheMs` for large compute-position sets,
+  `statusNote` (why a layer is empty) shown in the readout and the terminal.
+- **Proxy**: response cache with stale-on-error for rate-limited feeds;
+  `baseUrlEnv` overrides; `localOnly` feeds that refuse any non-LAN upstream;
+  image-only feeds pinned to official camera hosts; `getBytes` in the client for
+  protobuf.
+- **UI**: grouped layer toggles, cards with source links and images, north-up /
+  tilt / whole-Earth buttons, an Internet preset; transit joins the default-on set.
+- **Terminal**: the new layers, tap or click a side-panel row to toggle, a
+  compact list when space is short; `argus military | storms | launches`.
+- **Android**: `scripts/install-termux.sh` runs the proxy, the globe (Chrome on
+  `http://localhost:8787`, a secure context) and the terminal on the phone itself.
+
+### Verified in this pass
+
+- `npm test`: 243 pass; the 2 failing suites need `satellite.js` / `cesium`,
+  which could not be installed. Proxy: 68 of 68 with Playwright's bundled `ws`.
+- ESLint with a scratch approximation of the repo's config (the core recommended
+  rules; `@eslint/js` could not be installed) and Prettier: clean.
+- Every new globe layer run through the real `createLayer` against a Cesium
+  stub with its demo source: entity counts, cards, links, viewport bbox, mover
+  reference counting, the raster spec reaching an imagery layer.
+- Every `import()` path and export name in `main.js` resolved (except modules
+  needing `satellite.js`, and CSS imports that only Vite handles).
+- Terminal: every new layer on demo data in tests; frames rendered headless.
+- Proxy allowlists: each GTFS-RT, GBFS, camera and catalogue path resolves and
+  is allowed; neighbouring paths on the same hosts are refused. Tested.
+
+### Independent review of this pass (fixed)
+
+Two reviewers (proxy and security; layers, SDK and terminal) read the diff and
+reproduced their findings; each fix below has a test or a stub-harness check.
+
+| Finding                                                                                                                                   | Fix                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Cache poisoning: a client asking LL2 for `text/html` made every later JSON client get the HTML page                                       | The cache key includes `Accept`                                                                                |
+| Concurrent requests all passed the rate/credit governor before any was counted (20 of 20 got through)                                     | `governor.acquire()` counts at check time; a request the upstream never answered is refunded                   |
+| Overpass allowlist unanchored (`/kill_my_queries/api/interpreter` passed)                                                                 | Anchored; an `OVERPASS_URL` override is judged against the default base path                                   |
+| nowCOAST's generic `ows` endpoint let any OGC operation through, unmetered                                                                | Query pinned to tile-sized WMS GetMap of the three layers; rate cap                                            |
+| `localOnly` feed followed redirects off the device; link-local accepted; `/health` said "ready" for a bad URL                             | No redirects for local feeds; link-local dropped; `/health` uses the relay's own validation                    |
+| Upstream names could carry terminal escape sequences (station names are user-submitted)                                                   | Control characters drawn as `?` in the TUI and escaped in CLI output                                           |
+| Termux bound the keyed proxy to every interface on a phone that may be on public Wi-Fi                                                    | Loopback by default on Android; `--host 0.0.0.0` to share                                                      |
+| A double-tapped preset built a second copy of a layer that kept polling (and rendering) forever                                           | One in-flight load per layer; the latest on/off request wins                                                   |
+| Sensor shaders and moving layers each saved and restored the render mode, freezing one or leaving the scene rendering at idle             | One shared claim count (`core/scene/renderMode.js`)                                                            |
+| Tapping a military aircraft also shown by Flights opened the Flights card (ids are per layer)                                             | The resolver matches the picked entity itself                                                                  |
+| City layers (traffic cams, bikeshare, transit) only refetched on their timer after the camera moved                                       | Bounded layers refetch when the camera settles (at most every 5 s, so panning cannot multiply metered queries) |
+| Transit animated every vehicle of a network (all of the Netherlands for a view of Amsterdam)                                              | Transit, bikeshare and camera sources keep only what is in and around the view                                 |
+| An aborted poll could ingest partial multi-feed data; viewport layers went on a timer after a tab switch                                  | Aborted polls are discarded; viewport layers never get a timer                                                 |
+| Weather refresh blanked the overlay and reordered clouds and radar                                                                        | The new frame takes the old one's slot; the old one goes once tiles have loaded                                |
+| Mobile start highlighted Around Me without its full layer set                                                                             | Mobile applies the Around Me preset itself                                                                     |
+| A civil aircraft wrongly flagged military would show its registered owner                                                                 | The operator is shown only when it reads as a state body                                                       |
+| Flights centred on longitude 0 for a view across the antimeridian                                                                         | The view keeps its true edges for point queries                                                                |
+| Smaller: Overpass client cache unbounded, right-click toggled layers, Termux swapped an installed `nodejs`, zoom hints over dev mock data | Capped at 40 regions; left button only; install only what is missing; hint only when nothing loaded            |
+
+Left as is: NHC's `movementSpeed` unit (shown as knots, as the reference reads
+it; listed below to check live), and the CLI embeds a fresh proxy (so a fresh
+governor) per run, which upstream rate limits still bound.
+
+### Still unverified or incomplete (and why)
+
+- **Every new upstream, live** (egress blocked). Specific assumptions to check
+  first: `all.api.radio-browser.info` serves the search API (else set
+  `RADIO_BROWSER_URL`); nowCOAST ignores the `_` refresh parameter; LL2
+  `mode=normal` includes pad coordinates; NHC `movementSpeed` is in knots (as
+  the reference reads it).
+- **Web UI in a browser**: card images, grouped toggles, raster overlays,
+  cable polylines at 300 m, the view buttons.
+- **Nav & GEO sats** on the globe: needs `satellite.js` (not installable here).
+- **Termux installer** on a real phone (checked for syntax and its refusal off
+  Termux only).
+- Deferred features are listed in [COMPARISON.md](COMPARISON.md).

@@ -6,9 +6,10 @@ import { arcSamples } from './greatCircle.js';
 // contract. Each renderer creates the entity's graphics once, then updates the
 // dynamic bits from the definition's per-entity style(normalized) on each fix.
 //
-// Implemented now: point, billboard, arc (threat-map source->target). raster is
-// declared as the extension point it will fill in its phase; asking for one
-// before it exists fails loudly rather than silently rendering nothing.
+// Entity renderers live here: point, billboard, arc (threat-map source->target),
+// polyline (fixed paths on the surface, e.g. submarine cables). raster layers
+// are imagery rather than entities, so createLayer hands them to rasterLayer.js;
+// asking this dispatch for any unknown type fails loudly.
 
 export const RenderType = {
   POINT: 'point',
@@ -16,6 +17,7 @@ export const RenderType = {
   TRAIL: 'trail',
   RASTER: 'raster',
   ARC: 'arc',
+  POLYLINE: 'polyline',
 };
 
 // Shared "sensor contact" sprite for point markers: a tactical targeting reticle
@@ -175,7 +177,38 @@ const renderers = {
     },
     update: styleArc,
   },
+
+  // A fixed path along the surface: meta.path = [[lon, lat], ...]. The entity's
+  // own position (a point on the path) is what tracking and fly-to use. Clamped
+  // to the ground by default so terrain never hides it; render.height instead
+  // floats it at a fixed height (cheaper, e.g. for long sea-floor cables).
+  polyline: {
+    create(entity, normalized, render) {
+      const path = normalized.meta.path;
+      const positions =
+        render.height != null
+          ? Cesium.Cartesian3.fromDegreesArrayHeights(
+              path.flatMap(([lon, lat]) => [lon, lat, render.height]),
+            )
+          : Cesium.Cartesian3.fromDegreesArray(path.flat());
+      entity.polyline = new Cesium.PolylineGraphics({
+        positions,
+        width: render.width ?? 2,
+        clampToGround: render.height == null && (render.clampToGround ?? true),
+        arcType: Cesium.ArcType.GEODESIC,
+        material: Cesium.Color.WHITE,
+      });
+      stylePolyline(entity, normalized, render);
+    },
+    update: stylePolyline,
+  },
 };
+
+function stylePolyline(entity, normalized, render) {
+  const style = render.style ? render.style(normalized) : {};
+  if (style.color) entity.polyline.material = style.color;
+  if (style.width != null) entity.polyline.width = style.width;
+}
 
 function styleArc(entity, normalized, render) {
   const style = render.style ? render.style(normalized) : {};

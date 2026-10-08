@@ -28,8 +28,9 @@ export function createSensorControls({ shaders }) {
     buttons.set(mode, btn);
   }
 
+  let crtBtn = null;
   if (shaders.crtSupported) {
-    const crtBtn = document.createElement('button');
+    crtBtn = document.createElement('button');
     crtBtn.type = 'button';
     crtBtn.className = 'argus-sensors__btn argus-sensors__crt';
     crtBtn.textContent = 'CRT';
@@ -46,5 +47,12 @@ export function createSensorControls({ shaders }) {
   }
   setActive('none');
 
-  return { el };
+  // Re-read the shader state into the buttons (e.g. after the thermal ladder
+  // turned post-processing off on its own).
+  function sync() {
+    setActive(shaders.sensor ?? 'none');
+    crtBtn?.classList.toggle('is-on', Boolean(shaders.crt));
+  }
+
+  return { el, sync };
 }

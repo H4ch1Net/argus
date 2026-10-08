@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { routeUpgrade } from './wsRoutes.js';
 
 // Certificate Transparency firehose consumer (CT/BGP stage). Like the AIS and RIS
 // consumers, the proxy holds ONE upstream connection to a CertStream aggregator
@@ -37,11 +38,9 @@ export function attachCtWebsocket(
   httpServer,
   { url = process.env.CT_STREAM_URL || DEFAULT_URL } = {},
 ) {
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws/ct',
-    perMessageDeflate: true,
-  });
+  // noServer + the shared upgrade router: several endpoints share one server.
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true });
+  routeUpgrade(httpServer, '/ws/ct', wss);
   const clients = new Set(); // { ws, queue }
 
   let upstream = null;

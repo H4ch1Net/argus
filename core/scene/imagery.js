@@ -61,18 +61,24 @@ export function createImageryLayer(source) {
 }
 
 /**
- * Owns the single base-imagery slot on the viewer and swaps it between sources.
+ * Owns the single base-imagery slot on the viewer (the bottom of the imagery
+ * stack) and swaps it between sources. Only that slot changes: raster overlays
+ * such as weather radar sit above it and survive a basemap switch.
  * @param {import('cesium').Viewer} viewer
  */
 export function createImageryController(viewer) {
   let current = 'base';
+  let baseLayer = viewer.imageryLayers.length ? viewer.imageryLayers.get(0) : null;
   return {
     current: () => current,
     set(source) {
       if (source === current) return;
       const layers = viewer.imageryLayers;
-      layers.removeAll(true); // destroy the old base layer (frees its tiles)
-      layers.add(createImageryLayer(source));
+      // Destroy the old base layer (frees its tiles), then slot the new one in
+      // at the bottom so every overlay stays on top of it.
+      if (baseLayer && layers.contains(baseLayer)) layers.remove(baseLayer, true);
+      baseLayer = createImageryLayer(source);
+      layers.add(baseLayer, 0);
       current = source;
       viewer.scene.requestRender();
     },

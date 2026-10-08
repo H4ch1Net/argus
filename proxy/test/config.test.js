@@ -35,3 +35,84 @@ test('validateFeeds rejects duplicate ids and bad URLs', () => {
   assert.throws(() => validateFeeds([{ baseUrl: 'https://x/' }]));
   assert.deepEqual(validateFeeds([]), []);
 });
+
+test('the real feed registry validates and pins the keyless flights fallback', async () => {
+  const { feeds } = await import('../feeds.js');
+  assert.equal(validateFeeds(feeds), feeds);
+  const adsb = feeds.find((f) => f.id === 'adsblol');
+  const allowed = (p) => adsb.allowPaths.some((re) => re.test(p));
+  assert.equal(allowed('/v2/lat/37.5/lon/-122.5/dist/42'), true);
+  assert.equal(allowed('/v2/lat/-33.75/lon/151.25/dist/250'), true);
+  assert.equal(allowed('/v2/mil'), true);
+  // Only the viewport area query and the military list, nothing else on that host.
+  assert.equal(allowed('/v2/hex/abc123'), false);
+  assert.equal(allowed('/v2/callsign/X'), false);
+  assert.equal(allowed('/v2/lat/1/lon/2/dist/3/extra'), false);
+  assert.equal(adsb.inject, undefined); // keyless: no secret involved
+});
+
+test('every ported feed is keyless or optional-keyed and path-pinned', async () => {
+  const { feeds } = await import('../feeds.js');
+  const { buildUpstreamUrl } = await import('../lib/relay.js');
+  const ids = [
+    'radiobrowser',
+    'll2',
+    'nhc',
+    'nowcoast',
+    'cables',
+    'caltrans',
+    'caltrans-img',
+    'tfl',
+    'tfl-img',
+    'vegvesen',
+    'vegvesen-img',
+  ];
+  const gtfs = feeds.filter((f) => f.id.startsWith('gtfsrt-'));
+  assert.equal(gtfs.length, 7);
+  for (const f of [...feeds.filter((x) => ids.includes(x.id)), ...gtfs]) {
+    assert.ok(f.allowPaths?.length, `${f.id} has a path allowlist`);
+    assert.ok(
+      (f.inject || []).every((r) => r.required === false),
+      `${f.id} needs no key`,
+    );
+    assert.match(f.headers['user-agent'], /^Argus\/.+github\.com/);
+  }
+  // A GTFS-RT feed reaches exactly its one file (CapMetro's path has an encoded slash).
+  const cap = feeds.find((f) => f.id === 'gtfsrt-capmetro');
+  const target = buildUpstreamUrl(cap, '/application%2Foctet-stream', '');
+  assert.ok(cap.allowPaths[0].test(target.pathname));
+  assert.equal(cap.allowPaths[0].test(target.pathname + 'x'), false);
+  const entur = feeds.find((f) => f.id === 'gtfsrt-entur');
+  assert.ok(entur.headers['et-client-name']);
+  // nowCOAST: only the three observation WMS services.
+  const nc = feeds.find((f) => f.id === 'nowcoast').allowPaths[0];
+  assert.ok(nc.test('/geoserver/observations/satellite/ows'));
+  assert.equal(nc.test('/geoserver/observations/satellite/wfs'), false);
+  // Camera image feeds reach stills only, never the catalogues or anything else.
+  const img = (id) => feeds.find((f) => f.id === id).allowPaths[0];
+  assert.ok(img('tfl-img').test('/jamcams.tfl.gov.uk/00001.06514.jpg'));
+  assert.equal(img('tfl-img').test('/jamcams.tfl.gov.uk/../secret'), false);
+  assert.equal(img('caltrans-img').test('/data/d4/cctv/cctvStatusD04.json'), false);
+  assert.equal(img('vegvesen-img').test('/api/images/../x'), false);
+  // Overpass can be re-pointed by the operator, and still only reaches /interpreter
+  // (the relay judges an overridden path against the default base path).
+  const ovp = feeds.find((f) => f.id === 'overpass');
+  assert.equal(ovp.baseUrlEnv, 'OVERPASS_URL');
+  assert.ok(ovp.allowPaths[0].test('/api/interpreter'));
+  assert.equal(ovp.allowPaths[0].test('/api/kill_my_queries/api/interpreter'), false);
+  assert.equal(ovp.allowPaths[0].test('/api/status'), false);
+  // nowCOAST: tile-sized WMS GetMap of the three imagery layers, nothing else.
+  const ncq = feeds.find((f) => f.id === 'nowcoast').allowQuery;
+  const q = (s) => new URLSearchParams(s);
+  const tile =
+    'service=WMS&version=1.1.1&request=GetMap&layers=conus_base_reflectivity_mosaic&styles=x&srs=EPSG:4326&bbox=0,0,1,1&width=256&height=256&format=image/png&transparent=true&_=1';
+  assert.equal(ncq(q(tile)), true);
+  assert.equal(ncq(q(tile.replace('GetMap', 'GetCapabilities'))), false);
+  assert.equal(ncq(q(tile.replace('service=WMS', 'service=WFS'))), false);
+  assert.equal(ncq(q(tile.replace('width=256', 'width=8192'))), false);
+  assert.equal(
+    ncq(q(tile.replace('conus_base_reflectivity_mosaic', 'secret_layer'))),
+    false,
+  );
+  assert.equal(ncq(q(`${tile}&REQUEST=GetFeature`)), false);
+});

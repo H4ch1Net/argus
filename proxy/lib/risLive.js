@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { routeUpgrade } from './wsRoutes.js';
 
 // Stateful RIPE RIS Live websocket consumer (BGP firehose). Like the AIS consumer,
 // the proxy holds ONE upstream connection and fans a bounded, SAMPLED stream out
@@ -34,12 +35,10 @@ export function risMessageToEvent(msg) {
   return { rrc, kind, asn: origin ?? null };
 }
 
-export function attachRisWebsocket(httpServer) {
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws/bgp',
-    perMessageDeflate: true,
-  });
+export function attachRisWebsocket(httpServer, { url = RIS_URL } = {}) {
+  // noServer + the shared upgrade router: several endpoints share one server.
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true });
+  routeUpgrade(httpServer, '/ws/bgp', wss);
   const clients = new Set(); // { ws, queue }
 
   let upstream = null;
@@ -49,7 +48,7 @@ export function attachRisWebsocket(httpServer) {
 
   function openUpstream() {
     if (upstream) return;
-    upstream = new WebSocket(RIS_URL, { perMessageDeflate: true });
+    upstream = new WebSocket(url, { perMessageDeflate: true });
     upstream.on('open', () => {
       reconnectDelay = 1000;
       upstream.send(JSON.stringify({ type: 'ris_subscribe', data: { type: 'UPDATE' } }));

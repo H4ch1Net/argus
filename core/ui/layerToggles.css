@@ -6,6 +6,23 @@
   gap: 5px;
 }
 
+.argus-toggles__group {
+  flex: 1 1 100%;
+  margin: 6px 0 1px;
+  color: #5f7a74;
+  font:
+    10px/1 ui-monospace,
+    'Cascadia Code',
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.argus-toggles__group:first-child {
+  margin-top: 0;
+}
+
 .argus-toggles__btn {
   flex: 1 1 42%;
   min-width: 88px;

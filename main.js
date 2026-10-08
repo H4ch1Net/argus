@@ -87,18 +87,23 @@ async function main() {
 
 // Set up the scene: register the available layers, wire presets + toggle UI and
 // the interaction spine, then apply the default state. Data comes from the proxy
-// when VITE_PROXY_BASE_URL is set, otherwise from dev mocks; with neither
-// (a production build without a proxy) no layers register and the globe is bare.
+// (VITE_PROXY_BASE_URL, or the app's own origin when the proxy serves it or the
+// dev server forwards to it), otherwise from dev mocks; with neither (a
+// production build that cannot reach a proxy) no layers register.
 async function setupScene(app) {
-  const proxyBase = import.meta.env.VITE_PROXY_BASE_URL;
   const dev = import.meta.env.DEV;
+  const { discoverProxy, feedConfigured } = await import('./core/net/discoverProxy.js');
+  const { base: proxyBase, health } = await discoverProxy({
+    explicit: import.meta.env.VITE_PROXY_BASE_URL || null,
+    origin: location.origin,
+  });
   // A production build with no proxy has no data source (mocks are dev-only), so
   // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
   if (!proxyBase && !dev) {
     const notice = document.createElement('div');
     notice.className = 'argus-demo-banner';
     notice.textContent =
-      'No data source configured. Set VITE_PROXY_BASE_URL to a running proxy to load live feeds.';
+      'No proxy reachable. Run "npm start" (it serves this app and its proxy together) or set VITE_PROXY_BASE_URL.';
     app.mountControls?.({ notice });
     return;
   }
@@ -161,11 +166,26 @@ async function setupScene(app) {
   const registrations = [
     {
       key: 'flights',
+      group: 'Air & space',
       label: 'Flights',
       loadDef: () =>
         import('./core/layers/flights/definition.js').then((m) => m.flightsDefinition),
-      proxy: (c) => (q, s) =>
-        c.getJson('opensky', '/states/all', { params: q.bbox, signal: s }),
+      // OpenSky when its OAuth2 client is configured on the proxy; otherwise the
+      // keyless adsb.lol feed, so the default-on layer works with zero keys. An
+      // unreachable explicit proxy (no health report) keeps the OpenSky path so
+      // the readout shows the honest error.
+      proxy: async (c) => {
+        const { adsbPointPath, openSkyParams } =
+          await import('./core/layers/flights/parse.js');
+        if (!health || feedConfigured(health, 'opensky')) {
+          return (q, s) =>
+            c.getJson('opensky', '/states/all', {
+              params: openSkyParams(q.bbox),
+              signal: s,
+            });
+        }
+        return (q, s) => c.getJson('adsblol', adsbPointPath(q.bbox), { signal: s });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/flights/mockSource.js').then((m) =>
@@ -174,23 +194,44 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
-      key: 'quakes',
-      label: 'Earthquakes',
+      key: 'military',
+      group: 'Air & space',
+      label: 'Military air',
       loadDef: () =>
-        import('./core/layers/earthquakes/definition.js').then(
-          (m) => m.earthquakesDefinition,
-        ),
-      proxy: (c) => (_q, s) =>
-        c.getJson('usgs-quakes', '/all_day.geojson', { signal: s }),
+        import('./core/layers/military/definition.js').then((m) => m.militaryDefinition),
+      // adsb.lol's global list of aircraft flagged military (keyless).
+      proxy: async (c) => {
+        const { ADSB_MILITARY_PATH } = await import('./core/layers/flights/parse.js');
+        return (_q, s) => c.getJson('adsblol', ADSB_MILITARY_PATH, { signal: s });
+      },
       mock: () =>
         import.meta.env.DEV
-          ? import('./core/layers/earthquakes/mockSource.js').then((m) =>
-              m.createQuakeMockSource({ viewer: app.viewer }),
+          ? import('./core/layers/military/mockSource.js').then((m) =>
+              m.createMilitaryMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'localadsb',
+      group: 'Air & space',
+      label: 'My receiver',
+      // Only offered when the proxy knows your receiver (LOCAL_ADSB_URL).
+      requires: 'local-adsb',
+      loadDef: () =>
+        import('./core/layers/localadsb/definition.js').then(
+          (m) => m.localAdsbDefinition,
+        ),
+      proxy: (c) => (_q, s) => c.getJson('local-adsb', '/aircraft.json', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/localadsb/mockSource.js').then((m) =>
+              m.createLocalAdsbMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
     {
       key: 'satellites',
+      group: 'Air & space',
       label: 'Satellites',
       loadDef: () =>
         import('./core/layers/satellites/definition.js').then(
@@ -209,7 +250,121 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'constellations',
+      group: 'Air & space',
+      label: 'Nav & GEO sats',
+      loadDef: () =>
+        import('./core/layers/constellations/definition.js').then(
+          (m) => m.constellationsDefinition,
+        ),
+      proxy: async (c) => {
+        const { createConstellationSource } =
+          await import('./core/layers/constellations/groups.js');
+        return createConstellationSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/satellites/mockSource.js').then((m) => {
+              const tle = m.createSatMockSource({ count: 12 });
+              return async () => [{ group: 'gps-ops', text: await tle() }];
+            })
+          : Promise.resolve(null),
+    },
+    {
+      key: 'launches',
+      group: 'Air & space',
+      label: 'Launches',
+      loadDef: () =>
+        import('./core/layers/launches/definition.js').then((m) => m.launchesDefinition),
+      proxy: async (c) => {
+        const { launchQuery } = await import('./core/layers/launches/parse.js');
+        return (_q, s) =>
+          c.getJson('ll2', '/launches/', { params: launchQuery(), signal: s });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/launches/mockSource.js').then((m) =>
+              m.createLaunchMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'transit',
+      group: 'Ground & sea',
+      label: 'Transit',
+      loadDef: () =>
+        import('./core/layers/transit/definition.js').then((m) => m.transitDefinition),
+      // GTFS-RT vehicle positions for the covered agencies in view (keyless).
+      proxy: async (c) => {
+        const { createTransitSource } = await import('./core/layers/transit/source.js');
+        return createTransitSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/transit/mockSource.js').then((m) =>
+              m.createTransitMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'bikeshare',
+      group: 'Ground & sea',
+      label: 'Bikeshare',
+      loadDef: () =>
+        import('./core/layers/bikeshare/definition.js').then(
+          (m) => m.bikeshareDefinition,
+        ),
+      // GBFS stations for the covered systems in view (keyless).
+      proxy: async (c) => {
+        const { createBikeshareSource } =
+          await import('./core/layers/bikeshare/systems.js');
+        return createBikeshareSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/bikeshare/mockSource.js').then((m) =>
+              m.createBikeshareMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'ships',
+      group: 'Ground & sea',
+      label: 'Ships',
+      loadDef: () =>
+        import('./core/layers/ships/definition.js').then((m) => m.shipsDefinition),
+      // Push source: a websocket to the proxy (or a synthetic stream in dev).
+      proxy: async () => {
+        const { createAisSource } = await import('./core/layers/ships/aisSource.js');
+        return createAisSource({ wsUrl, viewer: app.viewer });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/ships/mockSource.js').then((m) =>
+              m.createShipMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'quakes',
+      group: 'Earth & weather',
+      label: 'Earthquakes',
+      loadDef: () =>
+        import('./core/layers/earthquakes/definition.js').then(
+          (m) => m.earthquakesDefinition,
+        ),
+      proxy: (c) => (_q, s) =>
+        c.getJson('usgs-quakes', '/all_day.geojson', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/earthquakes/mockSource.js').then((m) =>
+              m.createQuakeMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'fires',
+      group: 'Earth & weather',
       label: 'Fires',
       loadDef: () =>
         import('./core/layers/fires/definition.js').then((m) => m.firesDefinition),
@@ -227,24 +382,64 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
-      key: 'ships',
-      label: 'Ships',
+      key: 'cyclones',
+      group: 'Earth & weather',
+      label: 'Cyclones',
       loadDef: () =>
-        import('./core/layers/ships/definition.js').then((m) => m.shipsDefinition),
-      // Push source: a websocket to the proxy (or a synthetic stream in dev).
-      proxy: async () => {
-        const { createAisSource } = await import('./core/layers/ships/aisSource.js');
-        return createAisSource({ wsUrl, viewer: app.viewer });
-      },
+        import('./core/layers/cyclones/definition.js').then((m) => m.cyclonesDefinition),
+      proxy: (c) => (_q, s) => c.getJson('nhc', '/CurrentStorms.json', { signal: s }),
       mock: () =>
         import.meta.env.DEV
-          ? import('./core/layers/ships/mockSource.js').then((m) =>
-              m.createShipMockSource({ viewer: app.viewer }),
+          ? import('./core/layers/cyclones/mockSource.js').then((m) =>
+              m.createCycloneMockSource(),
             )
           : Promise.resolve(null),
     },
     {
+      key: 'clouds',
+      group: 'Earth & weather',
+      label: 'IR clouds',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('clouds', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'radar',
+      group: 'Earth & weather',
+      label: 'Radar (US)',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.radarDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('radar', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'lightning',
+      group: 'Earth & weather',
+      label: 'Lightning',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.lightningDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('lightning', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
       key: 'surveillance',
+      group: 'Infrastructure',
       label: 'Surveillance',
       loadDef: () =>
         import('./core/layers/surveillance/definition.js').then(
@@ -266,6 +461,7 @@ async function setupScene(app) {
     },
     {
       key: 'landmarks',
+      group: 'Infrastructure',
       label: 'Landmarks',
       loadDef: () =>
         import('./core/layers/landmarks/definition.js').then(
@@ -287,6 +483,7 @@ async function setupScene(app) {
     },
     {
       key: 'cctv',
+      group: 'Infrastructure',
       label: 'CCTV',
       loadDef: () =>
         import('./core/layers/cctv/definition.js').then((m) => m.cctvDefinition),
@@ -300,7 +497,117 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'trafficcams',
+      group: 'Infrastructure',
+      label: 'Traffic cams',
+      loadDef: () =>
+        import('./core/layers/trafficcams/definition.js').then(
+          (m) => m.trafficCamsDefinition,
+        ),
+      // Public DOT cameras (Caltrans, TfL, Statens vegvesen) in view; stills on demand.
+      proxy: async (c) => {
+        const { createTrafficCamSource } =
+          await import('./core/layers/trafficcams/sources.js');
+        return createTrafficCamSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/trafficcams/mockSource.js').then((m) =>
+              m.createTrafficCamMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'datacenters',
+      group: 'Infrastructure',
+      label: 'Data centres',
+      loadDef: () =>
+        import('./core/layers/infrastructure/definition.js').then(
+          (m) => m.datacentersDefinition,
+        ),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/infrastructure/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.DATACENTER_FILTERS,
+          maxAreaDeg: f.DATACENTER_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
+              m.createInfraMockSource({ viewer: app.viewer, kind: 'datacenters' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'cables',
+      group: 'Infrastructure',
+      label: 'Sea cables',
+      loadDef: () =>
+        import('./core/layers/cables/definition.js').then((m) => m.cablesDefinition),
+      proxy: (c) => (_q, s) =>
+        c.getJson('cables', '/cable/cable-geo.json', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/cables/mockSource.js').then((m) =>
+              m.createCableMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'installations',
+      group: 'Infrastructure',
+      label: 'Installations',
+      loadDef: () =>
+        import('./core/layers/infrastructure/definition.js').then(
+          (m) => m.installationsDefinition,
+        ),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/infrastructure/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.INSTALLATION_FILTERS,
+          maxAreaDeg: f.INSTALLATION_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
+              m.createInfraMockSource({ viewer: app.viewer, kind: 'installations' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'radio',
+      group: 'Signals',
+      label: 'Radio',
+      loadDef: () =>
+        import('./core/layers/radio/definition.js').then((m) => m.radioDefinition),
+      proxy: async (c) => {
+        const { radioQuery } = await import('./core/layers/radio/parse.js');
+        return (_q, s) =>
+          c.getJson('radiobrowser', '/json/stations/search', {
+            params: radioQuery(),
+            signal: s,
+          });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/radio/mockSource.js').then((m) =>
+              m.createRadioMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'shodan',
+      group: 'Signals',
       label: 'Shodan',
       loadDef: () =>
         import('./core/layers/shodan/definition.js').then((m) => m.shodanDefinition),
@@ -318,6 +625,7 @@ async function setupScene(app) {
     },
     {
       key: 'threats',
+      group: 'Signals',
       label: 'Threats',
       loadDef: () =>
         import('./core/layers/threats/definition.js').then((m) => m.threatsDefinition),
@@ -333,6 +641,7 @@ async function setupScene(app) {
     },
     {
       key: 'bgp',
+      group: 'Signals',
       label: 'BGP',
       loadDef: () =>
         import('./core/layers/bgp/definition.js').then((m) => m.bgpDefinition),
@@ -357,8 +666,14 @@ async function setupScene(app) {
     // The sourceless layers can only be driven by the dev mock; outside dev they
     // have nothing to show, so do not register them (no dead chips in production).
     if (noRealFeed.has(r.key) && !dev) continue;
+    // Layers that exist only with local equipment (your own receiver) are listed
+    // only when the proxy has it configured, so no one sees a dead chip.
+    // (In a dev session with no proxy, the labelled mock stands in instead.)
+    if (r.requires && proxyClient && !(health && feedConfigured(health, r.requires)))
+      continue;
     manager.register(r.key, {
       label: r.label,
+      group: r.group,
       loadDef: r.loadDef,
       // With a proxy, use the real feed; if this layer has none (proxy source is
       // null), fall back to the labelled mock instead of failing to enable.
@@ -426,13 +741,16 @@ async function setupScene(app) {
   // weakest tier at all; balanced renders reduced-resolution single-pass; full
   // gets full resolution plus the stackable CRT overlay.
   let sensorControls = null;
+  let shaders = null;
+  let sensorUi = null;
   if (app.tier !== 'minimal') {
     const [{ createSensorShaders }, { createSensorControls }] = await Promise.all([
       import('./core/shaders/sensorShaders.js'),
       import('./core/ui/sensorControls.js'),
     ]);
-    const shaders = createSensorShaders(app.viewer, { tier: app.tier });
-    sensorControls = createSensorControls({ shaders }).el;
+    shaders = createSensorShaders(app.viewer, { tier: app.tier });
+    sensorUi = createSensorControls({ shaders });
+    sensorControls = sensorUi.el;
     if (dev && window.__argus) window.__argus.shaders = shaders;
   }
 
@@ -563,6 +881,7 @@ async function setupScene(app) {
 
   const terrain = createTerrainController(app.viewer, {
     proxyBase: proxyBase || null,
+    tilesetCache: app.profile?.tilesetCache ?? null,
     onStatus: (s) => {
       if (!s.ok && s.message) console.warn(`[argus] terrain: ${s.message}`);
     },
@@ -574,6 +893,68 @@ async function setupScene(app) {
     current: defTerrain,
     onSelect: (id) => terrain.set(id),
   });
+
+  // Thermal budget ladder (CLAUDE.md): Android has no thermal API, so a rising
+  // frame-time trend is the signal. Quality is given up one rung at a time, each
+  // reversible once the device has stayed comfortable for a while:
+  // post-processing off -> lower resolutionScale -> flat (free) terrain.
+  // Phones and weak devices only: on a full-tier desktop a heavier scene the
+  // user chose (photoreal, stacked shaders) is not heat, and must not be undone.
+  const { attachThermalLadder } = await import('./core/scene/thermal.js');
+  let savedSensor = null;
+  let savedTerrain = null;
+  if (app.tier !== 'full') {
+    const rungs = [];
+    // Post-processing is only a rung where shaders exist (not on the minimal tier).
+    if (shaders) {
+      rungs.push({
+        label: 'post-processing off',
+        down: () => {
+          savedSensor = { sensor: shaders.sensor, crt: shaders.crt };
+          shaders.setSensor('none');
+          shaders.setCrt(false);
+          sensorUi?.sync();
+        },
+        up: () => {
+          if (!savedSensor) return;
+          shaders.setSensor(savedSensor.sensor);
+          shaders.setCrt(savedSensor.crt);
+          savedSensor = null;
+          sensorUi?.sync();
+        },
+      });
+    }
+    rungs.push(
+      {
+        label: 'reduced resolution',
+        down: () => {
+          app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
+        },
+        up: () => {
+          app.viewer.resolutionScale = app.profile.resolutionScale;
+        },
+      },
+      {
+        label: 'flat terrain',
+        down: () => {
+          savedTerrain = terrain.current();
+          if (savedTerrain !== 'flat') terrainSwitcher.setActive('flat');
+        },
+        up: () => {
+          if (savedTerrain && savedTerrain !== 'flat')
+            terrainSwitcher.setActive(savedTerrain);
+          savedTerrain = null;
+        },
+      },
+    );
+    attachThermalLadder(app.viewer, {
+      rungs,
+      onChange: (level, label) => {
+        app.readout.setThermal?.(label, level);
+        console.info(`[argus] thermal ladder: ${label}`);
+      },
+    });
+  }
 
   // "Center on my location": flies the camera to the device position. The shell
   // owns the sensor read (both shells provide `locate`); this is just the button.
@@ -588,7 +969,7 @@ async function setupScene(app) {
     demoBanner = document.createElement('div');
     demoBanner.className = 'argus-demo-banner';
     demoBanner.textContent =
-      'DEMO DATA: no proxy configured, every layer is simulated. Set VITE_PROXY_BASE_URL for live feeds.';
+      'DEMO DATA: no proxy reachable, every layer is simulated. Run "npm run proxy" alongside the dev server for live feeds.';
   }
 
   app.mountControls?.({
@@ -620,12 +1001,17 @@ async function setupScene(app) {
     });
   }
 
-  // Default state (master plan 8): flights + earthquakes on. The mobile shell
-  // launches into "Around Me" (geolocation); desktop stays at the world view.
-  for (const key of DEFAULT_LAYERS) await manager.enable(key);
-  if (app.aroundMe) {
+  // Default state (master plan 8): flights + earthquakes + transit on. The
+  // mobile shell launches into the "Around Me" preset itself (geolocation, and
+  // its layer set, so the highlighted chip matches what is on); desktop stays at
+  // the world view with the defaults.
+  const aroundMe = app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
+  if (aroundMe) {
+    await applyPreset(manager, aroundMe);
     presetBar.setActive('around-me');
     app.aroundMe(camera);
+  } else {
+    for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
 
   if (dev && window.__argus) Object.assign(window.__argus, { manager, camera });
@@ -655,7 +1041,10 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
     const sources = [...manager.activeLayers(), ...extraResolvers];
     for (const layer of sources) {
       const rec = layer.getRecord(entity.id);
-      if (rec && rec.cardModel) {
+      // Ids are only unique within a layer (flights, military and your own
+      // receiver all key aircraft by ICAO hex), so the record must be for this
+      // very entity, not a namesake in another layer.
+      if (rec && rec.cardModel && (!rec.entity || rec.entity === entity)) {
         return {
           metadata: rec.cardModel,
           getHistoryFixes: rec.getHistoryFixes,
@@ -714,6 +1103,17 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
   // The label of a picked entity, for the point-at-sky HUD.
   const labelFor = (entity) => resolve(entity)?.metadata?.title ?? null;
   return { tracker, labelFor };
+}
+
+// Service worker (production only): caches the app shell and Cesium's static
+// assets for fast repeat starts on the phone, never live data (see public/sw.js).
+// Browsers only allow it in a secure context (HTTPS, or localhost).
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err) => {
+      console.info('[argus] service worker not registered', err?.message || err);
+    });
+  });
 }
 
 // Guard the pre-try setup (capability probe, shell pick) too: any unexpected

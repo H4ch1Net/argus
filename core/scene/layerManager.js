@@ -15,23 +15,49 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
   const listeners = new Set();
   const emit = () => listeners.forEach((fn) => fn());
 
-  function register(key, { label, loadDef, makeSource, demo = false }) {
-    entries.set(key, { label, loadDef, makeSource, demo, layer: null, enabled: false });
+  function register(key, { label, loadDef, makeSource, demo = false, group = null }) {
+    entries.set(key, {
+      label,
+      loadDef,
+      makeSource,
+      demo,
+      group,
+      layer: null,
+      enabled: false,
+      want: false,
+      pending: null,
+    });
   }
 
+  // enable() awaits the layer's (lazy) source and definition. Two calls in that
+  // window (a double-tapped preset, a preset tapped while another loads) must
+  // share one load, or the first layer is orphaned, still polling; and a
+  // disable() that lands meanwhile must win. `want` records the latest request.
   async function enable(key) {
     const e = entries.get(key);
-    if (!e || e.enabled) return;
+    if (!e) return;
+    e.want = true;
+    if (e.enabled) return;
     if (!e.layer) {
-      const source = await e.makeSource();
-      if (!source) return; // no data source available; cannot enable
-      const def = await e.loadDef();
-      e.layer = createLayer(viewer, def, {
-        source,
-        onStatus: (s) => readout?.setLayerStatus?.(e.label, s),
-        clock,
-      });
+      e.pending ??= (async () => {
+        try {
+          const source = await e.makeSource();
+          if (!source) return null; // no data source available; cannot enable
+          const def = await e.loadDef();
+          return createLayer(viewer, def, {
+            source,
+            onStatus: (s) => readout?.setLayerStatus?.(e.label, s),
+            clock,
+          });
+        } finally {
+          e.pending = null;
+        }
+      })();
+      const layer = await e.pending;
+      if (layer && !e.layer) e.layer = layer;
+      if (!e.layer) return;
     }
+    if (!e.want || e.enabled) return; // switched off while loading, or already on
     e.layer.setEnabled(true);
     e.enabled = true;
     emit();
@@ -39,7 +65,9 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
 
   function disable(key) {
     const e = entries.get(key);
-    if (!e || !e.enabled) return;
+    if (!e) return;
+    e.want = false;
+    if (!e.enabled) return;
     e.layer.setEnabled(false);
     e.enabled = false;
     readout?.setLayerStatus?.(e.label, { state: 'off' }); // clear the readout row
@@ -49,7 +77,8 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
   async function toggle(key) {
     const e = entries.get(key);
     if (!e) return;
-    if (e.enabled) disable(key);
+    // A second tap while the layer is still loading switches it back off.
+    if (e.enabled || e.want) disable(key);
     else await enable(key);
   }
 
@@ -67,6 +96,7 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
         label: e.label,
         enabled: e.enabled,
         demo: e.demo,
+        group: e.group,
       })),
     activeLayers: () =>
       [...entries.values()].filter((e) => e.enabled && e.layer).map((e) => e.layer),

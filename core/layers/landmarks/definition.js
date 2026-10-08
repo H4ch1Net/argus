@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { parseOverpass } from '../overpass/parse.js';
+import { areaTooLarge } from '../overpass/client.js';
 import { describeLandmark } from './format.js';
 
 // Landmarks: OSM tourism / historic features as a viewport-fetched, static point
@@ -8,6 +9,9 @@ import { describeLandmark } from './format.js';
 export const landmarksDefinition = {
   id: 'landmarks',
   fetch: { mode: 'viewport' },
+  // The Overpass client skips views wider than a few degrees; say so.
+  statusNote: (q, raw) =>
+    q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length ? 'zoom in to load' : '',
   interpolate: false,
   maxEntities: 4000,
   normalize: (json) => parseOverpass(json),

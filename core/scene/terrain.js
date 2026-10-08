@@ -52,9 +52,12 @@ export function defaultTerrainId({ tier, metered = false }) {
  * showing a mode that did not take effect.
  *
  * @param {import('cesium').Viewer} viewer
- * @param {{ proxyBase?: string|null, onStatus?: (s: {id: string, ok: boolean, message?: string}) => void }} [opts]
+ * @param {{ proxyBase?: string|null, onStatus?: (s: {id: string, ok: boolean, message?: string}) => void, tilesetCache?: { cacheBytes: number, maximumCacheOverflowBytes: number } | null }} [opts]
  */
-export function createTerrainController(viewer, { proxyBase = null, onStatus } = {}) {
+export function createTerrainController(
+  viewer,
+  { proxyBase = null, onStatus, tilesetCache = null } = {},
+) {
   let current = 'flat';
   let tileset = null;
 
@@ -113,7 +116,9 @@ export function createTerrainController(viewer, { proxyBase = null, onStatus } =
         const base = proxyBase.replace(/\/+$/, '');
         tileset = await Cesium.Cesium3DTileset.fromUrl(
           `${base}/tiles/google/v1/3dtiles/root.json`,
-          { showCreditsOnScreen: true },
+          // Byte-capped per tier (profile.tilesetCache): photoreal tiles fill
+          // whatever memory they are allowed, and a phone cannot spare much.
+          { showCreditsOnScreen: true, ...(tilesetCache ?? {}) },
         );
         viewer.scene.primitives.add(tileset);
         // Photoreal tiles carry their own imagery + geometry; hide the globe base

@@ -3,9 +3,11 @@
 // This is the single place that encodes the mobile-constraints rules from the
 // master plan (6.1): set resolutionScale explicitly (do not follow
 // devicePixelRatio), cap targetFrameRate, and use requestRenderMode. Higher
-// tiers unlock upward. It intentionally contains only settings Phase 1 applies;
-// photorealistic-terrain, post-processing, and 3D-tile-cache knobs arrive with
-// the phases that use them, so this stays free of unused speculative config.
+// tiers unlock upward. It also caps tile caches (CLAUDE.md): photoreal 3D tiles
+// fill whatever memory they are given, which on a phone means the OS reclaims
+// the GPU (context loss) or kills the tab.
+
+const MiB = 1024 * 1024;
 
 import { Tier } from './tier.js';
 
@@ -36,6 +38,10 @@ export function qualityProfileForTier(tier, caps) {
         // Screen-space error: lower is sharper terrain/tiles.
         maximumScreenSpaceError: 1.5,
         msaaSamples: 4,
+        // Globe terrain/imagery tiles kept in memory, and the photoreal tileset's
+        // byte budget (cacheBytes + how far it may overflow while loading).
+        tileCacheSize: 300,
+        tilesetCache: { cacheBytes: 512 * MiB, maximumCacheOverflowBytes: 512 * MiB },
       };
 
     case Tier.BALANCED:
@@ -48,6 +54,8 @@ export function qualityProfileForTier(tier, caps) {
         targetFrameRate: 30,
         maximumScreenSpaceError: 2,
         msaaSamples: 1,
+        tileCacheSize: 100,
+        tilesetCache: { cacheBytes: 256 * MiB, maximumCacheOverflowBytes: 128 * MiB },
       };
 
     case Tier.MINIMAL:
@@ -58,6 +66,8 @@ export function qualityProfileForTier(tier, caps) {
         targetFrameRate: 30,
         maximumScreenSpaceError: 4,
         msaaSamples: 1,
+        tileCacheSize: 50,
+        tilesetCache: { cacheBytes: 128 * MiB, maximumCacheOverflowBytes: 64 * MiB },
       };
   }
 }

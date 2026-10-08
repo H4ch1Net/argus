@@ -292,3 +292,213 @@ test('buildUpstreamUrl refuses path traversal above the base path', () => {
   assert.equal(ok.pathname, '/api/states/all');
   assert.equal(ok.search, '?q=1');
 });
+
+// An upstream whose status can be switched, counting the requests it receives.
+async function startCounter() {
+  const state = { hits: 0, status: 200 };
+  const server = await listen((req, res) => {
+    state.hits += 1;
+    res.writeHead(state.status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ n: state.hits, url: req.url }));
+  });
+  return { server, state };
+}
+
+test('a cached feed answers repeats from memory, uncached feeds always go upstream', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'slow', baseUrl: base(server), cache: { ttlMs: 60_000 } },
+    { id: 'live', baseUrl: base(server) },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => proxy.close());
+
+  const a = await fetch(`${base(proxy)}/feed/slow/x?q=1`);
+  assert.equal(a.headers.get('x-argus-cache'), 'miss');
+  const b = await fetch(`${base(proxy)}/feed/slow/x?q=1`);
+  assert.equal(b.headers.get('x-argus-cache'), 'hit');
+  assert.deepEqual(await b.json(), await a.json());
+  assert.equal(state.hits, 1);
+
+  await fetch(`${base(proxy)}/feed/slow/x?q=2`); // different query, different entry
+  assert.equal(state.hits, 2);
+
+  await fetch(`${base(proxy)}/feed/live/x`);
+  const live = await fetch(`${base(proxy)}/feed/live/x`);
+  assert.equal(live.headers.get('x-argus-cache'), null);
+  assert.equal(state.hits, 4);
+});
+
+test('a cached feed serves its last good body when the upstream fails', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'f', baseUrl: base(server), cache: { ttlMs: 0, staleMs: 60_000 } },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => proxy.close());
+
+  const good = await (await fetch(`${base(proxy)}/feed/f/x`)).json();
+  state.status = 503;
+  const r = await fetch(`${base(proxy)}/feed/f/x`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('x-argus-cache'), 'stale');
+  assert.deepEqual(await r.json(), good);
+
+  state.status = 404; // a client error is passed through, not masked
+  assert.equal((await fetch(`${base(proxy)}/feed/f/x`)).status, 404);
+});
+
+test('baseUrlEnv points a feed at another instance, keeping the path allowlist', async (t) => {
+  const echo = await startEcho();
+  t.after(() => echo.close());
+  const feeds = [
+    {
+      id: 'ovp',
+      baseUrl: 'https://unreachable.invalid/api',
+      baseUrlEnv: 'TEST_OVP_URL',
+      allowPaths: [/^\/api\/interpreter$/],
+    },
+  ];
+  process.env.TEST_OVP_URL = `${base(echo)}/mirror/api`;
+  const proxy = await startProxy(feeds);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_OVP_URL;
+  });
+
+  const r = await fetch(`${base(proxy)}/feed/ovp/interpreter?data=x`);
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).url, '/mirror/api/interpreter?data=x');
+  assert.equal((await fetch(`${base(proxy)}/feed/ovp/status`)).status, 403);
+  // A longer path that merely ends the same way is refused.
+  assert.equal(
+    (await fetch(`${base(proxy)}/feed/ovp/kill_my_queries/api/interpreter`)).status,
+    403,
+  );
+});
+
+test('a localOnly feed needs its URL, and only reaches this machine or the LAN', async (t) => {
+  const echo = await startEcho();
+  t.after(() => echo.close());
+  const feeds = [
+    {
+      id: 'rx',
+      baseUrl: 'http://localhost:1/data',
+      baseUrlEnv: 'TEST_RX_URL',
+      localOnly: true,
+      allowPaths: [/^\/data\/aircraft\.json$/],
+    },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_RX_URL;
+  });
+  const get = (p) => fetch(`${base(proxy)}/feed/rx${p}`);
+
+  let r = await get('/aircraft.json');
+  assert.equal(r.status, 502);
+  assert.match((await r.json()).error, /set TEST_RX_URL/);
+
+  process.env.TEST_RX_URL = 'https://example.com/data';
+  r = await get('/aircraft.json');
+  assert.equal(r.status, 502);
+  assert.match((await r.json()).error, /this machine or the LAN/);
+
+  process.env.TEST_RX_URL = `${base(echo)}/data`;
+  r = await get('/aircraft.json');
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).url, '/data/aircraft.json');
+  assert.equal((await get('/stats.json')).status, 403);
+});
+
+test('isLocalHost accepts loopback, private and .local names only', async () => {
+  const { isLocalHost } = await import('../lib/relay.js');
+  for (const h of [
+    'localhost',
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.20.0.5',
+    '192.168.1.40',
+    'piaware.local',
+    '[::1]',
+    'fd12:3456::1',
+  ])
+    assert.equal(isLocalHost(h), true, h);
+  for (const h of [
+    'example.com',
+    '8.8.8.8',
+    '172.32.0.1',
+    '192.169.0.1',
+    '169.254.169.254',
+    'local.example.com',
+  ])
+    assert.equal(isLocalHost(h), false, h);
+});
+
+test('the cache key includes Accept, so one client cannot change what others get', async (t) => {
+  const server = await listen((req, res) => {
+    const html = /html/.test(req.headers.accept || '');
+    res.writeHead(200, { 'content-type': html ? 'text/html' : 'application/json' });
+    res.end(html ? '<html></html>' : '{"ok":true}');
+  });
+  t.after(() => server.close());
+  const proxy = await startProxy([
+    { id: 'api', baseUrl: base(server), cache: { ttlMs: 60_000 } },
+  ]);
+  t.after(() => proxy.close());
+  await fetch(`${base(proxy)}/feed/api/x`, { headers: { accept: 'text/html' } });
+  const r = await fetch(`${base(proxy)}/feed/api/x`, {
+    headers: { accept: 'application/json' },
+  });
+  assert.equal(r.headers.get('content-type'), 'application/json');
+  assert.deepEqual(await r.json(), { ok: true });
+});
+
+test('concurrent requests cannot exceed a governed budget', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'metered', baseUrl: base(server), governor: { ratePerMinute: 3 } },
+  ];
+  const config = loadConfig({});
+  const { createGovernor } = await import('../lib/governor.js');
+  const proxy = await listen(
+    createRequestHandler({ config, feeds, governor: createGovernor(feeds) }),
+  );
+  t.after(() => proxy.close());
+  const codes = await Promise.all(
+    Array.from({ length: 12 }, (_, i) =>
+      fetch(`${base(proxy)}/feed/metered/x?i=${i}`).then((r) => r.status),
+    ),
+  );
+  assert.equal(codes.filter((c) => c === 200).length, 3);
+  assert.equal(state.hits, 3);
+});
+
+test('a localOnly feed never follows a redirect off the device', async (t) => {
+  const outside = await startEcho();
+  t.after(() => outside.close());
+  const device = await listen((req, res) => {
+    res.writeHead(302, { location: `${base(outside)}/elsewhere` });
+    res.end();
+  });
+  t.after(() => device.close());
+  process.env.TEST_RX2_URL = `${base(device)}/data`;
+  const proxy = await startProxy([
+    {
+      id: 'rx2',
+      baseUrl: 'http://localhost:1/data',
+      baseUrlEnv: 'TEST_RX2_URL',
+      localOnly: true,
+      allowPaths: [/^\/data\/aircraft\.json$/],
+    },
+  ]);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_RX2_URL;
+  });
+  assert.equal((await fetch(`${base(proxy)}/feed/rx2/aircraft.json`)).status, 502);
+});

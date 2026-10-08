@@ -60,3 +60,22 @@ test('credit window resets after creditWindowMs', () => {
   t += 1001; // window elapses
   assert.equal(g.check('shodan', '/shodan/host/search').ok, true);
 });
+
+test('acquire counts a request at once, so concurrent callers cannot all slip through', () => {
+  const g = createGovernor([
+    {
+      id: 'll2',
+      governor: { ratePerMinute: 3, creditBudget: 12, creditWindowMs: 3_600_000 },
+    },
+  ]);
+  const verdicts = Array.from({ length: 20 }, () => g.acquire('ll2', '/2.3.0/launches/'));
+  assert.equal(verdicts.filter((v) => v.ok).length, 3);
+  assert.equal(g.usage('ll2').credits, 3);
+  // A failed upstream request gives its reservation back.
+  g.refund('ll2', verdicts[0]);
+  assert.equal(g.usage('ll2').credits, 2);
+  assert.equal(g.usage('ll2').reqLastMinute, 2);
+  assert.equal(g.acquire('ll2', '/2.3.0/launches/').ok, true);
+  // Ungoverned feeds are always allowed and never counted.
+  assert.deepEqual(g.acquire('free', '/x'), { ok: true, cost: 0 });
+});

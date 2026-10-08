@@ -37,3 +37,8 @@
   background: rgba(53, 224, 176, 0.32);
   color: #04140f;
 }
+.argus-zoom__btn--small {
+  height: 32px;
+  font-size: 14px;
+  touch-action: manipulation;
+}

@@ -42,7 +42,13 @@ export function parseGoto(args) {
   return { kind: 'place', query: joined };
 }
 
-export function createCommands(ctx) {
+/**
+ * @param {object} ctx  side-effect facade (layers, camera, search, presets, lookups)
+ * @param {{ extra?: { name: string, usage: string, help: string, run: Function }[] }} [opts]
+ *        shell-specific commands (e.g. the terminal shell's zoom/quit) registered
+ *        alongside the shared set, so every shell speaks one command language.
+ */
+export function createCommands(ctx, { extra = [] } = {}) {
   const reg = {};
   const def = (name, usage, help, run) => {
     reg[name] = { name, usage, help, run };
@@ -139,6 +145,8 @@ export function createCommands(ctx) {
     'presets:',
     ...ctx.listPresets().map((p) => `  ${p.id} — ${p.label}`),
   ]);
+
+  for (const c of extra) def(c.name, c.usage, c.help, c.run);
 
   return {
     commands: reg,

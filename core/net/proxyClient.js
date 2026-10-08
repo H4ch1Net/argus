@@ -37,7 +37,7 @@ export function createProxyClient({ baseUrl, fetchImpl = (...a) => fetch(...a) }
         signal,
         headers: { accept: 'application/json' },
       });
-      if (!res.ok) throw proxyError(feedId, res.status);
+      if (!res.ok) throw await proxyError(feedId, res);
       return res.json();
     },
 
@@ -47,14 +47,36 @@ export function createProxyClient({ baseUrl, fetchImpl = (...a) => fetch(...a) }
         signal,
         headers: { accept: 'text/plain' },
       });
-      if (!res.ok) throw proxyError(feedId, res.status);
+      if (!res.ok) throw await proxyError(feedId, res);
       return res.text();
+    },
+
+    /** GET raw bytes from a feed via the proxy (e.g. GTFS-RT protobuf). */
+    async getBytes(feedId, path, { params, signal } = {}) {
+      const res = await fetchImpl(buildUrl(feedId, path, params), {
+        signal,
+        headers: { accept: 'application/x-protobuf, application/octet-stream' },
+      });
+      if (!res.ok) throw await proxyError(feedId, res);
+      return new Uint8Array(await res.arrayBuffer());
     },
   };
 }
 
-function proxyError(feedId, status) {
-  const err = new Error(`proxy ${feedId} responded ${status}`);
-  err.status = status;
+// The proxy answers its own failures with { error } (e.g. "feed firms not
+// configured: missing FIRMS_MAP_KEY"); carry that reason so the readout and the
+// terminal can say what is actually wrong, not just a status code.
+async function proxyError(feedId, res) {
+  let detail = '';
+  try {
+    const type = res.headers?.get?.('content-type') || '';
+    if (type.includes('json')) detail = (await res.json())?.error || '';
+  } catch {
+    // no readable body
+  }
+  const err = new Error(
+    `proxy ${feedId} responded ${res.status}${detail ? `: ${detail}` : ''}`,
+  );
+  err.status = res.status;
   return err;
 }

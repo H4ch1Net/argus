@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { routeUpgrade } from './wsRoutes.js';
 
 // Stateful AIS websocket consumer (proxy job 5). AISStream forbids direct
 // browser connections, so the proxy holds ONE upstream connection and fans out
@@ -31,11 +32,9 @@ export function unionBBox(boxes) {
  * @param {{ apiKey?: string }} opts
  */
 export function attachAisWebsocket(httpServer, { apiKey }) {
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws/ais',
-    perMessageDeflate: true,
-  });
+  // noServer + the shared upgrade router: several endpoints share one server.
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true });
+  routeUpgrade(httpServer, '/ws/ais', wss);
   const clients = new Set(); // { ws, bbox, queue }
 
   let upstream = null;

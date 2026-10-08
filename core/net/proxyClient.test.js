@@ -49,3 +49,33 @@ test('getJson throws with .status on non-ok', async () => {
 test('requires a baseUrl', () => {
   assert.throws(() => createProxyClient({ baseUrl: '' }));
 });
+
+test('errors carry the proxy reason when it sends one', async () => {
+  const client = createProxyClient({
+    baseUrl: 'http://proxy.test',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 502,
+      headers: { get: () => 'application/json; charset=utf-8' },
+      json: async () => ({ error: 'feed firms not configured: missing FIRMS_MAP_KEY' }),
+    }),
+  });
+  await assert.rejects(client.getText('firms', '/x'), (err) => {
+    assert.equal(err.status, 502);
+    assert.match(err.message, /missing FIRMS_MAP_KEY/);
+    return true;
+  });
+});
+
+test('getBytes returns the body as a Uint8Array', async () => {
+  const fetchImpl = fakeFetch(async () => ({
+    ok: true,
+    status: 200,
+    arrayBuffer: async () => new Uint8Array([8, 1, 18, 0]).buffer,
+  }));
+  const c = createProxyClient({ baseUrl: 'http://p', fetchImpl });
+  const body = await c.getBytes('transit', '/x/vehicles');
+  assert.ok(body instanceof Uint8Array);
+  assert.deepEqual([...body], [8, 1, 18, 0]);
+  assert.match(fetchImpl.calls[0].opts.headers.accept, /protobuf/);
+});

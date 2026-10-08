@@ -3,6 +3,11 @@ import { createRingBuffer } from './ringBuffer.js';
 import { interpolateFix } from './interpolate.js';
 import { computeViewportQuery } from './viewport.js';
 import { getRenderer } from './renderers.js';
+import { createRasterLayer } from './rasterLayer.js';
+import {
+  acquireContinuousRender,
+  releaseContinuousRender,
+} from '../../scene/renderMode.js';
 
 // The Layer SDK engine. A layer is config against this interface, not bespoke
 // code (CLAUDE.md): fetch -> normalize -> render -> interpolate?, with
@@ -13,8 +18,10 @@ import { getRenderer } from './renderers.js';
 //   normalize(raw) -> NormalizedEntity[],
 //   render:{ renderType, style(normalized)->styleProps, ...renderConfig },
 //   interpolate?:boolean, historyCapacity?, interpolateLagMs?, maxEntities?,
+//   positionAt?(normalized, timeMs), positionCacheMs?,
 //   cluster?:{ enabled, pixelRange, minimumClusterSize },
 //   describe?(normalized) -> cardModel   (for the interaction spine)
+//   statusNote?(query, raw) -> string     (a hint shown beside the count)
 //
 // A NormalizedEntity is { id, position:{longitude,latitude,altitude}, type,
 // meta, velocity? } per the contract.
@@ -35,6 +42,8 @@ export function createLayer(viewer, def, ctx) {
   if (typeof ctx?.source !== 'function') {
     throw new Error(`layer ${def.id}: a source function is required`);
   }
+  // Field / overlay layers (weather) render as imagery, not entities.
+  if (def.render?.renderType === 'raster') return createRasterLayer(viewer, def, ctx);
   const scene = viewer.scene;
   const intervalMs = def.fetch?.intervalMs ?? DEFAULT_INTERVAL_MS;
   // A layer is a mover if it interpolates between fixes OR computes its position
@@ -61,18 +70,29 @@ export function createLayer(viewer, def, ctx) {
   let running = false;
   let timer = null;
   let aborter = null;
-  let savedRenderMode = null;
+  let holdsRender = false;
+
+  // Compute-position layers may reuse a computed position for a while
+  // (def.positionCacheMs), so a large set of slow movers (navigation and
+  // geostationary satellites) costs one propagation per second, not per frame.
+  const positionCacheMs = def.positionCacheMs ?? 0;
 
   function currentPosition(rec) {
     // Compute-position layers (SGP4 satellites) evaluate position from time.
     if (def.positionAt) {
-      const p = def.positionAt(rec.normalized, sceneNow());
+      const t = sceneNow();
+      if (positionCacheMs && rec.cached && Math.abs(t - rec.cached.t) < positionCacheMs) {
+        return rec.cached.position;
+      }
+      const p = def.positionAt(rec.normalized, t);
       if (!p) return undefined;
-      return Cesium.Cartesian3.fromDegrees(
+      const position = Cesium.Cartesian3.fromDegrees(
         p.longitude,
         p.latitude,
         Math.max(0, p.altitude ?? 0),
       );
+      if (positionCacheMs) rec.cached = { t, position };
+      return position;
     }
     const curr = rec.history.last();
     if (!curr) return undefined;
@@ -111,6 +131,7 @@ export function createLayer(viewer, def, ctx) {
       }
     }
     rec.normalized = normalized;
+    rec.cached = null; // new elements: recompute the position
     rec.lastSeen = batchTimeMs; // for push-mode staleness removal
     renderer.update(rec.entity, normalized, def.render);
     // Compute-position layers keep no fix history (position is a function of time).
@@ -141,16 +162,26 @@ export function createLayer(viewer, def, ctx) {
     scene.requestRender();
   }
 
+  let lastPollAt = 0;
   async function poll() {
     if (!running) return;
-    const query = def.fetch?.viewportBounded ? computeViewportQuery(viewer) : {};
+    lastPollAt = Date.now();
+    // 'viewport' layers are fetched per region, so they are always bounded.
+    const bounded = def.fetch?.viewportBounded || mode === 'viewport';
+    const query = bounded ? computeViewportQuery(viewer) : {};
     aborter?.abort();
-    aborter = new AbortController();
+    const controller = new AbortController();
+    aborter = controller;
     try {
-      const raw = await ctx.source(query, aborter.signal);
-      if (!running) return;
+      const raw = await ctx.source(query, controller.signal);
+      // A superseded or paused poll may still resolve (multi-feed sources settle
+      // with partial data): never ingest it.
+      if (!running || controller.signal.aborted) return;
       ingest(def.normalize(raw));
-      ctx.onStatus?.({ state: 'ok', count: records.size, query });
+      // An optional hint beside the count (e.g. "zoom in to load"), shared with
+      // the terminal shell's statusNote.
+      const note = def.statusNote?.(query, raw) || undefined;
+      ctx.onStatus?.({ state: 'ok', count: records.size, query, note });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       ctx.onStatus?.({
@@ -192,17 +223,11 @@ export function createLayer(viewer, def, ctx) {
   }
 
   function moversActive(on) {
-    // Movers force continuous rendering. Single mover assumption for now; a
-    // scene-wide ref-count for multiple concurrent mover layers is a later refinement.
-    if (!isMover) return;
-    if (on) {
-      savedRenderMode = scene.requestRenderMode;
-      scene.requestRenderMode = false;
-    } else if (savedRenderMode !== null) {
-      scene.requestRenderMode = savedRenderMode;
-      savedRenderMode = null;
-      scene.requestRender();
-    }
+    // Movers force continuous rendering, reference-counted across layers.
+    if (!isMover || on === holdsRender) return;
+    holdsRender = on;
+    if (on) acquireContinuousRender(scene);
+    else releaseContinuousRender(scene);
   }
 
   function pausePolling() {
@@ -215,11 +240,40 @@ export function createLayer(viewer, def, ctx) {
   function resumePolling() {
     if (!running || timer) return;
     poll();
-    timer = setInterval(poll, intervalMs);
+    // Viewport layers refetch when the view settles, never on a timer.
+    if (mode !== 'viewport') timer = setInterval(poll, intervalMs);
+  }
+  // Viewport-bounded layers refetch once the camera settles after a move, so a
+  // city layer fills in when you arrive instead of on its next timer tick. A
+  // timed layer refetches at most every 5 s this way, so panning cannot
+  // multiply a metered feed's requests (OpenSky, FIRMS).
+  const MOVE_REFETCH_GAP_MS = 5000;
+  function watchCamera() {
+    moveEndRemove = viewer.camera.moveEnd.addEventListener(() => {
+      clearTimeout(moveTimer);
+      moveTimer = setTimeout(() => {
+        if (!running || document.hidden) return;
+        if (mode !== 'viewport' && Date.now() - lastPollAt < MOVE_REFETCH_GAP_MS) return;
+        poll();
+      }, 700);
+    });
   }
   function onVisibilityChange() {
     if (document.hidden) pausePolling();
     else resumePolling();
+  }
+  // Push streams (AIS, BGP) close while the page is hidden and reopen on return
+  // (CLAUDE.md: Page Visibility pauses the AIS socket, with explicit resume). The
+  // stale sweep keeps running, so vessels that went quiet meanwhile drop out and
+  // the stream repopulates on resume.
+  function onPushVisibilityChange() {
+    if (!running) return;
+    if (document.hidden) {
+      unsubscribe?.();
+      unsubscribe = null;
+    } else if (!unsubscribe) {
+      unsubscribe = ctx.source(pushIngest);
+    }
   }
 
   return {
@@ -230,17 +284,15 @@ export function createLayer(viewer, def, ctx) {
       ds.show = true;
       moversActive(true);
       if (mode === 'push') {
-        unsubscribe = ctx.source(pushIngest);
+        unsubscribe = document.hidden ? null : ctx.source(pushIngest);
+        document.addEventListener('visibilitychange', onPushVisibilityChange);
         // Sweep at least as often as entities expire, so short-lived push layers
         // (e.g. BGP pulses) cull promptly instead of lingering to the next sweep.
         staleTimer = setInterval(sweepStale, Math.min(10_000, staleMs));
       } else if (mode === 'viewport') {
         document.addEventListener('visibilitychange', onVisibilityChange);
         poll();
-        moveEndRemove = viewer.camera.moveEnd.addEventListener(() => {
-          clearTimeout(moveTimer);
-          moveTimer = setTimeout(() => running && poll(), 700);
-        });
+        watchCamera();
       } else if (mode === 'once') {
         // Fetch a single time; entities persist (e.g. user-calibrated CCTV poses).
         poll();
@@ -248,11 +300,13 @@ export function createLayer(viewer, def, ctx) {
         document.addEventListener('visibilitychange', onVisibilityChange);
         poll();
         timer = setInterval(poll, intervalMs);
+        if (def.fetch?.viewportBounded) watchCamera();
       }
     },
     stop() {
       running = false;
       if (mode === 'push') {
+        document.removeEventListener('visibilitychange', onPushVisibilityChange);
         unsubscribe?.();
         unsubscribe = null;
         if (staleTimer) {

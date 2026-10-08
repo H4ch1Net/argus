@@ -6,7 +6,7 @@ Operational guide for working in this repository with Claude Code. Read this bef
 
 ## What this project is
 
-A live 3D globe (CesiumJS) that visualizes public data feeds: aircraft, ships, satellites, earthquakes, weather, surveillance infrastructure, and internet-infrastructure telemetry. It is a cybersecurity research project. It runs as one web app on three targets, in priority order: Samsung S25 Ultra (mobile-first), Linux, Windows.
+A live 3D globe (CesiumJS) that visualizes public data feeds: aircraft, ships, satellites, earthquakes, weather, surveillance infrastructure, and internet-infrastructure telemetry. It is a cybersecurity research project for personal use. It runs as one web app on three targets, in priority order: Samsung S25 Ultra (mobile-first), Linux (Kali), Windows; plus a terminal version (`argus tui`) for Linux terminals and SSH that shares the same data engine.
 
 Based on `bilawalsidhu/gods-eye-view` (MIT, code only; data feeds keep their own terms).
 
@@ -41,7 +41,7 @@ If a task drifts toward any of these, stop and flag it rather than implementing.
 
 ---
 
-## Architecture: shared core, two shells
+## Architecture: shared core, three shells
 
 One repo. Roughly 80% of the code is shared; only input, layout, and quality diverge. Do not fork the data engine.
 
@@ -52,7 +52,10 @@ One repo. Roughly 80% of the code is shared; only input, layout, and quality div
                 defaults, geolocation "Around Me", compass mode, PWA
 /shell-desktop  Linux/Windows: side-panel UI, mouse/keyboard,
                 quality unlocked upward (photorealistic, 60fps, shaders)
-/proxy     the backbone service (see below)
+/shell-terminal Node terminal app: braille map, keyboard/mouse, the same
+                layers/cards/commands, plus a scriptable CLI (--json)
+/proxy     the backbone service (see below); can also serve the built app
+/bin       argus launcher: web, proxy, tui, CLI commands
 ```
 
 Rules:
@@ -60,6 +63,8 @@ Rules:
 - **Nothing in `/core` may require a mouse, keyboard, or desktop GPU.** Mobile is the baseline; desktop unlocks upward from it. A feature that only works with a mouse belongs in a shell, not core.
 - **Sensors (geolocation, orientation) are shell inputs, not core.** Core exposes "set camera to X" and "track entity Y". The mobile shell translates GPS/compass into those calls. Desktop shell never imports sensor code.
 - **Capability is runtime state, not a build target.** Detect GPU limits, memory, touch-vs-pointer, network type, and screen size at load, then branch on a capability tier. Do not branch on "is mobile".
+- **The terminal shell never imports Cesium.** It may use only Cesium-free core modules (each layer's `parse.js`/`format.js`, the SDK's pure helpers, `osint/`, `search/`, `net/`, `presets.js`, push sources) and must never import a layer's `definition.js`. So keep normalize/describe logic in `parse.js`/`format.js`, where every shell shares it, and keep `definition.js` to rendering config.
+- **Every shell reaches feeds through the proxy.** The browser finds it at its own origin (or `VITE_PROXY_BASE_URL`); the terminal shell embeds one on loopback (or takes `--proxy`). A new upstream is a new entry in `proxy/feeds.js`, pinned to its paths; images (camera stills) get their own image-only feed. Equipment you own (an SDR receiver) uses a `localOnly` feed, which refuses any non-LAN host.
 
 ---
 
@@ -139,6 +144,8 @@ Verified as of the planning session (still re-check before relying on them): Ope
 
 Not yet verified: GreyNoise, AbuseIPDB, CISA KEV, CT logs, RIPE RIS/BGP, honeypot feeds, GTFS-RT specifics, and the remaining free feeds. Verify each at build time.
 
+The layers ported from the reference project use the endpoints it uses live, but were built without network access: they are marked "per the reference implementation, not live-tested here" in `proxy/feeds.js` until someone runs them.
+
 ---
 
 ## Build order (each phase ships something visible)
@@ -161,37 +168,50 @@ Not yet verified: GreyNoise, AbuseIPDB, CISA KEV, CT logs, RIPE RIS/BGP, honeypo
 16. OSINT/cyber console: threat-map arcs -> query console -> asset correlation -> CT/BGP -> terminal
 17. Time scrubber UI
 
+Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves the app same-origin), keyless flights fallback, thermal ladder, tile-cache caps, PWA, Android standalone (Termux), and parity with the reference's keyless layers (military, transit, bikeshare, launches, cyclones, weather rasters, traffic cams, radio, cables, data centres, installations, nav sats, your own ADS-B receiver). Status of everything lives in `docs/AUDIT.md`; the feature-by-feature comparison with the reference (and what is out or deferred) in `docs/COMPARISON.md`.
+
 ---
 
 ## Commands
 
 ```
-npm install          # install dependencies
+npm install          # install everything (app, proxy, terminal shell)
+./scripts/install-linux.sh   # Kali/Linux: deps + `argus` command + keys file
+                             # + menu launchers + GPU check (idempotent)
+bash scripts/install-termux.sh  # Android (Termux): the whole stack on the phone
 
-npm run dev          # dev server (http, exposed on the LAN via host:true)
+npm start            # build if stale, serve app + proxy on one origin (:8787)
+npm run start:https  # same over HTTPS: open the printed LAN URL on the phone
+npm run tui          # terminal version (argus tui --demo for no network)
+
+npm run dev          # dev server (:5173, LAN via host:true); forwards /health,
+                     # /feed, /tiles, /ws to a proxy on :8787 (demo data if none)
 npm run dev:https    # dev server over HTTPS: required to serve the phone over
                      # LAN, or geolocation/orientation/service workers no-op
+npm run proxy        # run the proxy alone (http on :8787)
 npm run build        # production build to dist/ (Cesium assets copied in)
 npm run preview      # serve the production build locally
 
-npm test             # core pure-logic tests (node --test)
-npm run test:proxy   # proxy tests (relay, cors, config, oauth)
+npm test             # core + mobile + terminal shell tests (node --test)
+npm run test:proxy   # proxy tests (relay, cors, config, oauth, ws, static, env)
 
 npm run lint         # eslint
 npm run format       # prettier --write
 npm run format:check # prettier --check (CI-friendly)
 
-npm run proxy        # run the proxy (http on :8787)
+node scripts/make-icons.js   # regenerate the PWA icons in public/icons
 ```
 
-Proxy (its own package in `proxy/`, run from there):
+The `argus` launcher (`bin/argus.js`, on PATH after the install script or `npm link`):
 
 ```
-npm install          # installs selfsigned (only needed for --https)
-npm start            # http  on :8787
-npm run start:https  # https on :8787 (self-signed cert for phone-over-LAN)
-npm test             # node --test (relay, cors, config)
+argus web [--https] [--open]     argus proxy [--https]     argus tui [--demo]
+argus query|correlate <ip|domain|asn>    argus quakes|flights|sats|fires|geocode
+argus military|storms|launches
+argus bgp|ct (streams)    argus health    (all take --json and --proxy URL)
 ```
+
+Secrets come from the environment, then `.env`, `proxy/.env`, or `~/.config/argus/.env` (read by the proxy only).
 
 Force a shell regardless of device with `?shell=mobile` or `?shell=desktop`.
 
