@@ -95,3 +95,57 @@ test('GET lists keys without values; POST saves with the guards', async (t) => {
   assert.equal(process.env.A_KEY, 's3cret');
   assert.ok(!JSON.stringify(r).includes('s3cret'), 'values are never echoed');
 });
+
+// A DNS-rebinding page is same-origin with its own (attacker) host and reaches
+// the proxy over loopback, so isLoopback + sameOrigin + the app header all pass;
+// only the Host header still names the attacker domain. The Host allowlist is
+// what closes that path. fetch forbids setting Host, so these use raw http.
+test('a non-loopback Host is refused even over a loopback socket', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-setup-'));
+  const file = path.join(dir, '.env');
+  const config = { ...loadConfig({}), keysFile: file };
+  const server = await listen(createRequestHandler({ config, feeds }));
+  t.after(() => {
+    server.close();
+    delete process.env.A_KEY;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const { port } = server.address();
+
+  const raw = (method, headers, body) =>
+    new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: '127.0.0.1', port, path: '/setup/keys', method, headers },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => resolve({ status: res.statusCode, data }));
+        },
+      );
+      req.on('error', reject);
+      if (body) req.write(body);
+      req.end();
+    });
+
+  // Host names the attacker's rebound domain: GET says not writable, POST is
+  // refused, and nothing is written to disk.
+  const spoof = { host: 'attacker.example:' + port };
+  const get = await raw('GET', spoof);
+  assert.equal(get.status, 200);
+  const info = JSON.parse(get.data);
+  assert.equal(info.writable, false);
+  assert.equal(info.file, undefined);
+
+  const post = await raw(
+    'POST',
+    { ...spoof, 'content-type': 'application/json', 'x-argus-setup': '1' },
+    JSON.stringify({ keys: { A_KEY: 'pwned' } }),
+  );
+  assert.equal(post.status, 403);
+  assert.ok(!fs.existsSync(file), 'no keys file written for a spoofed Host');
+
+  // A loopback Host still works (the regression guard for real local use).
+  const okHost = { host: '127.0.0.1:' + port };
+  const okGet = JSON.parse((await raw('GET', okHost)).data);
+  assert.equal(okGet.writable, true);
+});

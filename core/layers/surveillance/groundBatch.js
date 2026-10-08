@@ -57,7 +57,10 @@ export function createGroundBatch(
   let pending = null; // { fill, line, started, poll }
   let visible = true;
   let destroyed = false;
-  let dirty = true;
+  // When ground primitives are unsupported nothing is ever built, so stay
+  // "clean": the preRender guard then short-circuits every frame (one boolean)
+  // instead of re-checking the zoom band and rescheduling a build that returns.
+  let dirty = supported;
   let timer = null;
   const heightNow = () => scene.camera.positionCartographic.height;
   let scale = scaleFor(heightNow());
@@ -180,7 +183,7 @@ export function createGroundBatch(
   }
 
   function schedule() {
-    if (destroyed) return;
+    if (destroyed || !supported) return;
     clearTimeout(timer);
     timer = setTimeout(build, debounceMs);
   }
@@ -199,6 +202,7 @@ export function createGroundBatch(
   return {
     /** The decorated record set changed: rebuild once things settle. */
     markDirty() {
+      if (!supported) return;
       dirty = true;
       schedule();
     },

@@ -96,16 +96,35 @@ function sameOrigin(req) {
   }
 }
 
+// The Host must name this machine by a loopback literal. A page on another
+// domain that DNS-rebinds to 127.0.0.1 is same-origin with its own (attacker)
+// host, so the loopback socket and same-origin checks would both pass; its Host
+// header still carries that domain, which this rejects. A real local WebView or
+// browser reaches the proxy as 127.0.0.1 / localhost.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+function loopbackHost(req) {
+  const host = String(req.headers.host || '');
+  const name = host.startsWith('[')
+    ? host.slice(0, host.indexOf(']') + 1) // [::1]:8787 -> [::1]
+    : host.split(':')[0];
+  return LOOPBACK_HOSTS.has(name);
+}
+
 /**
  * GET or POST /setup/keys.
  * @param {{ feeds: object[], env?: object, file?: string }} ctx
  */
 export async function handleSetup(req, res, { feeds, env = process.env, file } = {}) {
   const keys = knownKeys(feeds);
+  // Local means the connection came in on loopback AND the Host names a
+  // loopback literal (so a rebound public domain, whose Host carries that
+  // domain, is not treated as local). The file path and key names are shown
+  // only to a local request.
+  const local = isLoopback(req) && loopbackHost(req);
   if (req.method === 'GET') {
     sendJson(res, 200, {
-      writable: env.ARGUS_SETUP !== 'off' && isLoopback(req),
-      file: isLoopback(req) ? (file ?? keysFile(env)) : undefined,
+      writable: env.ARGUS_SETUP !== 'off' && local,
+      file: local ? (file ?? keysFile(env)) : undefined,
       keys: keys.map((k) => ({ ...k, set: Boolean(env[k.name]) })),
     });
     return;
@@ -113,7 +132,7 @@ export async function handleSetup(req, res, { feeds, env = process.env, file } =
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'GET or POST' });
   if (env.ARGUS_SETUP === 'off')
     return sendJson(res, 403, { error: 'setup is turned off (ARGUS_SETUP=off)' });
-  if (!isLoopback(req))
+  if (!local)
     return sendJson(res, 403, {
       error: 'keys can only be set on the machine running the proxy',
     });

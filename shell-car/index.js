@@ -441,6 +441,9 @@ export async function mountShell(root, bootOpts = {}) {
   // ----------------------------------------------------------- readouts
   const pad2 = (n) => String(n).padStart(2, '0');
   function refreshStatus() {
+    // Backgrounded (the browser ?shell=car fallback): skip the repaint. The
+    // next visible tick catches the clock and fix up, so nothing is lost.
+    if (typeof document !== 'undefined' && document.hidden) return;
     const now = new Date();
     cells.utc.value.textContent = `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
     cells.local.value.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
