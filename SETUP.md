@@ -158,11 +158,13 @@ battery optimization in Android's app settings if the server stops in the
 background.
 
 The phone's GPU (Adreno 830 on the S25 Ultra) runs the globe at the phone
-quality tier; the thermal ladder backs quality off if it heats up. Android
-does not let Termux list network interfaces, so `argus web` only prints the
-`localhost` address; another device can still connect if you know the phone's
-Wi-Fi IP (Settings, About phone, Status), but the PC-serves-phone setup above
-is the better fit for that.
+quality tier; the thermal ladder backs quality off if it heats up.
+
+On Android, `argus web` listens on the phone only (127.0.0.1), because a phone
+is often on public Wi-Fi and the proxy holds your keys. To share it with
+another device on a network you trust, start it with `argus web --host 0.0.0.0`
+and use the phone's Wi-Fi IP (Settings, About phone, Status); the
+PC-serves-phone setup above is usually the better fit for that.
 
 ### The terminal version
 
@@ -315,7 +317,7 @@ argus health                                       # local-adsb: ready
 The value is the folder that holds `aircraft.json` (open it in a browser with
 `aircraft.json` appended to check). The proxy only accepts a
 host on this machine or the LAN (loopback, 10/8, 172.16/12, 192.168/16,
-169.254/16, `.local`), so the setting can never be used to reach a third-party
+`.local`), and never follows a redirect, so the setting can never be used to reach a third-party
 server. Receiving ADS-B is passive.
 
 ### Always simulated

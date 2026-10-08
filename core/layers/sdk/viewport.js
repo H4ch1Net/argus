@@ -21,12 +21,15 @@ const GLOBAL_BBOX = { lamin: -90, lamax: 90, lomin: -180, lomax: 180 };
  */
 export function rectangleRadiansToBBox(rect) {
   const crossesAntimeridian = rect.west > rect.east;
-  return {
+  const bbox = {
     lamin: clampLat(rect.south * R2D),
     lamax: clampLat(rect.north * R2D),
     lomin: crossesAntimeridian ? -180 : clampLon(rect.west * R2D),
     lomax: crossesAntimeridian ? 180 : clampLon(rect.east * R2D),
   };
+  // Point-and-radius queries (adsb.lol) still need the true centre of the view.
+  if (crossesAntimeridian) bbox.wrap = { west: rect.west * R2D, east: rect.east * R2D };
+  return bbox;
 }
 
 /**

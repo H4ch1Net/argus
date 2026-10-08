@@ -143,3 +143,18 @@ test('bboxToPointQuery centres on the view, snaps the anchor, and caps the radiu
     `/v2/lat/37.5/lon/-122.5/dist/${small.radiusNm}`,
   );
 });
+
+test('a view across the antimeridian centres on the Pacific, not on 0', async () => {
+  const { rectangleRadiansToBBox } = await import('../sdk/viewport.js');
+  const D = Math.PI / 180;
+  const bbox = rectangleRadiansToBBox({
+    west: 175 * D,
+    east: -175 * D,
+    south: -20 * D,
+    north: -10 * D,
+  });
+  assert.equal(bbox.lomin, -180);
+  const q = bboxToPointQuery(bbox);
+  assert.equal(Math.abs(q.longitude), 180);
+  assert.ok(q.radiusNm < 600);
+});

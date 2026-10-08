@@ -118,16 +118,23 @@ const snap = (v) => Math.round(v / ANCHOR_STEP) * ANCHOR_STEP;
  */
 export function bboxToPointQuery(bbox) {
   const midLat = (bbox.lamin + bbox.lamax) / 2;
+  // A view across the antimeridian arrives widened to -180..180 with its true
+  // edges in bbox.wrap; centre on the Pacific, not on longitude 0.
+  const lonSpan = bbox.wrap
+    ? bbox.wrap.east + 360 - bbox.wrap.west
+    : bbox.lomax - bbox.lomin;
+  const midLon = bbox.wrap
+    ? ((((bbox.wrap.west + lonSpan / 2 + 180) % 360) + 360) % 360) - 180
+    : (bbox.lomin + bbox.lomax) / 2;
   const halfLatNm = ((bbox.lamax - bbox.lamin) / 2) * NM_PER_DEG_LAT;
-  const halfLonNm =
-    ((bbox.lomax - bbox.lomin) / 2) * NM_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180);
+  const halfLonNm = (lonSpan / 2) * NM_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180);
   const radiusNm = Math.min(
     ADSB_MAX_RADIUS_NM,
     Math.max(5, Math.ceil(Math.hypot(halfLatNm, halfLonNm)) + SNAP_SLACK_NM),
   );
   return {
     latitude: Math.max(-90, Math.min(90, snap(midLat))),
-    longitude: snap((bbox.lomin + bbox.lomax) / 2),
+    longitude: snap(midLon),
     radiusNm,
   };
 }
@@ -140,6 +147,14 @@ export function adsbPointPath(bbox) {
   const q = bboxToPointQuery(bbox);
   return `/v2/lat/${q.latitude}/lon/${q.longitude}/dist/${q.radiusNm}`;
 }
+
+/** OpenSky /states/all query parameters for a viewport bbox (just the box). */
+export const openSkyParams = ({ lamin, lomin, lamax, lomax }) => ({
+  lamin,
+  lomin,
+  lamax,
+  lomax,
+});
 
 /** adsb.lol's global list of aircraft flagged military (readsb dbFlags). */
 export const ADSB_MILITARY_PATH = '/v2/mil';

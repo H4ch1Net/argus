@@ -29,15 +29,21 @@ case "${PREFIX:-}" in
 esac
 
 # 1. Node.js + git from Termux's own repository (Vite 7 needs Node 20.19+ / 22.12+).
-if ! command -v node >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
-  say "installing Node.js and git (pkg install nodejs-lts git)..."
-  pkg install -y nodejs-lts git
+# Install only what is missing: nodejs-lts and nodejs conflict, so an existing
+# Node (either package) is kept as it is and only its version is checked below.
+if ! command -v node >/dev/null 2>&1; then
+  say "installing Node.js (pkg install nodejs-lts)..."
+  pkg install -y nodejs-lts
+fi
+if ! command -v git >/dev/null 2>&1; then
+  say "installing git (pkg install git)..."
+  pkg install -y git
 fi
 if ! node -e '
   const [a, b] = process.versions.node.split(".").map(Number);
   process.exit((a === 20 && b >= 19) || (a === 22 && b >= 12) || a >= 23 ? 0 : 1);
 '; then
-  warn "Node $(node -v) is too old. Try: pkg upgrade && pkg install nodejs-lts"
+  warn "Node $(node -v) is too old. Try: pkg upgrade (or pkg install nodejs for the current release)"
   exit 1
 fi
 say "Node $(node -v)"

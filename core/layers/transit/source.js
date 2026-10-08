@@ -4,6 +4,7 @@
 
 import { TRANSIT_AGENCIES, agenciesInView } from './agencies.js';
 import { decodeVehiclePositions } from './gtfsrt.js';
+import { insideView } from '../sdk/bbox.js';
 
 /**
  * @param {{ proxyClient: { getBytes: Function }, agencies?: object[] }} opts
@@ -20,7 +21,16 @@ export function createTransitSource({ proxyClient, agencies = TRANSIT_AGENCIES }
         ),
       })),
     );
-    const feeds = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+    // An operator's feed covers its whole network (OVapi: all of the
+    // Netherlands); keep only vehicles in and around the view, so a phone over
+    // Amsterdam does not animate every bus in the country.
+    const inside = insideView(query?.bbox);
+    const feeds = results
+      .filter((r) => r.status === 'fulfilled')
+      .map((r) => ({
+        ...r.value,
+        vehicles: r.value.vehicles.filter((v) => inside(v.latitude, v.longitude)),
+      }));
     const failed = results.filter((r) => r.status === 'rejected');
     if (failed.length && !feeds.length) throw failed[0].reason;
     return {

@@ -14,8 +14,10 @@ import {
 // Overpass client with surveillance and landmarks: data centres (internet
 // infrastructure) and mapped military installations. Facility locations only.
 
-const zoomNote = (maxDeg) => (q) =>
-  q.bbox && areaTooLarge(q.bbox, maxDeg) ? 'zoom in to load' : '';
+const zoomNote = (maxDeg) => (q, raw) =>
+  q.bbox && areaTooLarge(q.bbox, maxDeg) && !raw?.elements?.length
+    ? 'zoom in to load'
+    : '';
 const DC_COLOR = Cesium.Color.fromCssColorString('#80deea');
 
 export const datacentersDefinition = {

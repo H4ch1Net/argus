@@ -94,9 +94,25 @@ test('every ported feed is keyless or optional-keyed and path-pinned', async () 
   assert.equal(img('tfl-img').test('/jamcams.tfl.gov.uk/../secret'), false);
   assert.equal(img('caltrans-img').test('/data/d4/cctv/cctvStatusD04.json'), false);
   assert.equal(img('vegvesen-img').test('/api/images/../x'), false);
-  // Overpass can be re-pointed by the operator, and still only reaches /interpreter.
+  // Overpass can be re-pointed by the operator, and still only reaches /interpreter
+  // (the relay judges an overridden path against the default base path).
   const ovp = feeds.find((f) => f.id === 'overpass');
   assert.equal(ovp.baseUrlEnv, 'OVERPASS_URL');
-  assert.ok(ovp.allowPaths[0].test('/osm/api/interpreter'));
+  assert.ok(ovp.allowPaths[0].test('/api/interpreter'));
+  assert.equal(ovp.allowPaths[0].test('/api/kill_my_queries/api/interpreter'), false);
   assert.equal(ovp.allowPaths[0].test('/api/status'), false);
+  // nowCOAST: tile-sized WMS GetMap of the three imagery layers, nothing else.
+  const ncq = feeds.find((f) => f.id === 'nowcoast').allowQuery;
+  const q = (s) => new URLSearchParams(s);
+  const tile =
+    'service=WMS&version=1.1.1&request=GetMap&layers=conus_base_reflectivity_mosaic&styles=x&srs=EPSG:4326&bbox=0,0,1,1&width=256&height=256&format=image/png&transparent=true&_=1';
+  assert.equal(ncq(q(tile)), true);
+  assert.equal(ncq(q(tile.replace('GetMap', 'GetCapabilities'))), false);
+  assert.equal(ncq(q(tile.replace('service=WMS', 'service=WFS'))), false);
+  assert.equal(ncq(q(tile.replace('width=256', 'width=8192'))), false);
+  assert.equal(
+    ncq(q(tile.replace('conus_base_reflectivity_mosaic', 'secret_layer'))),
+    false,
+  );
+  assert.equal(ncq(q(`${tile}&REQUEST=GetFeature`)), false);
 });

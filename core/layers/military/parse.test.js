@@ -52,3 +52,18 @@ test('tolerates an empty or malformed payload', () => {
   assert.deepEqual(parseMilitary(null), []);
   assert.deepEqual(parseMilitary({ ac: 'x' }), []);
 });
+
+test('the operator is shown only when it reads as a state body', () => {
+  const out = parseMilitary({
+    ac: [
+      { hex: 'a00001', lat: 1, lon: 1, ownOp: 'Royal Air Force' },
+      { hex: 'a00002', lat: 1, lon: 1, ownOp: 'Jane Q Smith' },
+      { hex: 'a00003', lat: 1, lon: 1, ownOp: 'US Navy' },
+      { hex: 'a00004', lat: 1, lon: 1, ownOp: 'Example Leasing LLC' },
+    ],
+  });
+  assert.deepEqual(
+    out.map((n) => n.meta.operator),
+    ['Royal Air Force', null, 'US Navy', null],
+  );
+});

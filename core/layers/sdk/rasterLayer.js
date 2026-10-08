@@ -65,7 +65,31 @@ export function createRasterLayer(viewer, def, ctx) {
   let imagery = null;
   let currentKey = '';
 
+  // Keep the previous frame under the new one until the globe has finished
+  // loading tiles (or 15 s at most), so a refresh never blanks the overlay.
+  const retiring = new Set();
+  function retireWhenLoaded(old) {
+    retiring.add(old);
+    let offProgress = null;
+    let timeout = null;
+    const done = () => {
+      offProgress?.();
+      clearTimeout(timeout);
+      if (!retiring.delete(old)) return;
+      if (viewer.imageryLayers.contains(old)) viewer.imageryLayers.remove(old, true);
+      viewer.scene.requestRender();
+    };
+    const progress = viewer.scene.globe?.tileLoadProgressEvent;
+    if (progress)
+      offProgress = progress.addEventListener((queued) => queued === 0 && done());
+    timeout = setTimeout(done, 15_000);
+  }
+
   function removeImagery() {
+    for (const old of retiring) {
+      if (viewer.imageryLayers.contains(old)) viewer.imageryLayers.remove(old, true);
+    }
+    retiring.clear();
     if (imagery && viewer.imageryLayers.contains(imagery)) {
       viewer.imageryLayers.remove(imagery, true);
     }
@@ -84,13 +108,16 @@ export function createRasterLayer(viewer, def, ctx) {
       if (!spec) throw new Error('no raster available');
       const key = rasterSpecKey(spec);
       if (key !== currentKey) {
+        const layers = viewer.imageryLayers;
         const next = new Cesium.ImageryLayer(buildProvider(spec), { alpha });
-        viewer.imageryLayers.add(next); // on top of the basemap and older overlays
-        if (imagery && viewer.imageryLayers.contains(imagery)) {
-          viewer.imageryLayers.remove(imagery, true); // swap after the new one is in
-        }
+        const old = imagery && layers.contains(imagery) ? imagery : null;
+        // A refresh takes the old frame's place in the stack (so two overlays
+        // keep their order); a first load goes on top of the basemap.
+        if (old) layers.add(next, layers.indexOf(old) + 1);
+        else layers.add(next);
         imagery = next;
         currentKey = key;
+        if (old) retireWhenLoaded(old);
         viewer.scene.requestRender();
       }
       ctx.onStatus?.({ state: 'ok', count: 1, reason: spec.label });

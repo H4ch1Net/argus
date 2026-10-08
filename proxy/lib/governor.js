@@ -58,6 +58,29 @@ export function createGovernor(feeds, now = () => Date.now()) {
       st.credits += cost || 0;
     },
 
+    /**
+     * Check and record in one step, so concurrent requests cannot all pass the
+     * check before any of them is counted. The relay refunds a reservation whose
+     * upstream request never got an answer (network error or 5xx).
+     */
+    acquire(feedId, path) {
+      const verdict = this.check(feedId, path);
+      if (verdict.ok && configFor(feedId)) {
+        this.record(feedId, verdict.cost);
+        verdict.reservedAt = state.get(feedId).reqTimes.at(-1);
+      }
+      return verdict;
+    },
+
+    /** Undo an acquire() whose request failed before the upstream served it. */
+    refund(feedId, verdict) {
+      const st = state.get(feedId);
+      if (!st || verdict?.reservedAt === undefined) return;
+      const i = st.reqTimes.lastIndexOf(verdict.reservedAt);
+      if (i >= 0) st.reqTimes.splice(i, 1);
+      st.credits = Math.max(0, st.credits - (verdict.cost || 0));
+    },
+
     usage(feedId) {
       const st = state.get(feedId);
       const cfg = configFor(feedId);

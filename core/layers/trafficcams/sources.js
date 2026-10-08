@@ -7,6 +7,8 @@
 // GUARDRAIL: stills are shown as published, on request (a card), and nothing in
 // this project analyses them: no plate reading, no tracking, no detection.
 
+import { insideView } from '../sdk/bbox.js';
+
 /**
  * @typedef {{ id: string, provider: string, region: string,
  *   bbox: [number, number, number, number], feedId: string, path: string,
@@ -217,7 +219,9 @@ export function createTrafficCamSource({ proxyClient, sources = CAMERA_SOURCES }
     const failed = settled.filter((r) => r.status === 'rejected');
     const ok = settled.filter((r) => r.status === 'fulfilled');
     if (failed.length && !ok.length) throw failed[0].reason;
-    const cameras = ok.flatMap((r) => r.value);
+    // Catalogues cover a whole state or country; keep the cameras around the view.
+    const inside = insideView(query?.bbox);
+    const cameras = ok.flatMap((r) => r.value).filter((c) => inside(c.lat, c.lon));
     for (const c of cameras)
       c.imageUrl = proxyClient.buildUrl(c.image.feedId, c.image.path);
     return {

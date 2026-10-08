@@ -6,6 +6,8 @@
 // operator. Station information changes rarely and is fetched once per system
 // per session; status is polled.
 
+import { insideView } from '../sdk/bbox.js';
+
 const bcycle = (id, city, lat, lon, systemId) => ({
   id,
   city,
@@ -223,8 +225,9 @@ export function createBikeshareSource({ proxyClient, systems = BIKESHARE_SYSTEMS
     const ok = settled.filter((r) => r.status === 'fulfilled');
     const failed = settled.filter((r) => r.status === 'rejected');
     if (failed.length && !ok.length) throw failed[0].reason;
+    const inside = insideView(query?.bbox);
     return {
-      stations: ok.flatMap((r) => r.value),
+      stations: ok.flatMap((r) => r.value).filter((st) => inside(st.lat, st.lon)),
       tooWide: view.tooWide,
       inView: view.systems.length,
       failed: failed.length,

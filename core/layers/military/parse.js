@@ -9,6 +9,16 @@ import { aircraftToNormalized } from '../flights/format.js';
 
 const text = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
 
+// The operator is shown only when it reads as a state body (an air force, a
+// navy, a ministry, a coast guard...). A civil aircraft wrongly flagged as
+// military would otherwise show its registered owner, who may be a person.
+const STATE_OPERATOR =
+  /\b(air ?force|navy|naval|army|marines?|coast ?guard|guard|military|defen[cs]e|ministry|government|federal|national|state|police|border|customs|nato|royal|armed|forces|luftwaffe|marine|aviation corps|aeronautica|arm[ée]e|fuerza|corps|air arm|usaf|usn|usmc|usag|raf|raaf|rcaf|rnzaf|iaf|jasdf|jmsdf|rokaf|tni|bundeswehr)\b/i;
+const stateOperator = (v) => {
+  const t = text(v);
+  return t && STATE_OPERATOR.test(t) ? t : null;
+};
+
 /**
  * @param {{ ac?: object[], now?: number }} payload
  * @returns {object[]} normalized entities (type 'military')
@@ -17,7 +27,7 @@ export function parseMilitary(payload) {
   const operators = new Map();
   for (const a of Array.isArray(payload?.ac) ? payload.ac : []) {
     if (a && typeof a.hex === 'string') {
-      operators.set(a.hex.replace(/^~/, '').toLowerCase(), text(a.ownOp));
+      operators.set(a.hex.replace(/^~/, '').toLowerCase(), stateOperator(a.ownOp));
     }
   }
   const source = payload?.demo ? 'demo (simulated)' : 'adsb.lol (military)';

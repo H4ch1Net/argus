@@ -175,11 +175,15 @@ async function setupScene(app) {
       // unreachable explicit proxy (no health report) keeps the OpenSky path so
       // the readout shows the honest error.
       proxy: async (c) => {
+        const { adsbPointPath, openSkyParams } =
+          await import('./core/layers/flights/parse.js');
         if (!health || feedConfigured(health, 'opensky')) {
           return (q, s) =>
-            c.getJson('opensky', '/states/all', { params: q.bbox, signal: s });
+            c.getJson('opensky', '/states/all', {
+              params: openSkyParams(q.bbox),
+              signal: s,
+            });
         }
-        const { adsbPointPath } = await import('./core/layers/flights/parse.js');
         return (q, s) => c.getJson('adsblol', adsbPointPath(q.bbox), { signal: s });
       },
       mock: () =>
@@ -664,7 +668,9 @@ async function setupScene(app) {
     if (noRealFeed.has(r.key) && !dev) continue;
     // Layers that exist only with local equipment (your own receiver) are listed
     // only when the proxy has it configured, so no one sees a dead chip.
-    if (r.requires && !dev && !(health && feedConfigured(health, r.requires))) continue;
+    // (In a dev session with no proxy, the labelled mock stands in instead.)
+    if (r.requires && proxyClient && !(health && feedConfigured(health, r.requires)))
+      continue;
     manager.register(r.key, {
       label: r.label,
       group: r.group,
@@ -995,12 +1001,17 @@ async function setupScene(app) {
     });
   }
 
-  // Default state (master plan 8): flights + earthquakes on. The mobile shell
-  // launches into "Around Me" (geolocation); desktop stays at the world view.
-  for (const key of DEFAULT_LAYERS) await manager.enable(key);
-  if (app.aroundMe) {
+  // Default state (master plan 8): flights + earthquakes + transit on. The
+  // mobile shell launches into the "Around Me" preset itself (geolocation, and
+  // its layer set, so the highlighted chip matches what is on); desktop stays at
+  // the world view with the defaults.
+  const aroundMe = app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
+  if (aroundMe) {
+    await applyPreset(manager, aroundMe);
     presetBar.setActive('around-me');
     app.aroundMe(camera);
+  } else {
+    for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
 
   if (dev && window.__argus) Object.assign(window.__argus, { manager, camera });
@@ -1030,7 +1041,10 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
     const sources = [...manager.activeLayers(), ...extraResolvers];
     for (const layer of sources) {
       const rec = layer.getRecord(entity.id);
-      if (rec && rec.cardModel) {
+      // Ids are only unique within a layer (flights, military and your own
+      // receiver all key aircraft by ICAO hex), so the record must be for this
+      // very entity, not a namesake in another layer.
+      if (rec && rec.cardModel && (!rec.entity || rec.entity === entity)) {
         return {
           metadata: rec.cardModel,
           getHistoryFixes: rec.getHistoryFixes,

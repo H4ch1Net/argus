@@ -40,7 +40,7 @@ export function buildUpstreamUrl(feed, subpath, search) {
   return target;
 }
 
-/** Loopback, RFC 1918 / link-local IPv4, IPv6 loopback / ULA, localhost, *.local. */
+/** Loopback, RFC 1918 IPv4, IPv6 loopback / unique-local, localhost, *.local. */
 export function isLocalHost(hostname) {
   const h = String(hostname)
     .toLowerCase()
@@ -51,12 +51,45 @@ export function isLocalHost(hostname) {
   if (!m) return false;
   const [a, b] = [Number(m[1]), Number(m[2])];
   return (
-    a === 127 ||
-    a === 10 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 169 && b === 254)
+    a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
   );
+}
+
+/**
+ * The upstream base URL a feed uses right now: its own, or the operator's
+ * override from `baseUrlEnv`. A localOnly feed (equipment you own, such as an
+ * SDR receiver) has no upstream until the override names a host on this
+ * machine or the LAN. Shared by the relay and /health, so a feed is reported
+ * configured only when it can actually serve.
+ * @returns {{ ok: true, baseUrl: string, overridden: boolean } | { ok: false, reason: string }}
+ */
+export function resolveBaseUrl(feed, env = process.env) {
+  const override = feed.baseUrlEnv ? env[feed.baseUrlEnv] : null;
+  if (!override) {
+    return feed.localOnly
+      ? { ok: false, reason: `feed ${feed.id} not configured: set ${feed.baseUrlEnv}` }
+      : { ok: true, baseUrl: feed.baseUrl, overridden: false };
+  }
+  if (!URL.canParse(override)) {
+    return { ok: false, reason: `${feed.baseUrlEnv} is not a valid URL` };
+  }
+  if (feed.localOnly && !isLocalHost(new URL(override).hostname)) {
+    return {
+      ok: false,
+      reason: `${feed.baseUrlEnv} must point at this machine or the LAN`,
+    };
+  }
+  return { ok: true, baseUrl: override, overridden: true };
+}
+
+/**
+ * The path the allowlist judges: with an override, the upstream path is
+ * re-based onto the feed's default base path, so `allowPaths` stays anchored
+ * (e.g. ^/api/interpreter$) whatever prefix the operator's instance uses.
+ */
+function allowlistPath(feed, baseUrl, pathname) {
+  const strip = (u) => new URL(u).pathname.replace(/\/+$/, '');
+  return strip(feed.baseUrl) + pathname.slice(strip(baseUrl).length);
 }
 
 function matchAllow(patterns, pathname) {
@@ -138,36 +171,33 @@ export async function handleRelay(
 
     // An operator may point a feed at another instance of the same API (e.g. a
     // self-hosted Overpass) through an env var; the path allowlist still applies.
-    let upstreamFeed = feed;
-    const override = feed.baseUrlEnv ? env[feed.baseUrlEnv] : null;
-    if (feed.localOnly && !override) {
-      throw new RelayError(502, `feed ${feed.id} not configured: set ${feed.baseUrlEnv}`);
-    }
-    if (override) {
-      if (!URL.canParse(override)) {
-        throw new RelayError(502, `${feed.baseUrlEnv} is not a valid URL`);
-      }
-      // A localOnly feed reads equipment on this machine or the LAN (a receiver
-      // you own), never a third-party host.
-      if (feed.localOnly && !isLocalHost(new URL(override).hostname)) {
-        throw new RelayError(
-          502,
-          `${feed.baseUrlEnv} must point at this machine or the LAN`,
-        );
-      }
-      upstreamFeed = { ...feed, baseUrl: override };
-    }
+    const base = resolveBaseUrl(feed, env);
+    if (!base.ok) throw new RelayError(502, base.reason);
+    const upstreamFeed = base.overridden ? { ...feed, baseUrl: base.baseUrl } : feed;
 
     const target = buildUpstreamUrl(upstreamFeed, subpath, url.search);
-    if (feed.allowPaths && !matchAllow(feed.allowPaths, target.pathname)) {
+    const judged = base.overridden
+      ? allowlistPath(feed, base.baseUrl, target.pathname)
+      : target.pathname;
+    if (feed.allowPaths && !matchAllow(feed.allowPaths, judged)) {
       throw new RelayError(403, 'path not in feed allowlist');
     }
+    // Some generic endpoints pick the operation from the query (OGC services);
+    // such a feed pins the query too.
+    if (feed.allowQuery && !feed.allowQuery(target.searchParams)) {
+      throw new RelayError(403, 'query not allowed for this feed');
+    }
+
+    const accept = req.headers['accept'] || '';
 
     // Response cache (job 6): a fresh hit costs the upstream nothing, so it is
-    // answered before the governor counts anything. Keyed before secrets are
-    // injected, so no key material is part of a cache key.
+    // answered before the governor counts anything. The key is taken before
+    // query or header secrets are injected (cached feeds carry no path-prefix
+    // secret) and includes the Accept header, which some APIs (LL2, TfL) use to
+    // choose the format: one client asking for HTML must not change what the
+    // next client asking for JSON receives.
     const cacheCfg = cache && feed.cache && req.method === 'GET' ? feed.cache : null;
-    const cacheKey = cacheCfg ? `${feed.id} ${target.href}` : null;
+    const cacheKey = cacheCfg ? `${feed.id} ${accept} ${target.href}` : null;
     const fromCache = (maxAgeMs, label) => {
       const hit = cacheKey ? cache.get(cacheKey, maxAgeMs) : null;
       if (!hit) return false;
@@ -184,15 +214,8 @@ export async function handleRelay(
     if (cacheCfg && fromCache(cacheCfg.ttlMs, 'hit')) return;
     const staleMs = cacheCfg ? Math.max(cacheCfg.ttlMs, cacheCfg.staleMs ?? 0) : 0;
 
-    // Rate / budget governor (job 6): refuse before spending on a metered feed.
-    const gov = governor?.check(feed.id, target.pathname);
-    if (gov && !gov.ok) {
-      if (fromCache(staleMs, 'stale')) return;
-      throw new RelayError(gov.status, gov.message);
-    }
-
     const headers = {};
-    if (req.headers['accept']) headers['accept'] = req.headers['accept'];
+    if (accept) headers['accept'] = accept;
     injectSecrets(feed, target, headers, env);
     // Static per-feed headers (e.g. a User-Agent some APIs require, like Nominatim).
     if (feed.headers) Object.assign(headers, feed.headers);
@@ -225,7 +248,8 @@ export async function handleRelay(
           headers: outbound,
           body: body && body.length ? body : undefined,
           signal: controller.signal,
-          redirect: 'follow',
+          // Equipment you own must not bounce the proxy to some other host.
+          redirect: feed.localOnly ? 'error' : 'follow',
         });
         // Read the body inside the same timeout window: a stalled body must
         // abort too, not only a slow connection or headers.
@@ -245,10 +269,22 @@ export async function handleRelay(
       }
     }
 
+    // Rate / budget governor (job 6): refuse before spending on a metered feed.
+    // acquire() counts the request at once, so concurrent requests cannot all
+    // pass before any is recorded; a request the upstream never answered is
+    // refunded below.
+    const gov = governor?.acquire(feed.id, target.pathname);
+    if (gov && !gov.ok) {
+      if (fromCache(staleMs, 'stale')) return;
+      throw new RelayError(gov.status, gov.message);
+    }
+    const refund = () => gov?.ok && governor.refund(feed.id, gov);
+
     let result;
     try {
       result = await runUpstream(bearer);
     } catch (err) {
+      refund();
       if (fromCache(staleMs, 'stale')) return;
       throw new RelayError(502, `upstream fetch failed: ${err.name || 'error'}`);
     }
@@ -260,6 +296,7 @@ export async function handleRelay(
         bearer = await manager.getToken();
         result = await runUpstream(bearer);
       } catch (err) {
+        refund();
         throw new RelayError(
           502,
           `re-auth failed for ${feed.id}: ${err.name || err.message}`,
@@ -267,8 +304,8 @@ export async function handleRelay(
       }
     }
 
-    // Charge the governor only for a request that actually reached upstream OK.
-    if (gov?.ok && result.up.status < 500) governor?.record(feed.id, gov.cost);
+    // A request the upstream failed to serve does not count against the budget.
+    if (result.up.status >= 500) refund();
 
     const upstream = result.up;
     const buf = result.b;
@@ -281,7 +318,11 @@ export async function handleRelay(
     const cc = upstream.headers.get('cache-control');
     if (cc) kept['cache-control'] = cc;
     if (cacheCfg && upstream.status === 200) {
-      cache.set(cacheKey, { status: 200, headers: kept, body: buf });
+      cache.set(
+        cacheKey,
+        { status: 200, headers: kept, body: buf },
+        { group: feed.id, groupMax: cacheCfg.maxEntries ?? 24 },
+      );
     }
 
     res.writeHead(upstream.status, {

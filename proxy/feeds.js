@@ -48,6 +48,12 @@ const UA = { 'user-agent': USER_AGENT };
 /** An allowPaths entry matching exactly this upstream pathname. */
 const exactPath = (p) => new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 
+const NOWCOAST_LAYERS = [
+  'global_longwave_imagery_mosaic',
+  'conus_base_reflectivity_mosaic',
+  'ldn_lightning_strike_density',
+];
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
@@ -132,7 +138,8 @@ export const feeds = [
     baseUrl: 'https://overpass-api.de/api',
     baseUrlEnv: 'OVERPASS_URL',
     methods: ['GET'],
-    allowPaths: [/\/api\/interpreter$/],
+    // Judged against the default base path even when OVERPASS_URL re-points it.
+    allowPaths: [/^\/api\/interpreter$/],
     headers: UA,
     governor: { ratePerMinute: 20 },
   },
@@ -200,7 +207,7 @@ export const feeds = [
     baseUrlEnv: 'LOCAL_ADSB_URL',
     localOnly: true,
     methods: ['GET'],
-    allowPaths: [/(^|\/)aircraft\.json$/],
+    allowPaths: [/^\/data\/aircraft\.json$/],
   },
   // --- Layers ported from the reference project (bilawalsidhu/gods-eye-view) ---
   // Endpoints, parameters and terms below are as that project uses them (read
@@ -262,7 +269,25 @@ export const feeds = [
     allowPaths: [
       /^\/geoserver\/observations\/(weather_radar|satellite|lightning_detection)\/ows$/,
     ],
+    // `ows` is GeoServer's generic endpoint (WMS, WFS, WCS, WPS), so the query
+    // is pinned too: tile-sized WMS GetMap of the three imagery layers only.
+    allowQuery: (q) => {
+      const keys = [...q.keys()].map((k) => k.toLowerCase());
+      if (new Set(keys).size !== keys.length) return false;
+      const get = (name) => {
+        for (const [k, v] of q) if (k.toLowerCase() === name) return v;
+        return null;
+      };
+      return (
+        /^wms$/i.test(get('service') ?? '') &&
+        /^getmap$/i.test(get('request') ?? '') &&
+        NOWCOAST_LAYERS.includes(get('layers')) &&
+        Number(get('width')) <= 512 &&
+        Number(get('height')) <= 512
+      );
+    },
     headers: UA,
+    governor: { ratePerMinute: 600 },
   },
   {
     // Submarine cables and landing points (TeleGeography's public map GeoJSON).

@@ -28,11 +28,17 @@ export function createScreen(cols, rows) {
     };
   }
 
-  /** Write a string (clipped at maxWidth, or the right edge). Returns columns used. */
+  /**
+   * Write a string (clipped at maxWidth, or the right edge). Returns columns used.
+   * Control characters (from upstream text such as a radio station's name) are
+   * drawn as '?' so they can never act on the terminal as escape sequences.
+   */
   function text(col, row, str, style = {}, maxWidth = cols - col) {
     let n = 0;
-    for (const ch of String(str ?? '')) {
+    for (const raw of String(str ?? '')) {
       if (n >= maxWidth) break;
+      const cp = raw.codePointAt(0);
+      const ch = cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) ? '?' : raw;
       put(col + n, row, ch, style);
       n += 1;
     }

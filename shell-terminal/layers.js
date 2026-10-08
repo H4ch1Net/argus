@@ -6,7 +6,11 @@
 // GUARDRAIL (as everywhere): every source is a read of an already-public feed
 // through the proxy allowlist. Surveillance maps camera LOCATIONS only.
 
-import { parseFlights, adsbPointPath } from '../core/layers/flights/parse.js';
+import {
+  parseFlights,
+  adsbPointPath,
+  openSkyParams,
+} from '../core/layers/flights/parse.js';
 import {
   formatAircraft,
   aircraftToNormalized,
@@ -240,7 +244,10 @@ export function buildLayers({
         // OpenSky when its client is configured, else keyless adsb.lol (as on the globe).
         if (!health || feedConfigured(health, 'opensky')) {
           return (q, signal) =>
-            client.getJson('opensky', '/states/all', { params: q.bbox, signal });
+            client.getJson('opensky', '/states/all', {
+              params: openSkyParams(q.bbox),
+              signal,
+            });
         }
         return (q, signal) =>
           client.getJson('adsblol', adsbPointPath(q.bbox), { signal });

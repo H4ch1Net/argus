@@ -133,10 +133,17 @@ async function cmdServe(argv, { serveApp }) {
   if (flag(argv, '--https')) opts.https = true;
   if (opt(argv, '--port') !== undefined) opts.port = Number(opt(argv, '--port'));
   if (opt(argv, '--host') !== undefined) opts.host = opt(argv, '--host');
+  // On a phone (Termux) the browser is on the same device, and the phone may be
+  // on public Wi-Fi: listen on the phone only unless asked otherwise
+  // (--host 0.0.0.0 or PROXY_HOST shares it with the network).
+  else if (process.platform === 'android' && !process.env.PROXY_HOST) {
+    opts.host = '127.0.0.1';
+  }
   if (staticDir) opts.staticDir = staticDir;
   const proxy = await startProxy(opts);
 
-  const lan = proxy.host ? [] : lanAddresses();
+  const shared = !proxy.host || proxy.host === '0.0.0.0' || proxy.host === '::';
+  const lan = shared ? lanAddresses() : [];
   console.log('');
   console.log(serveApp ? '  ARGUS is up' : '  ARGUS proxy is up');
   console.log(`    this machine : ${proxy.url}`);
@@ -144,8 +151,14 @@ async function cmdServe(argv, { serveApp }) {
     console.log(`    LAN / phone  : ${proxy.url.replace('localhost', ip)}`);
   if (serveApp && process.platform === 'android') {
     console.log('');
-    console.log(`    On this phone, open http://localhost:${proxy.port} in Chrome:`);
+    console.log(
+      `    On this phone, open ${proxy.url.replace('127.0.0.1', 'localhost')} in Chrome:`,
+    );
     console.log('    localhost counts as secure, so location, compass and install work.');
+    if (!shared)
+      console.log(
+        '    (listening on this phone only; --host 0.0.0.0 shares it on Wi-Fi)',
+      );
   } else if (serveApp && !proxy.https) {
     console.log('');
     console.log('    A phone on the LAN needs HTTPS for location, compass and install:');

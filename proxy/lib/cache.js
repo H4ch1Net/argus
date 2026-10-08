@@ -31,11 +31,23 @@ export function createResponseCache({
       return { ...e, ageMs: now() - e.at };
     },
 
-    set(key, { status, headers, body }) {
+    /**
+     * @param {string} key
+     * @param {{ status: number, headers: object, body: Buffer }} entry
+     * @param {{ group?: string, groupMax?: number }} [opts] a group (the feed)
+     *   keeps at most groupMax entries, so a feed with many distinct URLs (map
+     *   viewports) evicts its own oldest entries, not another feed's long-lived
+     *   ones (satellite elements, cable routes).
+     */
+    set(key, { status, headers, body }, { group = null, groupMax = Infinity } = {}) {
       if (body.length > maxBytes / 4) return; // never let one body take the cache
       drop(key);
-      entries.set(key, { at: now(), status, headers, body });
+      entries.set(key, { at: now(), status, headers, body, group });
       bytes += body.length;
+      if (group !== null) {
+        const mine = [...entries.entries()].filter(([, e]) => e.group === group);
+        for (let i = 0; i < mine.length - groupMax; i++) drop(mine[i][0]);
+      }
       for (const k of entries.keys()) {
         if (entries.size <= maxEntries && bytes <= maxBytes) break;
         drop(k);

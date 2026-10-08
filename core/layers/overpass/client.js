@@ -8,6 +8,7 @@
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const GRID_STEP = 0.1; // degrees; snapping the bbox lets nearby views share a cache entry
+const CACHE_MAX = 40; // regions kept; the oldest goes first
 const cache = new Map(); // ql -> { at, data }
 
 export function snapBBox(bbox) {
@@ -55,7 +56,9 @@ export function createOverpassSource({ proxyClient, filters, maxAreaDeg = 3 }) {
     if (data?.remark && !data.elements?.length) {
       throw new Error(`Overpass: ${String(data.remark).slice(0, 120)}`);
     }
+    cache.delete(ql);
     cache.set(ql, { at: Date.now(), data });
+    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
     return data;
   };
 }

@@ -17,7 +17,8 @@ export const surveillanceDefinition = {
   id: 'surveillance',
   fetch: { mode: 'viewport' },
   // The Overpass client skips views wider than a few degrees; say so.
-  statusNote: (q) => (q.bbox && areaTooLarge(q.bbox, 3) ? 'zoom in to load' : ''),
+  statusNote: (q, raw) =>
+    q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length ? 'zoom in to load' : '',
   interpolate: false,
   maxEntities: 4000,
   normalize: (json) => parseOverpass(json),

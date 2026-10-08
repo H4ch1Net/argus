@@ -614,8 +614,8 @@ exercised against a Cesium stub (a scratch loader, not shipped).
 
 ### Verified in this pass
 
-- `npm test`: 237 pass; the 2 failing suites need `satellite.js` / `cesium`,
-  which could not be installed. Proxy: 64 of 64 with Playwright's bundled `ws`.
+- `npm test`: 243 pass; the 2 failing suites need `satellite.js` / `cesium`,
+  which could not be installed. Proxy: 68 of 68 with Playwright's bundled `ws`.
 - ESLint with a scratch approximation of the repo's config (the core recommended
   rules; `@eslint/js` could not be installed) and Prettier: clean.
 - Every new globe layer run through the real `createLayer` against a Cesium
@@ -626,6 +626,36 @@ exercised against a Cesium stub (a scratch loader, not shipped).
 - Terminal: every new layer on demo data in tests; frames rendered headless.
 - Proxy allowlists: each GTFS-RT, GBFS, camera and catalogue path resolves and
   is allowed; neighbouring paths on the same hosts are refused. Tested.
+
+### Independent review of this pass (fixed)
+
+Two reviewers (proxy and security; layers, SDK and terminal) read the diff and
+reproduced their findings; each fix below has a test or a stub-harness check.
+
+| Finding                                                                                                                                   | Fix                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Cache poisoning: a client asking LL2 for `text/html` made every later JSON client get the HTML page                                       | The cache key includes `Accept`                                                                                |
+| Concurrent requests all passed the rate/credit governor before any was counted (20 of 20 got through)                                     | `governor.acquire()` counts at check time; a request the upstream never answered is refunded                   |
+| Overpass allowlist unanchored (`/kill_my_queries/api/interpreter` passed)                                                                 | Anchored; an `OVERPASS_URL` override is judged against the default base path                                   |
+| nowCOAST's generic `ows` endpoint let any OGC operation through, unmetered                                                                | Query pinned to tile-sized WMS GetMap of the three layers; rate cap                                            |
+| `localOnly` feed followed redirects off the device; link-local accepted; `/health` said "ready" for a bad URL                             | No redirects for local feeds; link-local dropped; `/health` uses the relay's own validation                    |
+| Upstream names could carry terminal escape sequences (station names are user-submitted)                                                   | Control characters drawn as `?` in the TUI and escaped in CLI output                                           |
+| Termux bound the keyed proxy to every interface on a phone that may be on public Wi-Fi                                                    | Loopback by default on Android; `--host 0.0.0.0` to share                                                      |
+| A double-tapped preset built a second copy of a layer that kept polling (and rendering) forever                                           | One in-flight load per layer; the latest on/off request wins                                                   |
+| Sensor shaders and moving layers each saved and restored the render mode, freezing one or leaving the scene rendering at idle             | One shared claim count (`core/scene/renderMode.js`)                                                            |
+| Tapping a military aircraft also shown by Flights opened the Flights card (ids are per layer)                                             | The resolver matches the picked entity itself                                                                  |
+| City layers (traffic cams, bikeshare, transit) only refetched on their timer after the camera moved                                       | Bounded layers refetch when the camera settles (at most every 5 s, so panning cannot multiply metered queries) |
+| Transit animated every vehicle of a network (all of the Netherlands for a view of Amsterdam)                                              | Transit, bikeshare and camera sources keep only what is in and around the view                                 |
+| An aborted poll could ingest partial multi-feed data; viewport layers went on a timer after a tab switch                                  | Aborted polls are discarded; viewport layers never get a timer                                                 |
+| Weather refresh blanked the overlay and reordered clouds and radar                                                                        | The new frame takes the old one's slot; the old one goes once tiles have loaded                                |
+| Mobile start highlighted Around Me without its full layer set                                                                             | Mobile applies the Around Me preset itself                                                                     |
+| A civil aircraft wrongly flagged military would show its registered owner                                                                 | The operator is shown only when it reads as a state body                                                       |
+| Flights centred on longitude 0 for a view across the antimeridian                                                                         | The view keeps its true edges for point queries                                                                |
+| Smaller: Overpass client cache unbounded, right-click toggled layers, Termux swapped an installed `nodejs`, zoom hints over dev mock data | Capped at 40 regions; left button only; install only what is missing; hint only when nothing loaded            |
+
+Left as is: NHC's `movementSpeed` unit (shown as knots, as the reference reads
+it; listed below to check live), and the CLI embeds a fresh proxy (so a fresh
+governor) per run, which upstream rate limits still bound.
 
 ### Still unverified or incomplete (and why)
 

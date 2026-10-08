@@ -358,7 +358,7 @@ test('baseUrlEnv points a feed at another instance, keeping the path allowlist',
       id: 'ovp',
       baseUrl: 'https://unreachable.invalid/api',
       baseUrlEnv: 'TEST_OVP_URL',
-      allowPaths: [/\/api\/interpreter$/],
+      allowPaths: [/^\/api\/interpreter$/],
     },
   ];
   process.env.TEST_OVP_URL = `${base(echo)}/mirror/api`;
@@ -372,6 +372,11 @@ test('baseUrlEnv points a feed at another instance, keeping the path allowlist',
   assert.equal(r.status, 200);
   assert.equal((await r.json()).url, '/mirror/api/interpreter?data=x');
   assert.equal((await fetch(`${base(proxy)}/feed/ovp/status`)).status, 403);
+  // A longer path that merely ends the same way is refused.
+  assert.equal(
+    (await fetch(`${base(proxy)}/feed/ovp/kill_my_queries/api/interpreter`)).status,
+    403,
+  );
 });
 
 test('a localOnly feed needs its URL, and only reaches this machine or the LAN', async (t) => {
@@ -383,7 +388,7 @@ test('a localOnly feed needs its URL, and only reaches this machine or the LAN',
       baseUrl: 'http://localhost:1/data',
       baseUrlEnv: 'TEST_RX_URL',
       localOnly: true,
-      allowPaths: [/(^|\/)aircraft\.json$/],
+      allowPaths: [/^\/data\/aircraft\.json$/],
     },
   ];
   const proxy = await startProxy(feeds);
@@ -427,7 +432,73 @@ test('isLocalHost accepts loopback, private and .local names only', async () => 
     '8.8.8.8',
     '172.32.0.1',
     '192.169.0.1',
+    '169.254.169.254',
     'local.example.com',
   ])
     assert.equal(isLocalHost(h), false, h);
+});
+
+test('the cache key includes Accept, so one client cannot change what others get', async (t) => {
+  const server = await listen((req, res) => {
+    const html = /html/.test(req.headers.accept || '');
+    res.writeHead(200, { 'content-type': html ? 'text/html' : 'application/json' });
+    res.end(html ? '<html></html>' : '{"ok":true}');
+  });
+  t.after(() => server.close());
+  const proxy = await startProxy([
+    { id: 'api', baseUrl: base(server), cache: { ttlMs: 60_000 } },
+  ]);
+  t.after(() => proxy.close());
+  await fetch(`${base(proxy)}/feed/api/x`, { headers: { accept: 'text/html' } });
+  const r = await fetch(`${base(proxy)}/feed/api/x`, {
+    headers: { accept: 'application/json' },
+  });
+  assert.equal(r.headers.get('content-type'), 'application/json');
+  assert.deepEqual(await r.json(), { ok: true });
+});
+
+test('concurrent requests cannot exceed a governed budget', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'metered', baseUrl: base(server), governor: { ratePerMinute: 3 } },
+  ];
+  const config = loadConfig({});
+  const { createGovernor } = await import('../lib/governor.js');
+  const proxy = await listen(
+    createRequestHandler({ config, feeds, governor: createGovernor(feeds) }),
+  );
+  t.after(() => proxy.close());
+  const codes = await Promise.all(
+    Array.from({ length: 12 }, (_, i) =>
+      fetch(`${base(proxy)}/feed/metered/x?i=${i}`).then((r) => r.status),
+    ),
+  );
+  assert.equal(codes.filter((c) => c === 200).length, 3);
+  assert.equal(state.hits, 3);
+});
+
+test('a localOnly feed never follows a redirect off the device', async (t) => {
+  const outside = await startEcho();
+  t.after(() => outside.close());
+  const device = await listen((req, res) => {
+    res.writeHead(302, { location: `${base(outside)}/elsewhere` });
+    res.end();
+  });
+  t.after(() => device.close());
+  process.env.TEST_RX2_URL = `${base(device)}/data`;
+  const proxy = await startProxy([
+    {
+      id: 'rx2',
+      baseUrl: 'http://localhost:1/data',
+      baseUrlEnv: 'TEST_RX2_URL',
+      localOnly: true,
+      allowPaths: [/^\/data\/aircraft\.json$/],
+    },
+  ]);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_RX2_URL;
+  });
+  assert.equal((await fetch(`${base(proxy)}/feed/rx2/aircraft.json`)).status, 502);
 });

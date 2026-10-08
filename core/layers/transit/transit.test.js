@@ -152,3 +152,20 @@ test('notes explain an empty layer', () => {
     'no covered agency in view',
   );
 });
+
+test('only vehicles in and around the view are kept, not the whole network', async () => {
+  const client = {
+    getBytes: async () =>
+      encodeVehicleFeed({
+        vehicles: [
+          { id: 'in', lat: 42.35, lon: -71.06 },
+          { id: 'far', lat: 41.5, lon: -70.0 }, // Cape Cod: same agency, out of view
+        ],
+      }),
+  };
+  const r = await createTransitSource({ proxyClient: client })({ bbox: boston });
+  assert.deepEqual(
+    parseTransit(r).map((n) => n.meta.vehicleId),
+    ['in'],
+  );
+});

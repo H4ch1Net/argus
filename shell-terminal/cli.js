@@ -88,6 +88,22 @@ export function bboxAround(lat, lon, radiusKm) {
   };
 }
 
+/**
+ * Make control characters visible (`\u001b`) instead of letting them act on the
+ * terminal. Newlines and tabs are kept. Inside JSON strings the result is still
+ * valid JSON with the same value.
+ */
+export function escapeControls(s) {
+  let out = '';
+  for (const ch of String(s)) {
+    const cp = ch.codePointAt(0);
+    const control =
+      (cp < 0x20 && ch !== '\n' && ch !== '\t') || (cp >= 0x7f && cp <= 0x9f);
+    out += control ? `\\u${cp.toString(16).padStart(4, '0')}` : ch;
+  }
+  return out;
+}
+
 /** Render rows as an aligned text table. */
 export function table(headers, rows) {
   const widths = headers.map((h, i) =>
@@ -166,8 +182,12 @@ function streamLines(url, type, key, count, json, print) {
  * @returns {Promise<number>} exit code
  */
 export async function runCli(cmd, argv, io = {}) {
-  const out = io.out ?? ((s) => process.stdout.write(`${s}\n`));
-  const err = io.err ?? ((s) => process.stderr.write(`${s}\n`));
+  const rawOut = io.out ?? ((s) => process.stdout.write(`${s}\n`));
+  const rawErr = io.err ?? ((s) => process.stderr.write(`${s}\n`));
+  // Upstream text (station names, storm names, card values) must never reach the
+  // terminal as escape sequences.
+  const out = (s) => rawOut(escapeControls(s));
+  const err = (s) => rawErr(escapeControls(s));
   const json = argv.includes('--json');
   const verbose = argv.includes('--verbose');
   const warnings = [];

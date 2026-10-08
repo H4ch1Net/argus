@@ -225,3 +225,18 @@ test('military, storms and launches read the new keyless feeds', async () => {
   assert.equal(llCall[1], '/launches/');
   assert.equal(llCall[2].ordering, 'net');
 });
+
+test('upstream text cannot reach the terminal as escape sequences', async () => {
+  const { escapeControls } = await import('./cli.js');
+  const { createScreen } = await import('./screen.js');
+  assert.equal(
+    escapeControls('a\u001b]0;pwned\u0007b\u009b31m\nok\t'),
+    'a\\u001b]0;pwned\\u0007b\\u009b31m\nok\t',
+  );
+  // Still valid JSON with the same value.
+  const evil = { name: 'x\u001b[2Jy\u009b' };
+  assert.deepEqual(JSON.parse(escapeControls(JSON.stringify(evil))), evil);
+  const scr = createScreen(10, 1);
+  scr.text(0, 0, 'A\u001b[2JB');
+  assert.equal(scr.toPlain()[0], 'A?[2JB    ');
+});
