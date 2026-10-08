@@ -141,3 +141,20 @@ dd.ct-kv__section {
 .ct-target__rows dd {
   text-transform: uppercase;
 }
+
+/* PREV / NEXT on the contacts header, after the rule. */
+.ct-target__step {
+  display: inline-flex;
+  gap: 4px;
+  order: 3;
+}
+
+.ct-target__step[hidden] {
+  display: none;
+}
+
+.ct-target__step .ct-btn {
+  min-height: 22px;
+  padding: 0 7px;
+  font-size: 9px;
+}

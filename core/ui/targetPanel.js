@@ -68,6 +68,22 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
   );
   const contactsCount = h('span.ct-head__val');
   const contactsEl = h('div.ct-target__contacts');
+  // PREV / NEXT: walk the contacts one by one (N / P on a keyboard).
+  let stepper = null;
+  const stepEl = h(
+    'span.ct-target__step',
+    { hidden: true },
+    h(
+      'button.ct-btn',
+      { type: 'button', title: 'Previous contact (P)', onclick: () => stepper?.(-1) },
+      '◀',
+    ),
+    h(
+      'button.ct-btn',
+      { type: 'button', title: 'Next contact (N)', onclick: () => stepper?.(1) },
+      '▶',
+    ),
+  );
 
   const el = h(
     'section.ct-target',
@@ -83,7 +99,7 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
     h('div.ct-target__widget', {}, widget.el),
     hintEl,
     card,
-    h('div.ct-head', {}, 'CONTACTS', contactsCount),
+    h('div.ct-head', {}, 'CONTACTS', contactsCount, stepEl),
     contactsEl,
   );
 
@@ -224,6 +240,11 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
       hintEl.hidden = false;
       closeBtn.hidden = true;
       setImage(null);
+    },
+    /** fn(+1 | -1): what PREV / NEXT on the contacts header do. */
+    setStepper(fn) {
+      stepper = fn;
+      stepEl.hidden = !fn;
     },
     /** The overlay summary: drives the widget, the state and the contacts. */
     setSummary(s, { quality = 0, hubPos } = {}) {

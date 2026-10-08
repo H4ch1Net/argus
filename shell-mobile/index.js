@@ -58,8 +58,10 @@ export async function mountShell(root) {
   hud.append(bar.el, stack, notify, floatEl, sheet.el);
 
   let overlay = null;
+  let clean = false;
   function layout() {
     if (!overlay) return;
+    if (clean) return overlay.setInsets({ top: 0, bottom: 0, left: 0, right: 0 });
     const r = root.getBoundingClientRect();
     const sb = sheet.el.getBoundingClientRect();
     const st = stack.getBoundingClientRect();
@@ -102,6 +104,12 @@ export async function mountShell(root) {
       }
     },
     showTab: (id) => tabs.select(id),
+    /** Clean view: hide the interface, leaving the globe and the overlay. */
+    setClean(on) {
+      clean = Boolean(on);
+      root.classList.toggle('argus-clean', clean);
+      layout();
+    },
     // "Around Me": fly to the device location at a regional altitude.
     aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
     // The observer for satellite pass predictions: the phone's own position.

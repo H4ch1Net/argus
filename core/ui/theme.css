@@ -840,3 +840,24 @@ button.ct-brief__line:hover {
 .ct-brief__credit a {
   color: var(--textPrimaryDim);
 }
+
+/* Clean view (V, or VIEW > DISPLAY): the interface hides, leaving the globe,
+   the tracking overlay and notices; one small chip brings it back (a phone has
+   no V key). */
+.argus-clean .argus-hud > :not(.argus-notify):not(.argus-float) {
+  display: none !important;
+}
+
+.ct-clean-exit {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: none;
+  background: var(--panel-translucent);
+}
+
+.argus-clean .ct-clean-exit {
+  display: inline-flex;
+}

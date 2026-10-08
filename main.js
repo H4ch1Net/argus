@@ -1194,20 +1194,17 @@ async function setupScene(app, splash) {
       labelSwitches.roads.el,
     ),
   );
+  const DENSITIES = ['off', 'low', 'med', 'high'];
+  const densityChoice = createChoice({
+    label: 'Tracking boxes',
+    options: DENSITIES.map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) })),
+    current: app.tier === 'minimal' ? 'low' : 'med',
+    onSelect: (density) => overlay.setOptions({ density }),
+  });
   view.push(
     section(
       'TRACKING',
-      createChoice({
-        label: 'Tracking boxes',
-        options: [
-          { id: 'off', label: 'Off' },
-          { id: 'low', label: 'Low' },
-          { id: 'med', label: 'Med' },
-          { id: 'high', label: 'High' },
-        ],
-        current: app.tier === 'minimal' ? 'low' : 'med',
-        onSelect: (density) => overlay.setOptions({ density }),
-      }).el,
+      densityChoice.el,
       createSwitch({
         label: 'Viewport frame',
         on: true,
@@ -1321,6 +1318,84 @@ async function setupScene(app, splash) {
     sensorChoice?.paint(shaders?.sensor ?? 'none');
     crtSwitch?.set(Boolean(shaders?.crt));
   };
+  // Display: clean view (the interface hides) and orbit (the camera circles
+  // the middle of the view). Both also on the keyboard: V and O.
+  const { createOrbit } = await import('./core/scene/orbit.js');
+  let cleanOn = false;
+  const setClean = (on) => {
+    cleanOn = Boolean(on);
+    app.setClean?.(cleanOn);
+    cleanSwitch.set(cleanOn);
+  };
+  const cleanSwitch = createSwitch({
+    label: 'Clean view',
+    title: 'Hide the interface, keep the globe and tracking (V)',
+    onToggle: (on) => setClean(on),
+  });
+  const cleanExit = h(
+    'button.ct-btn.ct-clean-exit',
+    { type: 'button', title: 'Show the interface (V)', onclick: () => setClean(false) },
+    'UI',
+  );
+  app.mount('overlay', cleanExit);
+  const orbitSwitch = createSwitch({
+    label: 'Orbit',
+    title: 'Circle the middle of the view; any press stops it (O)',
+    onToggle: (on) => (on ? orbit.start() : (orbit.stop(), false)),
+  });
+  const orbit = createOrbit(app.viewer, {
+    fps: app.profile?.animationFps || 30,
+    isBusy: () => Boolean(tracking?.cockpit?.isActive()),
+    onChange: (on) => orbitSwitch.set(on),
+  });
+  view.push(section('DISPLAY', cleanSwitch.el, orbitSwitch.el));
+
+  // Contact cycling (N / P, and the arrows on the target panel): walk the
+  // contacts the overlay lists, from a snapshot taken when the walk starts, so
+  // stepping to a contact (which re-centres the list on it) does not just
+  // bounce back to the previous one.
+  let lastSummary = null;
+  overlay.subscribe((sum) => (lastSummary = sum));
+  let walk = { list: [], i: -1, at: 0 };
+  const stepContact = (d) => {
+    const now = Date.now();
+    if (!walk.list.length || now - walk.at > 15_000) {
+      const list = (lastSummary?.contacts ?? []).map((c) => c.target);
+      const hubT = lastSummary?.hub?.target;
+      walk = { list: hubT ? [hubT, ...list] : list, i: 0, at: now };
+    }
+    if (!walk.list.length) return;
+    walk.i = (walk.i + d + walk.list.length) % walk.list.length;
+    walk.at = now;
+    tracker.select(walk.list[walk.i]);
+  };
+  panel.setStepper?.(stepContact);
+
+  // Keyboard shortcuts and the "?" list (core/ui/shortcuts.js).
+  const shortcuts = await import('./core/ui/shortcuts.js');
+  const keyHelp = shortcuts.createShortcutHelp({ desktop });
+  app.mount('overlay', keyHelp.el);
+  shortcuts.bindShortcuts({
+    help: () => keyHelp.toggle(),
+    clean: () => setClean(!cleanOn),
+    orbit: () => orbit.toggle(),
+    density: () => {
+      const cur = overlay.options().density;
+      const next = DENSITIES[(DENSITIES.indexOf(cur) + 1) % DENSITIES.length];
+      overlay.setOptions({ density: next });
+      densityChoice.paint(next);
+      notifier.push({
+        title: `TRACKING BOXES ${next.toUpperCase()}`,
+        key: 'density',
+        level: 'low',
+        timeoutMs: 1500,
+      });
+    },
+    next: () => stepContact(1),
+    prev: () => stepContact(-1),
+    preset: (i) => PRESETS[i] && runPreset(PRESETS[i]),
+  });
+
   view.push(section('SYSTEM', app.readout.el));
   for (const el of view) app.mount('view', el);
 
@@ -1928,7 +2003,7 @@ async function attachTracking(
       quiet = false;
     }
   };
-  return { tracker, labelFor, selectQuiet };
+  return { tracker, labelFor, selectQuiet, cockpit };
 }
 
 // The card model plus what the panel shows around it: tags for the layer and
