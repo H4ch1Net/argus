@@ -106,6 +106,7 @@ function printCard(card) {
     lines.push(`  ${s.title}`);
     for (const [k, v] of s.rows) lines.push(`    ${k.padEnd(kw - 2)}  ${v}`);
   }
+  for (const l of card.links || []) lines.push(`  ${l.label.padEnd(kw)}  ${l.url}`);
   return lines.join('\n');
 }
 

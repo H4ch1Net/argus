@@ -99,36 +99,47 @@ export function parseFlights(payload) {
   return Array.isArray(payload?.ac) ? parseAdsb(payload) : parseStates(payload);
 }
 
-// adsb.lol's point query takes a centre and a radius in nautical miles (capped
-// at 250). Pick the centre of the viewport bbox and a radius that covers it.
+// adsb.lol's area query takes a centre and a radius in nautical miles (capped
+// at 250). The centre is the viewport's, snapped to a 0.25 degree grid so small
+// pans repeat the same URL (the proxy caches it for a few seconds), and the
+// radius grows by the snap error so the view stays covered.
 const NM_PER_DEG_LAT = 60;
+const ANCHOR_STEP = 0.25;
+const SNAP_SLACK_NM = Math.ceil(
+  Math.hypot(ANCHOR_STEP / 2, ANCHOR_STEP / 2) * NM_PER_DEG_LAT,
+);
 export const ADSB_MAX_RADIUS_NM = 250;
+
+const snap = (v) => Math.round(v / ANCHOR_STEP) * ANCHOR_STEP;
 
 /**
  * @param {{ lamin: number, lomin: number, lamax: number, lomax: number }} bbox
  * @returns {{ latitude: number, longitude: number, radiusNm: number }}
  */
 export function bboxToPointQuery(bbox) {
-  const latitude = (bbox.lamin + bbox.lamax) / 2;
-  const longitude = (bbox.lomin + bbox.lomax) / 2;
+  const midLat = (bbox.lamin + bbox.lamax) / 2;
   const halfLatNm = ((bbox.lamax - bbox.lamin) / 2) * NM_PER_DEG_LAT;
   const halfLonNm =
-    ((bbox.lomax - bbox.lomin) / 2) *
-    NM_PER_DEG_LAT *
-    Math.cos((latitude * Math.PI) / 180);
+    ((bbox.lomax - bbox.lomin) / 2) * NM_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180);
   const radiusNm = Math.min(
     ADSB_MAX_RADIUS_NM,
-    Math.max(5, Math.ceil(Math.hypot(halfLatNm, halfLonNm))),
+    Math.max(5, Math.ceil(Math.hypot(halfLatNm, halfLonNm)) + SNAP_SLACK_NM),
   );
   return {
-    latitude: +latitude.toFixed(4),
-    longitude: +longitude.toFixed(4),
+    latitude: Math.max(-90, Math.min(90, snap(midLat))),
+    longitude: snap((bbox.lomin + bbox.lomax) / 2),
     radiusNm,
   };
 }
 
-/** The adsb.lol sub-path for a viewport bbox. */
+/**
+ * The adsb.lol sub-path for a viewport bbox. This is the ADSBExchange-style
+ * /v2/lat/../lon/../dist/.. form, the one the reference project uses live.
+ */
 export function adsbPointPath(bbox) {
   const q = bboxToPointQuery(bbox);
-  return `/v2/point/${q.latitude}/${q.longitude}/${q.radiusNm}`;
+  return `/v2/lat/${q.latitude}/lon/${q.longitude}/dist/${q.radiusNm}`;
 }
+
+/** adsb.lol's global list of aircraft flagged military (readsb dbFlags). */
+export const ADSB_MILITARY_PATH = '/v2/mil';

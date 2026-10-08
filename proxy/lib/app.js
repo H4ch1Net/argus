@@ -4,6 +4,7 @@
 import { sendJson } from './respond.js';
 import { handlePreflight } from './cors.js';
 import { handleRelay } from './relay.js';
+import { createResponseCache } from './cache.js';
 import { handleGoogleTiles } from './tiles.js';
 
 // A feed is "configured" (able to serve) when its credentials are actually present:
@@ -26,6 +27,7 @@ export function createRequestHandler({
   governor = null,
   serveStatic = null,
   streams = null,
+  cache = createResponseCache(),
 }) {
   return async function handler(req, res) {
     try {
@@ -56,7 +58,7 @@ export function createRequestHandler({
         return;
       }
       if (url.pathname.startsWith('/feed/')) {
-        await handleRelay(req, res, { feeds, config, tokenManagers, governor });
+        await handleRelay(req, res, { feeds, config, tokenManagers, governor, cache });
         return;
       }
       // Google Photorealistic 3D Tiles broker (key server-side; host-pinned).

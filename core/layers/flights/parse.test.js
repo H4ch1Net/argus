@@ -124,17 +124,22 @@ test('parseFlights detects the payload format', () => {
   assert.deepEqual(parseFlights(undefined), { time: null, aircraft: [] });
 });
 
-test('bboxToPointQuery centres on the view and caps the radius', () => {
+test('bboxToPointQuery centres on the view, snaps the anchor, and caps the radius', () => {
   const small = bboxToPointQuery({ lamin: 37, lamax: 38, lomin: -123, lomax: -122 });
   assert.equal(small.latitude, 37.5);
   assert.equal(small.longitude, -122.5);
-  assert.ok(small.radiusNm > 30 && small.radiusNm < 45);
+  // ~38 nm to the corner, plus the snap slack (~11 nm)
+  assert.ok(small.radiusNm > 40 && small.radiusNm < 60, String(small.radiusNm));
   const world = bboxToPointQuery({ lamin: -90, lamax: 90, lomin: -180, lomax: 180 });
   assert.equal(world.radiusNm, ADSB_MAX_RADIUS_NM);
   const tiny = bboxToPointQuery({ lamin: 1, lamax: 1.001, lomin: 1, lomax: 1.001 });
-  assert.equal(tiny.radiusNm, 5);
+  assert.ok(tiny.radiusNm >= 5 && tiny.radiusNm < 15);
+  assert.equal(tiny.latitude, 1);
+  // a small pan keeps the same anchor (and so the same cached URL)
+  const a = bboxToPointQuery({ lamin: 37.01, lamax: 38.01, lomin: -123, lomax: -122 });
+  assert.equal(a.latitude, small.latitude);
   assert.equal(
     adsbPointPath({ lamin: 37, lamax: 38, lomin: -123, lomax: -122 }),
-    `/v2/point/37.5/-122.5/${small.radiusNm}`,
+    `/v2/lat/37.5/lon/-122.5/dist/${small.radiusNm}`,
   );
 });

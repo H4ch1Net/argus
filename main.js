@@ -166,6 +166,7 @@ async function setupScene(app) {
   const registrations = [
     {
       key: 'flights',
+      group: 'Air & space',
       label: 'Flights',
       loadDef: () =>
         import('./core/layers/flights/definition.js').then((m) => m.flightsDefinition),
@@ -189,23 +190,26 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
-      key: 'quakes',
-      label: 'Earthquakes',
+      key: 'military',
+      group: 'Air & space',
+      label: 'Military air',
       loadDef: () =>
-        import('./core/layers/earthquakes/definition.js').then(
-          (m) => m.earthquakesDefinition,
-        ),
-      proxy: (c) => (_q, s) =>
-        c.getJson('usgs-quakes', '/all_day.geojson', { signal: s }),
+        import('./core/layers/military/definition.js').then((m) => m.militaryDefinition),
+      // adsb.lol's global list of aircraft flagged military (keyless).
+      proxy: async (c) => {
+        const { ADSB_MILITARY_PATH } = await import('./core/layers/flights/parse.js');
+        return (_q, s) => c.getJson('adsblol', ADSB_MILITARY_PATH, { signal: s });
+      },
       mock: () =>
         import.meta.env.DEV
-          ? import('./core/layers/earthquakes/mockSource.js').then((m) =>
-              m.createQuakeMockSource({ viewer: app.viewer }),
+          ? import('./core/layers/military/mockSource.js').then((m) =>
+              m.createMilitaryMockSource(),
             )
           : Promise.resolve(null),
     },
     {
       key: 'satellites',
+      group: 'Air & space',
       label: 'Satellites',
       loadDef: () =>
         import('./core/layers/satellites/definition.js').then(
@@ -224,7 +228,100 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'constellations',
+      group: 'Air & space',
+      label: 'Nav & GEO sats',
+      loadDef: () =>
+        import('./core/layers/constellations/definition.js').then(
+          (m) => m.constellationsDefinition,
+        ),
+      proxy: async (c) => {
+        const { createConstellationSource } =
+          await import('./core/layers/constellations/groups.js');
+        return createConstellationSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/satellites/mockSource.js').then((m) => {
+              const tle = m.createSatMockSource({ count: 12 });
+              return async () => [{ group: 'gps-ops', text: await tle() }];
+            })
+          : Promise.resolve(null),
+    },
+    {
+      key: 'launches',
+      group: 'Air & space',
+      label: 'Launches',
+      loadDef: () =>
+        import('./core/layers/launches/definition.js').then((m) => m.launchesDefinition),
+      proxy: async (c) => {
+        const { launchQuery } = await import('./core/layers/launches/parse.js');
+        return (_q, s) =>
+          c.getJson('ll2', '/launches/', { params: launchQuery(), signal: s });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/launches/mockSource.js').then((m) =>
+              m.createLaunchMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'transit',
+      group: 'Ground & sea',
+      label: 'Transit',
+      loadDef: () =>
+        import('./core/layers/transit/definition.js').then((m) => m.transitDefinition),
+      // GTFS-RT vehicle positions for the covered agencies in view (keyless).
+      proxy: async (c) => {
+        const { createTransitSource } = await import('./core/layers/transit/source.js');
+        return createTransitSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/transit/mockSource.js').then((m) =>
+              m.createTransitMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'ships',
+      group: 'Ground & sea',
+      label: 'Ships',
+      loadDef: () =>
+        import('./core/layers/ships/definition.js').then((m) => m.shipsDefinition),
+      // Push source: a websocket to the proxy (or a synthetic stream in dev).
+      proxy: async () => {
+        const { createAisSource } = await import('./core/layers/ships/aisSource.js');
+        return createAisSource({ wsUrl, viewer: app.viewer });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/ships/mockSource.js').then((m) =>
+              m.createShipMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'quakes',
+      group: 'Earth & weather',
+      label: 'Earthquakes',
+      loadDef: () =>
+        import('./core/layers/earthquakes/definition.js').then(
+          (m) => m.earthquakesDefinition,
+        ),
+      proxy: (c) => (_q, s) =>
+        c.getJson('usgs-quakes', '/all_day.geojson', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/earthquakes/mockSource.js').then((m) =>
+              m.createQuakeMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'fires',
+      group: 'Earth & weather',
       label: 'Fires',
       loadDef: () =>
         import('./core/layers/fires/definition.js').then((m) => m.firesDefinition),
@@ -242,24 +339,50 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
-      key: 'ships',
-      label: 'Ships',
+      key: 'cyclones',
+      group: 'Earth & weather',
+      label: 'Cyclones',
       loadDef: () =>
-        import('./core/layers/ships/definition.js').then((m) => m.shipsDefinition),
-      // Push source: a websocket to the proxy (or a synthetic stream in dev).
-      proxy: async () => {
-        const { createAisSource } = await import('./core/layers/ships/aisSource.js');
-        return createAisSource({ wsUrl, viewer: app.viewer });
-      },
+        import('./core/layers/cyclones/definition.js').then((m) => m.cyclonesDefinition),
+      proxy: (c) => (_q, s) => c.getJson('nhc', '/CurrentStorms.json', { signal: s }),
       mock: () =>
         import.meta.env.DEV
-          ? import('./core/layers/ships/mockSource.js').then((m) =>
-              m.createShipMockSource({ viewer: app.viewer }),
+          ? import('./core/layers/cyclones/mockSource.js').then((m) =>
+              m.createCycloneMockSource(),
             )
           : Promise.resolve(null),
     },
     {
+      key: 'clouds',
+      group: 'Earth & weather',
+      label: 'IR clouds',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('clouds', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'radar',
+      group: 'Earth & weather',
+      label: 'Radar (US)',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.radarDefinition),
+      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
+      proxy: async (c) => {
+        const { weatherSpec } = await import('./core/layers/weather/products.js');
+        return async () => weatherSpec('radar', c.buildUrl);
+      },
+      // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
       key: 'surveillance',
+      group: 'Infrastructure',
       label: 'Surveillance',
       loadDef: () =>
         import('./core/layers/surveillance/definition.js').then(
@@ -281,6 +404,7 @@ async function setupScene(app) {
     },
     {
       key: 'landmarks',
+      group: 'Infrastructure',
       label: 'Landmarks',
       loadDef: () =>
         import('./core/layers/landmarks/definition.js').then(
@@ -302,6 +426,7 @@ async function setupScene(app) {
     },
     {
       key: 'cctv',
+      group: 'Infrastructure',
       label: 'CCTV',
       loadDef: () =>
         import('./core/layers/cctv/definition.js').then((m) => m.cctvDefinition),
@@ -315,7 +440,96 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'datacenters',
+      group: 'Infrastructure',
+      label: 'Data centres',
+      loadDef: () =>
+        import('./core/layers/infrastructure/definition.js').then(
+          (m) => m.datacentersDefinition,
+        ),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/infrastructure/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.DATACENTER_FILTERS,
+          maxAreaDeg: f.DATACENTER_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
+              m.createInfraMockSource({ viewer: app.viewer, kind: 'datacenters' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'cables',
+      group: 'Infrastructure',
+      label: 'Sea cables',
+      loadDef: () =>
+        import('./core/layers/cables/definition.js').then((m) => m.cablesDefinition),
+      proxy: (c) => (_q, s) =>
+        c.getJson('cables', '/cable/cable-geo.json', { signal: s }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/cables/mockSource.js').then((m) =>
+              m.createCableMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'installations',
+      group: 'Infrastructure',
+      label: 'Installations',
+      loadDef: () =>
+        import('./core/layers/infrastructure/definition.js').then(
+          (m) => m.installationsDefinition,
+        ),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/infrastructure/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.INSTALLATION_FILTERS,
+          maxAreaDeg: f.INSTALLATION_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
+              m.createInfraMockSource({ viewer: app.viewer, kind: 'installations' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'radio',
+      group: 'Signals',
+      label: 'Radio',
+      loadDef: () =>
+        import('./core/layers/radio/definition.js').then((m) => m.radioDefinition),
+      proxy: async (c) => {
+        const { radioQuery } = await import('./core/layers/radio/parse.js');
+        return (_q, s) =>
+          c.getJson('radiobrowser', '/json/stations/search', {
+            params: radioQuery(),
+            signal: s,
+          });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/radio/mockSource.js').then((m) =>
+              m.createRadioMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'shodan',
+      group: 'Signals',
       label: 'Shodan',
       loadDef: () =>
         import('./core/layers/shodan/definition.js').then((m) => m.shodanDefinition),
@@ -333,6 +547,7 @@ async function setupScene(app) {
     },
     {
       key: 'threats',
+      group: 'Signals',
       label: 'Threats',
       loadDef: () =>
         import('./core/layers/threats/definition.js').then((m) => m.threatsDefinition),
@@ -348,6 +563,7 @@ async function setupScene(app) {
     },
     {
       key: 'bgp',
+      group: 'Signals',
       label: 'BGP',
       loadDef: () =>
         import('./core/layers/bgp/definition.js').then((m) => m.bgpDefinition),
@@ -374,6 +590,7 @@ async function setupScene(app) {
     if (noRealFeed.has(r.key) && !dev) continue;
     manager.register(r.key, {
       label: r.label,
+      group: r.group,
       loadDef: r.loadDef,
       // With a proxy, use the real feed; if this layer has none (proxy source is
       // null), fall back to the labelled mock instead of failing to enable.

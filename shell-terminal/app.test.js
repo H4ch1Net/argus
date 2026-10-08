@@ -42,7 +42,7 @@ test('boots on demo data with the default layers and says so', async () => {
   const { app, output } = await demoApp();
   try {
     const running = app.layers.filter((l) => l.running).map((l) => l.key);
-    assert.deepEqual(running, ['flights', 'quakes']);
+    assert.deepEqual(running, ['flights', 'quakes', 'transit']);
     assert.ok(output().includes('ARGUS'));
     const frame = plain(app);
     assert.match(frame, /DEMO DATA/);
@@ -127,7 +127,7 @@ test('presets apply the shared layer sets and skip globe-only layers', async () 
     await app.runCommand('preset surveillance');
     await settle();
     const on = app.layers.filter((l) => l.running).map((l) => l.key);
-    assert.deepEqual(on.sort(), ['landmarks', 'surveillance']);
+    assert.deepEqual(on.sort(), ['installations', 'landmarks', 'surveillance']);
     assert.match(logText(app), /globe-only layers skipped: cctv/);
   } finally {
     app.stop();
@@ -204,6 +204,55 @@ test('tracking a mover re-scopes the viewport feeds once it drifts', async () =>
     }
     await settle(400);
     assert.ok(refetches > before, 'the feeds followed the tracked entity');
+  } finally {
+    app.stop();
+  }
+});
+
+test('every layer ported from the reference runs on demo data', async () => {
+  const keys = [
+    'transit',
+    'military',
+    'cyclones',
+    'launches',
+    'radio',
+    'datacenters',
+    'installations',
+    'landings',
+  ];
+  const { app } = await demoApp({ layers: keys });
+  try {
+    await settle(250);
+    for (const key of keys) {
+      const rt = app.layers.find((l) => l.key === key);
+      assert.ok(rt, key);
+      assert.ok(rt.running, `${key} running`);
+      assert.notEqual(rt.status.state, 'error', `${key}: ${rt.status.message}`);
+    }
+    // The global ones have something on the world view straight away.
+    for (const key of ['military', 'cyclones', 'launches', 'radio', 'landings']) {
+      const rt = app.layers.find((l) => l.key === key);
+      assert.ok(rt.entities(Date.now()).length > 0, `${key} has entities`);
+    }
+    // Their cards come from the shared formatters.
+    await app.runCommand('track Demo Alpha');
+    assert.equal(app.state.card?.title, 'Demo Alpha');
+  } finally {
+    app.stop();
+  }
+});
+
+test('a click or tap on a side-panel layer row toggles that layer', async () => {
+  const { app } = await demoApp();
+  try {
+    app.render();
+    const hit = app.state.sideHits.find((h) => h.key === 'satellites');
+    assert.ok(hit, 'satellites row drawn');
+    const x = 100; // inside the side panel at 120 columns
+    const at = `${x + 1};${hit.y + 1}`;
+    app.handleKeys(parseKeys(`\x1b[<0;${at}M\x1b[<0;${at}m`));
+    await settle();
+    assert.equal(app.layers.find((l) => l.key === 'satellites').running, true);
   } finally {
     app.stop();
   }

@@ -277,8 +277,21 @@ function drawSide(scr, box, state) {
   };
 
   head('LAYERS');
-  for (const l of state.layers) {
+  // With many layers and a short terminal, list the running ones first and
+  // fold the rest into a "+N more" line, so the selection card stays visible.
+  // Each drawn row is recorded for click / tap toggling (state.sideHits).
+  const budget = Math.max(5, box.h - 10);
+  let rows = state.layers;
+  let hidden = 0;
+  if (rows.length > budget) {
+    const ordered = [...rows.filter((l) => l.running), ...rows.filter((l) => !l.running)];
+    rows = ordered.slice(0, budget - 1);
+    hidden = ordered.length - rows.length;
+  }
+  state.sideHits = [];
+  for (const l of rows) {
     if (y >= box.y + box.h) break;
+    state.sideHits.push({ y, key: l.key });
     const d = stateDot(l, state.unicode);
     scr.text(box.x + 1, y, l.hotkey, { fg: THEME.dim });
     scr.text(box.x + 3, y, d.ch, { fg: d.fg, bold: true });
@@ -299,6 +312,7 @@ function drawSide(scr, box, state) {
     scr.text(box.x + 19, y, fit(note, Math.max(0, w - 19), '~'), { fg: noteFg });
     y += 1;
   }
+  if (hidden) line(` +${hidden} more (:layer NAME, or :layers)`, { fg: THEME.faint });
   y += 1;
 
   const card = state.card;
@@ -320,6 +334,7 @@ function drawSide(scr, box, state) {
       line(` ${sec.title}`, { fg: THEME.accent });
       for (const [k, v] of sec.rows) kv(k, v);
     }
+    for (const l of card.links || []) kv(l.label, l.url);
     y += 1;
   }
 

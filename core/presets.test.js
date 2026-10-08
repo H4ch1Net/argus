@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyPreset, PRESETS } from './presets.js';
+import { applyPreset, PRESETS, DEFAULT_LAYERS } from './presets.js';
 
 function fakeManager(keys) {
   const state = new Map(keys.map((k) => [k, false]));
@@ -28,15 +28,28 @@ test('applyPreset disables layers not in the preset', async () => {
 test('every preset references known layer keys', () => {
   const known = new Set([
     'flights',
+    'military',
     'quakes',
     'satellites',
+    'constellations',
+    'launches',
     'fires',
+    'cyclones',
+    'clouds',
+    'radar',
     'ships',
+    'transit',
     'surveillance',
     'landmarks',
     'cctv',
+    'installations',
+    'datacenters',
+    'cables',
+    'radio',
+    'bgp',
   ]);
   for (const p of PRESETS) {
     for (const key of p.layers) assert.ok(known.has(key), `${p.id} -> ${key}`);
   }
+  for (const key of DEFAULT_LAYERS) assert.ok(known.has(key), key);
 });

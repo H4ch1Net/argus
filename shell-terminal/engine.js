@@ -108,7 +108,7 @@ export function createTerminalLayer(def, env = {}) {
       ingestAll(def.normalize(raw));
       setStatus({
         state: 'ok',
-        message: def.statusNote?.(getQuery()) ?? '',
+        message: def.statusNote?.(getQuery(), raw) ?? '',
         updatedAt: now(),
       });
     } catch (err) {

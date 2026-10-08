@@ -48,6 +48,9 @@ export function formatAircraft(a) {
   if (a.registration) rows.push(['Registration', a.registration]);
   if (a.typeCode) rows.push(['Type', a.typeCode]);
   if (a.squawk) rows.push(['Squawk', a.squawk]);
+  // Only the military layer sets this (an armed service or agency); civil
+  // aircraft never carry an owner field, since that can name a private person.
+  if (a.operator) rows.push(['Operator', a.operator]);
   if (a.source) rows.push(['Source', a.source]);
   return {
     id: a.id,

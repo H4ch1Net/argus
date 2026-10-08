@@ -6,8 +6,11 @@ machine), any other Linux, Windows, and the phone. The key list is OS-independen
 There are three ways to use Argus, all from one checkout:
 
 1. **The globe in a browser** on the PC (`npm start`).
-2. **The globe on the phone**, served from the PC over Wi-Fi (`npm run start:https`).
-3. **The terminal version** in any terminal, including over SSH (`npm run tui`).
+2. **The globe on the phone**, served from the PC over Wi-Fi (`npm run start:https`),
+   or run entirely on the phone in Termux with no PC at all
+   ([Android standalone](#android-standalone-termux-no-pc)).
+3. **The terminal version** in any terminal, including over SSH and in Termux
+   (`npm run tui`).
 
 The globe is CesiumJS and needs a browser with working GPU acceleration (see
 [WebGL / GPU](#5-webgl--gpu-the-globe-only)). The terminal version needs no GPU.
@@ -120,6 +123,46 @@ Then copy the mkcert root (`mkcert -CAROOT` shows where `rootCA.pem` is) to the
 phone and install it: Settings, Security and privacy, More security settings,
 Install from device storage, CA certificate. Reload the page and use the browser
 menu's "Install app" / "Add to Home screen".
+
+### Android standalone (Termux, no PC)
+
+The whole thing (proxy, globe, terminal version) also runs on the phone itself
+in [Termux](https://termux.dev). Install Termux from F-Droid or its GitHub
+releases (the Play Store build is outdated), then in Termux:
+
+```bash
+pkg install -y git
+git clone https://github.com/H4ch1Net/argus.git
+cd argus
+bash scripts/install-termux.sh
+```
+
+The script installs Node.js and git from Termux's repository, runs
+`npm install` (the lockfile already carries the Android arm64 builds of Vite's
+native helpers), puts `argus` on Termux's PATH, creates a private
+`~/.config/argus/.env` for keys, builds the web app once, and adds home-screen
+shortcuts for the optional Termux:Widget app. It is safe to re-run after a
+`git pull`.
+
+```bash
+argus web --open      # serve on the phone and open http://localhost:8787 in Chrome
+argus tui             # the terminal version, inside Termux
+```
+
+On the phone, `http://localhost` counts as a secure origin, so location
+("Around Me"), the compass mode, and "Install app" all work with **no
+certificate at all**. Install it from Chrome's menu for a full-screen globe.
+Keep the server alive with the screen off with `termux-wake-lock` (the
+"Argus globe" widget shortcut does this for you), and allow Termux to ignore
+battery optimization in Android's app settings if the server stops in the
+background.
+
+The phone's GPU (Adreno 830 on the S25 Ultra) runs the globe at the phone
+quality tier; the thermal ladder backs quality off if it heats up. Android
+does not let Termux list network interfaces, so `argus web` only prints the
+`localhost` address; another device can still connect if you know the phone's
+Wi-Fi IP (Settings, About phone, Status), but the PC-serves-phone setup above
+is the better fit for that.
 
 ### The terminal version
 
@@ -354,6 +397,8 @@ Force a shell regardless of device with `?shell=mobile` or `?shell=desktop`.
 | Ships / BGP / CT never appear           | Run `npm install` (the proxy's websocket support comes from the `ws` package); ships also need the key. |
 | Phone: no location, compass, or install | Use the `https://` address (`npm run start:https`); install also needs a trusted cert (section 2).      |
 | Phone cannot reach the PC               | Same Wi-Fi? Firewall port 8787 open? Use the printed LAN address, not `localhost`.                      |
+| Termux: `npm install` fails             | `pkg upgrade`, then re-run `bash scripts/install-termux.sh` (needs Node 20.19+ or 22.12+).              |
+| Termux: server stops with screen off    | `termux-wake-lock`, and exempt Termux from battery optimization in Android's app settings.              |
 | `EADDRINUSE :8787`                      | Something already uses the port: `argus web --port 8790`.                                               |
 | Terminal map shows boxes or `?`         | Use a UTF-8 locale and a font with braille, or `argus tui --ascii`.                                     |
 | `node: bad option` / syntax errors      | Node is too old: section 1.                                                                             |

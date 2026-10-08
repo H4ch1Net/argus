@@ -22,6 +22,7 @@ export function createMetadataCard({ onClose } = {}) {
     <div class="argus-card__title" data-role="title"></div>
     <div class="argus-card__subtitle" data-role="subtitle"></div>
     <div class="argus-card__rows" data-role="rows"></div>
+    <div class="argus-card__links" data-role="links" hidden></div>
     <div class="argus-card__actions" data-role="actions" hidden></div>
   `;
 
@@ -29,6 +30,7 @@ export function createMetadataCard({ onClose } = {}) {
   const subtitleEl = el.querySelector('[data-role="subtitle"]');
   const rowsEl = el.querySelector('[data-role="rows"]');
   const actionsEl = el.querySelector('[data-role="actions"]');
+  const linksEl = el.querySelector('[data-role="links"]');
 
   el.querySelector('.argus-card__close').addEventListener('click', () => onClose?.());
 
@@ -55,6 +57,16 @@ export function createMetadataCard({ onClose } = {}) {
         )
         .join('');
       rowsEl.innerHTML = flat + sections;
+      // Source links (an advisory, a station's stream, a launch page). Only https
+      // URLs, opened in a new tab with no referrer back to this app.
+      const links = (model.links || []).filter((l) => /^https:\/\//i.test(l?.url || ''));
+      linksEl.innerHTML = links
+        .map(
+          (l) =>
+            `<a class="argus-card__link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a>`,
+        )
+        .join('');
+      linksEl.hidden = links.length === 0;
       actionsEl.innerHTML = '';
       for (const action of actions) {
         const btn = document.createElement('button');

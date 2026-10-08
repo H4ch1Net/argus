@@ -82,7 +82,9 @@ export function createCapabilityReadout({ capabilities, tier, reasons, profile }
     }
     const value =
       status.state === 'ok'
-        ? String(status.count)
+        ? status.note
+          ? `${status.count} · ${status.note}`
+          : String(status.count)
         : status.state === 'error'
           ? `error ${status.status ?? ''}`.trim()
           : (status.reason ?? status.state);

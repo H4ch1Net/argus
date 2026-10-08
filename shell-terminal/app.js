@@ -734,6 +734,14 @@ export function createTuiApp(opts) {
     }
     if (k.name === 'mouse' && k.release) {
       if (dragFrom && !dragFrom.moved && inMap) selectNearCell(k.x - b.x, k.y - b.y);
+      else if (!dragFrom && lay.side && k.x >= lay.side.x) {
+        // A click / tap on a layer row in the side panel toggles that layer.
+        const hit = state.sideHits?.find((h) => h.y === k.y);
+        if (hit && setLayer(hit.key, 'toggle')) {
+          const rt = layerByKey(hit.key);
+          log(`${rt.def.label} ${rt.running ? 'on' : 'off'}`, 'info');
+        }
+      }
       dragFrom = null;
     }
   }

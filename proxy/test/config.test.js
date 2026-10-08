@@ -41,10 +41,44 @@ test('the real feed registry validates and pins the keyless flights fallback', a
   assert.equal(validateFeeds(feeds), feeds);
   const adsb = feeds.find((f) => f.id === 'adsblol');
   const allowed = (p) => adsb.allowPaths.some((re) => re.test(p));
-  assert.equal(allowed('/v2/point/37.5/-122.5/42'), true);
-  assert.equal(allowed('/v2/point/-33.9/151.2/250'), true);
-  // Only the viewport point query is reachable, nothing else on that host.
-  assert.equal(allowed('/v2/mil'), false);
-  assert.equal(allowed('/v2/point/1/2/3/extra'), false);
+  assert.equal(allowed('/v2/lat/37.5/lon/-122.5/dist/42'), true);
+  assert.equal(allowed('/v2/lat/-33.75/lon/151.25/dist/250'), true);
+  assert.equal(allowed('/v2/mil'), true);
+  // Only the viewport area query and the military list, nothing else on that host.
+  assert.equal(allowed('/v2/hex/abc123'), false);
+  assert.equal(allowed('/v2/callsign/X'), false);
+  assert.equal(allowed('/v2/lat/1/lon/2/dist/3/extra'), false);
   assert.equal(adsb.inject, undefined); // keyless: no secret involved
+});
+
+test('every ported feed is keyless or optional-keyed and path-pinned', async () => {
+  const { feeds } = await import('../feeds.js');
+  const { buildUpstreamUrl } = await import('../lib/relay.js');
+  const ids = ['radiobrowser', 'll2', 'nhc', 'nowcoast', 'cables'];
+  const gtfs = feeds.filter((f) => f.id.startsWith('gtfsrt-'));
+  assert.equal(gtfs.length, 7);
+  for (const f of [...feeds.filter((x) => ids.includes(x.id)), ...gtfs]) {
+    assert.ok(f.allowPaths?.length, `${f.id} has a path allowlist`);
+    assert.ok(
+      (f.inject || []).every((r) => r.required === false),
+      `${f.id} needs no key`,
+    );
+    assert.match(f.headers['user-agent'], /^Argus\/.+github\.com/);
+  }
+  // A GTFS-RT feed reaches exactly its one file (CapMetro's path has an encoded slash).
+  const cap = feeds.find((f) => f.id === 'gtfsrt-capmetro');
+  const target = buildUpstreamUrl(cap, '/application%2Foctet-stream', '');
+  assert.ok(cap.allowPaths[0].test(target.pathname));
+  assert.equal(cap.allowPaths[0].test(target.pathname + 'x'), false);
+  const entur = feeds.find((f) => f.id === 'gtfsrt-entur');
+  assert.ok(entur.headers['et-client-name']);
+  // nowCOAST: only the three observation WMS services.
+  const nc = feeds.find((f) => f.id === 'nowcoast').allowPaths[0];
+  assert.ok(nc.test('/geoserver/observations/satellite/ows'));
+  assert.equal(nc.test('/geoserver/observations/satellite/wfs'), false);
+  // Overpass can be re-pointed by the operator, and still only reaches /interpreter.
+  const ovp = feeds.find((f) => f.id === 'overpass');
+  assert.equal(ovp.baseUrlEnv, 'OVERPASS_URL');
+  assert.ok(ovp.allowPaths[0].test('/osm/api/interpreter'));
+  assert.equal(ovp.allowPaths[0].test('/api/status'), false);
 });

@@ -14,8 +14,10 @@ import { createRasterLayer } from './rasterLayer.js';
 //   normalize(raw) -> NormalizedEntity[],
 //   render:{ renderType, style(normalized)->styleProps, ...renderConfig },
 //   interpolate?:boolean, historyCapacity?, interpolateLagMs?, maxEntities?,
+//   positionAt?(normalized, timeMs), positionCacheMs?,
 //   cluster?:{ enabled, pixelRange, minimumClusterSize },
 //   describe?(normalized) -> cardModel   (for the interaction spine)
+//   statusNote?(query, raw) -> string     (a hint shown beside the count)
 //
 // A NormalizedEntity is { id, position:{longitude,latitude,altitude}, type,
 // meta, velocity? } per the contract.
@@ -24,6 +26,28 @@ import { createRasterLayer } from './rasterLayer.js';
 // free of environment concerns (proxy vs mock, status wiring).
 
 const DEFAULT_INTERVAL_MS = 15_000;
+
+// Movers need continuous rendering; everything else renders on demand. Several
+// mover layers can be on at once (flights, military, transit, satellites), so
+// the scene's original requestRenderMode is saved by the first and restored only
+// when the last one stops.
+const moverCounts = new WeakMap(); // scene -> { count, saved }
+function acquireContinuousRender(scene) {
+  const st = moverCounts.get(scene) ?? { count: 0, saved: scene.requestRenderMode };
+  if (st.count === 0) st.saved = scene.requestRenderMode;
+  st.count += 1;
+  moverCounts.set(scene, st);
+  scene.requestRenderMode = false;
+}
+function releaseContinuousRender(scene) {
+  const st = moverCounts.get(scene);
+  if (!st || st.count === 0) return;
+  st.count -= 1;
+  if (st.count === 0) {
+    scene.requestRenderMode = st.saved;
+    scene.requestRender();
+  }
+}
 const DEFAULT_HISTORY = 60;
 const DEFAULT_MAX_ENTITIES = 2000;
 
@@ -64,18 +88,29 @@ export function createLayer(viewer, def, ctx) {
   let running = false;
   let timer = null;
   let aborter = null;
-  let savedRenderMode = null;
+  let holdsRender = false;
+
+  // Compute-position layers may reuse a computed position for a while
+  // (def.positionCacheMs), so a large set of slow movers (navigation and
+  // geostationary satellites) costs one propagation per second, not per frame.
+  const positionCacheMs = def.positionCacheMs ?? 0;
 
   function currentPosition(rec) {
     // Compute-position layers (SGP4 satellites) evaluate position from time.
     if (def.positionAt) {
-      const p = def.positionAt(rec.normalized, sceneNow());
+      const t = sceneNow();
+      if (positionCacheMs && rec.cached && Math.abs(t - rec.cached.t) < positionCacheMs) {
+        return rec.cached.position;
+      }
+      const p = def.positionAt(rec.normalized, t);
       if (!p) return undefined;
-      return Cesium.Cartesian3.fromDegrees(
+      const position = Cesium.Cartesian3.fromDegrees(
         p.longitude,
         p.latitude,
         Math.max(0, p.altitude ?? 0),
       );
+      if (positionCacheMs) rec.cached = { t, position };
+      return position;
     }
     const curr = rec.history.last();
     if (!curr) return undefined;
@@ -114,6 +149,7 @@ export function createLayer(viewer, def, ctx) {
       }
     }
     rec.normalized = normalized;
+    rec.cached = null; // new elements: recompute the position
     rec.lastSeen = batchTimeMs; // for push-mode staleness removal
     renderer.update(rec.entity, normalized, def.render);
     // Compute-position layers keep no fix history (position is a function of time).
@@ -146,14 +182,19 @@ export function createLayer(viewer, def, ctx) {
 
   async function poll() {
     if (!running) return;
-    const query = def.fetch?.viewportBounded ? computeViewportQuery(viewer) : {};
+    // 'viewport' layers are fetched per region, so they are always bounded.
+    const bounded = def.fetch?.viewportBounded || mode === 'viewport';
+    const query = bounded ? computeViewportQuery(viewer) : {};
     aborter?.abort();
     aborter = new AbortController();
     try {
       const raw = await ctx.source(query, aborter.signal);
       if (!running) return;
       ingest(def.normalize(raw));
-      ctx.onStatus?.({ state: 'ok', count: records.size, query });
+      // An optional hint beside the count (e.g. "zoom in to load"), shared with
+      // the terminal shell's statusNote.
+      const note = def.statusNote?.(query, raw) || undefined;
+      ctx.onStatus?.({ state: 'ok', count: records.size, query, note });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       ctx.onStatus?.({
@@ -195,17 +236,11 @@ export function createLayer(viewer, def, ctx) {
   }
 
   function moversActive(on) {
-    // Movers force continuous rendering. Single mover assumption for now; a
-    // scene-wide ref-count for multiple concurrent mover layers is a later refinement.
-    if (!isMover) return;
-    if (on) {
-      savedRenderMode = scene.requestRenderMode;
-      scene.requestRenderMode = false;
-    } else if (savedRenderMode !== null) {
-      scene.requestRenderMode = savedRenderMode;
-      savedRenderMode = null;
-      scene.requestRender();
-    }
+    // Movers force continuous rendering, reference-counted across layers.
+    if (!isMover || on === holdsRender) return;
+    holdsRender = on;
+    if (on) acquireContinuousRender(scene);
+    else releaseContinuousRender(scene);
   }
 
   function pausePolling() {

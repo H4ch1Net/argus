@@ -86,12 +86,13 @@ function applyPathPrefix(feed, subpath, env) {
  * Handle a /feed/<id>/... request.
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
- * @param {{ feeds: import('../feeds.js').Feed[], config: object, env?: NodeJS.ProcessEnv }} ctx
+ * @param {{ feeds: import('../feeds.js').Feed[], config: object, env?: NodeJS.ProcessEnv,
+ *   cache?: ReturnType<import('./cache.js').createResponseCache> }} ctx
  */
 export async function handleRelay(
   req,
   res,
-  { feeds, config, tokenManagers = {}, governor = null, env = process.env },
+  { feeds, config, tokenManagers = {}, governor = null, cache = null, env = process.env },
 ) {
   const cors = corsHeaders(req, config.cors);
   try {
@@ -116,14 +117,49 @@ export async function handleRelay(
 
     const subpath = applyPathPrefix(feed, rawSubpath, env);
 
-    const target = buildUpstreamUrl(feed, subpath, url.search);
+    // An operator may point a feed at another instance of the same API (e.g. a
+    // self-hosted Overpass) through an env var; the path allowlist still applies.
+    let upstreamFeed = feed;
+    const override = feed.baseUrlEnv ? env[feed.baseUrlEnv] : null;
+    if (override) {
+      if (!URL.canParse(override)) {
+        throw new RelayError(502, `${feed.baseUrlEnv} is not a valid URL`);
+      }
+      upstreamFeed = { ...feed, baseUrl: override };
+    }
+
+    const target = buildUpstreamUrl(upstreamFeed, subpath, url.search);
     if (feed.allowPaths && !matchAllow(feed.allowPaths, target.pathname)) {
       throw new RelayError(403, 'path not in feed allowlist');
     }
 
+    // Response cache (job 6): a fresh hit costs the upstream nothing, so it is
+    // answered before the governor counts anything. Keyed before secrets are
+    // injected, so no key material is part of a cache key.
+    const cacheCfg = cache && feed.cache && req.method === 'GET' ? feed.cache : null;
+    const cacheKey = cacheCfg ? `${feed.id} ${target.href}` : null;
+    const fromCache = (maxAgeMs, label) => {
+      const hit = cacheKey ? cache.get(cacheKey, maxAgeMs) : null;
+      if (!hit) return false;
+      res.writeHead(hit.status, {
+        ...cors,
+        ...hit.headers,
+        'content-length': hit.body.length,
+        'x-argus-cache': label,
+        age: Math.round(hit.ageMs / 1000),
+      });
+      res.end(hit.body);
+      return true;
+    };
+    if (cacheCfg && fromCache(cacheCfg.ttlMs, 'hit')) return;
+    const staleMs = cacheCfg ? Math.max(cacheCfg.ttlMs, cacheCfg.staleMs ?? 0) : 0;
+
     // Rate / budget governor (job 6): refuse before spending on a metered feed.
     const gov = governor?.check(feed.id, target.pathname);
-    if (gov && !gov.ok) throw new RelayError(gov.status, gov.message);
+    if (gov && !gov.ok) {
+      if (fromCache(staleMs, 'stale')) return;
+      throw new RelayError(gov.status, gov.message);
+    }
 
     const headers = {};
     if (req.headers['accept']) headers['accept'] = req.headers['accept'];
@@ -183,6 +219,7 @@ export async function handleRelay(
     try {
       result = await runUpstream(bearer);
     } catch (err) {
+      if (fromCache(staleMs, 'stale')) return;
       throw new RelayError(502, `upstream fetch failed: ${err.name || 'error'}`);
     }
 
@@ -205,13 +242,24 @@ export async function handleRelay(
 
     const upstream = result.up;
     const buf = result.b;
-    const outHeaders = { ...cors, 'content-length': buf.length };
+    if (cacheCfg && (upstream.status === 429 || upstream.status >= 500)) {
+      if (fromCache(staleMs, 'stale')) return;
+    }
+    const kept = {};
     const ct = upstream.headers.get('content-type');
-    if (ct) outHeaders['content-type'] = ct;
+    if (ct) kept['content-type'] = ct;
     const cc = upstream.headers.get('cache-control');
-    if (cc) outHeaders['cache-control'] = cc;
+    if (cc) kept['cache-control'] = cc;
+    if (cacheCfg && upstream.status === 200) {
+      cache.set(cacheKey, { status: 200, headers: kept, body: buf });
+    }
 
-    res.writeHead(upstream.status, outHeaders);
+    res.writeHead(upstream.status, {
+      ...cors,
+      ...kept,
+      'content-length': buf.length,
+      ...(cacheCfg ? { 'x-argus-cache': 'miss' } : {}),
+    });
     res.end(buf);
   } catch (err) {
     // Guard against a throw after the upstream response was already written.

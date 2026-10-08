@@ -292,3 +292,84 @@ test('buildUpstreamUrl refuses path traversal above the base path', () => {
   assert.equal(ok.pathname, '/api/states/all');
   assert.equal(ok.search, '?q=1');
 });
+
+// An upstream whose status can be switched, counting the requests it receives.
+async function startCounter() {
+  const state = { hits: 0, status: 200 };
+  const server = await listen((req, res) => {
+    state.hits += 1;
+    res.writeHead(state.status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ n: state.hits, url: req.url }));
+  });
+  return { server, state };
+}
+
+test('a cached feed answers repeats from memory, uncached feeds always go upstream', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'slow', baseUrl: base(server), cache: { ttlMs: 60_000 } },
+    { id: 'live', baseUrl: base(server) },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => proxy.close());
+
+  const a = await fetch(`${base(proxy)}/feed/slow/x?q=1`);
+  assert.equal(a.headers.get('x-argus-cache'), 'miss');
+  const b = await fetch(`${base(proxy)}/feed/slow/x?q=1`);
+  assert.equal(b.headers.get('x-argus-cache'), 'hit');
+  assert.deepEqual(await b.json(), await a.json());
+  assert.equal(state.hits, 1);
+
+  await fetch(`${base(proxy)}/feed/slow/x?q=2`); // different query, different entry
+  assert.equal(state.hits, 2);
+
+  await fetch(`${base(proxy)}/feed/live/x`);
+  const live = await fetch(`${base(proxy)}/feed/live/x`);
+  assert.equal(live.headers.get('x-argus-cache'), null);
+  assert.equal(state.hits, 4);
+});
+
+test('a cached feed serves its last good body when the upstream fails', async (t) => {
+  const { server, state } = await startCounter();
+  t.after(() => server.close());
+  const feeds = [
+    { id: 'f', baseUrl: base(server), cache: { ttlMs: 0, staleMs: 60_000 } },
+  ];
+  const proxy = await startProxy(feeds);
+  t.after(() => proxy.close());
+
+  const good = await (await fetch(`${base(proxy)}/feed/f/x`)).json();
+  state.status = 503;
+  const r = await fetch(`${base(proxy)}/feed/f/x`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('x-argus-cache'), 'stale');
+  assert.deepEqual(await r.json(), good);
+
+  state.status = 404; // a client error is passed through, not masked
+  assert.equal((await fetch(`${base(proxy)}/feed/f/x`)).status, 404);
+});
+
+test('baseUrlEnv points a feed at another instance, keeping the path allowlist', async (t) => {
+  const echo = await startEcho();
+  t.after(() => echo.close());
+  const feeds = [
+    {
+      id: 'ovp',
+      baseUrl: 'https://unreachable.invalid/api',
+      baseUrlEnv: 'TEST_OVP_URL',
+      allowPaths: [/\/api\/interpreter$/],
+    },
+  ];
+  process.env.TEST_OVP_URL = `${base(echo)}/mirror/api`;
+  const proxy = await startProxy(feeds);
+  t.after(() => {
+    proxy.close();
+    delete process.env.TEST_OVP_URL;
+  });
+
+  const r = await fetch(`${base(proxy)}/feed/ovp/interpreter?data=x`);
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).url, '/mirror/api/interpreter?data=x');
+  assert.equal((await fetch(`${base(proxy)}/feed/ovp/status`)).status, 403);
+});

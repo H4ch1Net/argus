@@ -41,7 +41,11 @@ function* fields(bytes) {
     if (wire === 0) value = varint();
     else if (wire === 1) {
       if (pos + 8 > bytes.length) throw new Error('truncated fixed64');
-      value = { lo: view.getUint32(pos, true), hi: view.getUint32(pos + 4, true), at: pos };
+      value = {
+        lo: view.getUint32(pos, true),
+        hi: view.getUint32(pos + 4, true),
+        at: pos,
+      };
       pos += 8;
     } else if (wire === 2) {
       const len = varint();
@@ -118,7 +122,8 @@ export function decodeVehiclePositions(buffer) {
   const vehicles = [];
   for (const { field, wire, value } of fields(bytes)) {
     if (field === 1 && wire === 2) {
-      for (const h of fields(value)) if (h.field === 3 && h.wire === 0) timestamp = h.value;
+      for (const h of fields(value))
+        if (h.field === 3 && h.wire === 0) timestamp = h.value;
     } else if (field === 2 && wire === 2) {
       let id = null;
       let deleted = false;
@@ -129,7 +134,8 @@ export function decodeVehiclePositions(buffer) {
         else if (e.field === 4 && e.wire === 2) vp = decodeVehiclePosition(e.value);
       }
       const p = vp?.position;
-      if (deleted || !p || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
+      if (deleted || !p || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude))
+        continue;
       if (p.latitude === 0 && p.longitude === 0) continue; // unset position
       vehicles.push({
         entityId: id,

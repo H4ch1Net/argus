@@ -50,6 +50,11 @@ export function createOverpassSource({ proxyClient, filters, maxAreaDeg = 3 }) {
       params: { data: ql },
       signal,
     });
+    // Overpass reports timeouts and overload as HTTP 200 with a `remark` and no
+    // elements; that is a failure, never a cacheable empty result.
+    if (data?.remark && !data.elements?.length) {
+      throw new Error(`Overpass: ${String(data.remark).slice(0, 120)}`);
+    }
     cache.set(ql, { at: Date.now(), data });
     return data;
   };

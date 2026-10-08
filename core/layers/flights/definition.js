@@ -7,7 +7,8 @@ import { formatAircraft, aircraftToNormalized, aircraftSearchText } from './form
 // the metadata card. This is the payoff of Phase 5: a layer is config.
 
 let planeImageCache = null;
-function planeImage() {
+/** The shared aircraft sprite (white, tinted per layer). */
+export function planeImage() {
   if (planeImageCache) return planeImageCache;
   const c = document.createElement('canvas');
   c.width = 32;

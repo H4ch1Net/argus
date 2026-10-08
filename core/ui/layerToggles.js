@@ -3,6 +3,8 @@ import './layerToggles.css';
 // Per-layer on/off pills. Reflects and drives the layer manager; re-renders on
 // any manager change (so presets update these too). onManualToggle fires when
 // the user toggles a layer here, letting the shell clear the active preset.
+// Layers registered with a group get a small heading per group, in
+// registration order, so twenty-odd channels stay scannable on a phone.
 
 /**
  * @param {{ manager: object, onManualToggle?: () => void }} opts
@@ -13,7 +15,15 @@ export function createLayerToggles({ manager, onManualToggle }) {
 
   function render() {
     el.innerHTML = '';
-    for (const { key, label, enabled, demo } of manager.list()) {
+    let lastGroup = null;
+    for (const { key, label, enabled, demo, group } of manager.list()) {
+      if (group && group !== lastGroup) {
+        const head = document.createElement('div');
+        head.className = 'argus-toggles__group';
+        head.textContent = group;
+        el.appendChild(head);
+      }
+      lastGroup = group ?? lastGroup;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'argus-toggles__btn';

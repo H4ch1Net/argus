@@ -50,6 +50,16 @@ export function createProxyClient({ baseUrl, fetchImpl = (...a) => fetch(...a) }
       if (!res.ok) throw await proxyError(feedId, res);
       return res.text();
     },
+
+    /** GET raw bytes from a feed via the proxy (e.g. GTFS-RT protobuf). */
+    async getBytes(feedId, path, { params, signal } = {}) {
+      const res = await fetchImpl(buildUrl(feedId, path, params), {
+        signal,
+        headers: { accept: 'application/x-protobuf, application/octet-stream' },
+      });
+      if (!res.ok) throw await proxyError(feedId, res);
+      return new Uint8Array(await res.arrayBuffer());
+    },
   };
 }
 

@@ -21,6 +21,7 @@ identifies or acts on people or hosts are deliberately left out (see
 | --------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
 | PC or Kali, in a browser          | `npm start`                              | Builds once, then serves the globe and its proxy at `http://localhost:8787`             |
 | Phone on the same Wi-Fi           | `npm run start:https`                    | Open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once   |
+| Android phone, no PC (Termux)     | `bash scripts/install-termux.sh`         | Proxy, globe and terminal version all on the phone; open `http://localhost:8787`        |
 | Any terminal (Kali, SSH, Windows) | `npm run tui`                            | Full-screen braille world map with the same layers, cards, and commands; no GPU needed  |
 | Scripts and pipes                 | `argus query 8.8.8.8 --json`             | Passive lookups, quakes, flights, satellites, fires, BGP and CT streams as text or JSON |
 | No network at all                 | `npm run dev` or `npm run tui -- --demo` | Every layer on simulated data, clearly labelled DEMO                                    |
@@ -36,7 +37,8 @@ npm start
 
 On Kali, `./scripts/install-linux.sh` does the install and adds an `argus`
 command, a private keys file, menu launchers for both the globe and the
-terminal version, and a GPU check. Full instructions, the phone setup, and
+terminal version, and a GPU check. On Android, `scripts/install-termux.sh` does the same
+inside Termux (see SETUP.md, Android standalone). Full instructions, the phone setup, and
 troubleshooting are in **[SETUP.md](SETUP.md)**.
 
 **Keys are optional.** With none, you get flights (via adsb.lol), earthquakes,

@@ -135,7 +135,7 @@ test('flights uses keyless adsb.lol when OpenSky has no key, nearest first', asy
     ['near', 'far'],
   );
   assert.equal(calls[0][0], 'adsblol');
-  assert.match(calls[0][1], /^\/v2\/point\/0\/0\/\d+$/);
+  assert.match(calls[0][1], /^\/v2\/lat\/0\/lon\/0\/dist\/\d+$/);
 });
 
 test('flights and fires require --near; fires explains a missing key', async () => {

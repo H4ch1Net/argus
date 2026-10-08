@@ -36,6 +36,54 @@ import {
   describeBgp,
   bgpSearchText,
 } from '../core/layers/bgp/format.js';
+import { parseMilitary, militarySearchText } from '../core/layers/military/parse.js';
+import { ADSB_MILITARY_PATH } from '../core/layers/flights/parse.js';
+import { createTransitSource } from '../core/layers/transit/source.js';
+import { parseTransit, transitNote } from '../core/layers/transit/parse.js';
+import {
+  describeTransit,
+  transitColorHex,
+  transitSearchText,
+} from '../core/layers/transit/format.js';
+import { parseCyclones } from '../core/layers/cyclones/parse.js';
+import {
+  describeCyclone,
+  cycloneColorHex,
+  cycloneSearchText,
+} from '../core/layers/cyclones/format.js';
+import {
+  parseLaunches,
+  launchQuery,
+  primaryLaunch,
+} from '../core/layers/launches/parse.js';
+import {
+  describeLaunchPad,
+  launchColorHex,
+  launchSearchText,
+} from '../core/layers/launches/format.js';
+import { parseRadio, radioQuery } from '../core/layers/radio/parse.js';
+import {
+  describeRadio,
+  radioColorHex,
+  radioSearchText,
+} from '../core/layers/radio/format.js';
+import {
+  DATACENTER_FILTERS,
+  DATACENTER_MAX_DEG,
+  INSTALLATION_FILTERS,
+  INSTALLATION_MAX_DEG,
+  describeDatacenter,
+  describeInstallation,
+  installationColorHex,
+  infraSearchText,
+} from '../core/layers/infrastructure/format.js';
+import { parseLandingPoints } from '../core/layers/cables/parse.js';
+import { describeLanding } from '../core/layers/cables/format.js';
+import {
+  createConstellationSource,
+  groupInfo,
+  mergeGroups,
+} from '../core/layers/constellations/groups.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
 
 export const GLYPHS = {
@@ -51,6 +99,14 @@ export const GLYPHS = {
     bgp: '•',
     osint: '◎',
     trail: '·',
+    transit: '▪',
+    cyclone: '✺',
+    launch: '↟',
+    radio: '♪',
+    datacenter: '▣',
+    installation: '⊞',
+    landing: '◇',
+    navsat: '✧',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -64,6 +120,14 @@ export const GLYPHS = {
     bgp: '+',
     osint: '@',
     trail: '.',
+    transit: 'b',
+    cyclone: '%',
+    launch: '!',
+    radio: 'r',
+    datacenter: 'D',
+    installation: 'M',
+    landing: '=',
+    navsat: ':',
   },
 };
 
@@ -267,6 +331,28 @@ export function buildLayers({
       legend: () => `${g.arrows[0]} vessels (AIS)`,
     },
     {
+      key: 'transit',
+      label: 'Transit',
+      mode: 'poll',
+      intervalMs: 15_000,
+      viewportBounded: true,
+      interpolate: true,
+      maxEntities: 6000,
+      makeSource: async () => {
+        if (demo) {
+          const m = await import('../core/layers/transit/mockSource.js');
+          return m.createTransitMockSource();
+        }
+        return createTransitSource({ proxyClient: client });
+      },
+      normalize: (raw) => parseTransit(raw),
+      describe: (n) => describeTransit(n),
+      searchText: transitSearchText,
+      glyph: (n) => ({ ch: g.transit, color: transitColorHex(n.meta.routeId) }),
+      statusNote: (_q, raw) => transitNote(raw),
+      legend: () => `${g.transit} transit vehicles (GTFS-RT, colour = route)`,
+    },
+    {
       key: 'surveillance',
       label: 'Surveillance',
       mode: 'viewport',
@@ -293,6 +379,51 @@ export function buildLayers({
           ? 'zoom in to a city to load'
           : '',
       legend: () => `${g.camera} camera  ${g.alpr} ALPR reader (locations only)`,
+    },
+    {
+      key: 'military',
+      label: 'Military air',
+      mode: 'poll',
+      intervalMs: 15_000,
+      interpolate: true,
+      maxEntities: 1500,
+      makeSource: async () => {
+        if (demo) {
+          const m = await import('../core/layers/military/mockSource.js');
+          return m.createMilitaryMockSource();
+        }
+        return (_q, signal) => client.getJson('adsblol', ADSB_MILITARY_PATH, { signal });
+      },
+      normalize: (raw) => parseMilitary(raw),
+      describe: (n) => formatAircraft(n.meta),
+      searchText: militarySearchText,
+      glyph: (n) => ({ ch: arrowFor(n.meta.trueTrack, g), color: '#ff7a59', bold: true }),
+      legend: () => `${g.arrows[2]} military aircraft (adsb.lol)`,
+    },
+    {
+      key: 'bgp',
+      label: 'BGP',
+      mode: 'push',
+      unavailable: streamIssue('bgp'),
+      staleMs: 2500,
+      maxEntities: 400,
+      makeSource: async () => {
+        if (demo)
+          return (await import('../core/layers/bgp/mockSource.js')).createBgpMockSource();
+        if (!wsBase || streamIssue('bgp')) return null;
+        const { createRisSource } = await import('../core/layers/bgp/risSource.js');
+        return createRisSource({ wsUrl: `${wsBase}/ws/bgp` });
+      },
+      normalize: (events) => events.map(bgpEventToNormalized).filter(Boolean),
+      describe: describeBgp,
+      searchText: bgpSearchText,
+      glyph: (n) => ({
+        ch: g.bgp,
+        color: n.meta.kind === 'A' ? '#5fe3ff' : '#ffb454',
+        bold: true,
+      }),
+      legend: () =>
+        `${g.bgp} BGP updates at RIS collectors (cyan announce, amber withdraw)`,
     },
     {
       key: 'landmarks',
@@ -345,33 +476,184 @@ export function buildLayers({
       legend: () => `${g.shodan} exposed-host density by country`,
     },
     {
-      key: 'bgp',
-      label: 'BGP',
-      mode: 'push',
-      unavailable: streamIssue('bgp'),
-      staleMs: 2500,
-      maxEntities: 400,
-      makeSource: async () => {
-        if (demo)
-          return (await import('../core/layers/bgp/mockSource.js')).createBgpMockSource();
-        if (!wsBase || streamIssue('bgp')) return null;
-        const { createRisSource } = await import('../core/layers/bgp/risSource.js');
-        return createRisSource({ wsUrl: `${wsBase}/ws/bgp` });
-      },
-      normalize: (events) => events.map(bgpEventToNormalized).filter(Boolean),
-      describe: describeBgp,
-      searchText: bgpSearchText,
+      key: 'cyclones',
+      label: 'Cyclones',
+      mode: 'poll',
+      intervalMs: 5 * 60_000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/cyclones/mockSource.js')
+            ).createCycloneMockSource()
+          : (_q, signal) => client.getJson('nhc', '/CurrentStorms.json', { signal }),
+      normalize: (raw) => parseCyclones(raw),
+      describe: describeCyclone,
+      searchText: cycloneSearchText,
       glyph: (n) => ({
-        ch: g.bgp,
-        color: n.meta.kind === 'A' ? '#5fe3ff' : '#ffb454',
+        ch: g.cyclone,
+        color: cycloneColorHex(n.meta.windKt),
         bold: true,
       }),
-      legend: () =>
-        `${g.bgp} BGP updates at RIS collectors (cyan announce, amber withdraw)`,
+      priority: (n) => (n.meta.windKt ?? 0) / 10,
+      statusNote: (_q, raw) =>
+        raw && !raw.activeStorms?.length ? 'no active storms' : '',
+      legend: () => `${g.cyclone} tropical cyclones (NOAA NHC)`,
+    },
+    {
+      key: 'launches',
+      label: 'Launches',
+      mode: 'poll',
+      intervalMs: 15 * 60_000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/launches/mockSource.js')
+            ).createLaunchMockSource()
+          : (_q, signal) =>
+              client.getJson('ll2', '/launches/', { params: launchQuery(), signal }),
+      normalize: (raw) => parseLaunches(raw),
+      describe: (n) => describeLaunchPad(n),
+      searchText: launchSearchText,
+      glyph: (n) => ({
+        ch: g.launch,
+        color: launchColorHex(primaryLaunch(n.meta.launches)),
+      }),
+      legend: () => `${g.launch} launch pads (green ahead, amber < 24 h)`,
+    },
+    {
+      key: 'radio',
+      label: 'Radio',
+      mode: 'poll',
+      intervalMs: 45 * 60_000,
+      maxEntities: 1500,
+      makeSource: async () =>
+        demo
+          ? (await import('../core/layers/radio/mockSource.js')).createRadioMockSource()
+          : (_q, signal) =>
+              client.getJson('radiobrowser', '/json/stations/search', {
+                params: radioQuery(),
+                signal,
+              }),
+      normalize: (raw) => parseRadio(raw),
+      describe: describeRadio,
+      searchText: radioSearchText,
+      glyph: (n) => ({ ch: g.radio, color: radioColorHex(n) }),
+      priority: (n) => Math.log10(Math.max(1, n.meta.clicks ?? 1)) / 4,
+      legend: () => `${g.radio} radio stations (amber = news/scanner)`,
+    },
+    {
+      key: 'datacenters',
+      label: 'Data centres',
+      mode: 'viewport',
+      maxEntities: 3000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/infrastructure/mockSource.js')
+            ).createInfraMockSource({ viewer, kind: 'datacenters' })
+          : createOverpassSource({
+              proxyClient: client,
+              filters: DATACENTER_FILTERS,
+              maxAreaDeg: DATACENTER_MAX_DEG,
+            }),
+      normalize: (json) => parseOverpass(json),
+      describe: describeDatacenter,
+      searchText: infraSearchText,
+      glyph: () => ({ ch: g.datacenter, color: '#80deea' }),
+      statusNote: (q) =>
+        !demo && q.bbox && areaTooLarge(q.bbox, DATACENTER_MAX_DEG)
+          ? 'zoom in to load'
+          : '',
+      legend: () => `${g.datacenter} data centres (OSM)`,
+    },
+    {
+      key: 'installations',
+      label: 'Installations',
+      mode: 'viewport',
+      maxEntities: 3000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/infrastructure/mockSource.js')
+            ).createInfraMockSource({ viewer, kind: 'installations' })
+          : createOverpassSource({
+              proxyClient: client,
+              filters: INSTALLATION_FILTERS,
+              maxAreaDeg: INSTALLATION_MAX_DEG,
+            }),
+      normalize: (json) => parseOverpass(json),
+      describe: describeInstallation,
+      searchText: infraSearchText,
+      glyph: (n) => ({ ch: g.installation, color: installationColorHex(n.meta.tags) }),
+      statusNote: (q) =>
+        !demo && q.bbox && areaTooLarge(q.bbox, INSTALLATION_MAX_DEG)
+          ? 'zoom in to load'
+          : '',
+      legend: () => `${g.installation} mapped military installations (OSM)`,
+    },
+    {
+      key: 'landings',
+      label: 'Cable landings',
+      mode: 'poll',
+      intervalMs: 24 * 60 * 60_000,
+      maxEntities: 3000,
+      // The globe draws the cables themselves; a braille map shows where they land.
+      makeSource: async () =>
+        demo
+          ? async () => ({
+              features: [
+                {
+                  properties: { id: 'demo-a', name: 'Demo landing A (simulated)' },
+                  geometry: { type: 'Point', coordinates: [-4.5, 50.8] },
+                },
+                {
+                  properties: { id: 'demo-b', name: 'Demo landing B (simulated)' },
+                  geometry: { type: 'Point', coordinates: [-74, 40.5] },
+                },
+              ],
+            })
+          : (_q, signal) =>
+              client.getJson('cables', '/landing-point/landing-point-geo.json', {
+                signal,
+              }),
+      normalize: (raw) => parseLandingPoints(raw),
+      describe: describeLanding,
+      searchText: (n) => `${n.meta.name} cable landing`,
+      glyph: () => ({ ch: g.landing, color: '#4fc3f7' }),
+      legend: () => `${g.landing} submarine cable landing points (TeleGeography)`,
+    },
+    {
+      key: 'constellations',
+      label: 'Nav & GEO sats',
+      mode: 'poll',
+      intervalMs: 6 * 60 * 60_000,
+      maxEntities: 1200,
+      makeSource: async () => {
+        await loadSat();
+        if (demo) {
+          const m = await import('../core/layers/satellites/mockSource.js');
+          const tle = m.createSatMockSource({ count: 12 });
+          return async () => [{ group: 'gps-ops', text: await tle() }];
+        }
+        return createConstellationSource({ proxyClient: client });
+      },
+      normalize: (results) => (sat ? mergeGroups(results, sat.tleToNormalized) : []),
+      positionAt: (n, t) => (sat ? sat.satPositionAt(n.meta.satrec, new Date(t)) : null),
+      describe: (n, t) => {
+        const card = sat ? sat.describeSatellite(n, new Date(t)) : null;
+        return (
+          card && { ...card, rows: [['Constellation', n.meta.groupLabel], ...card.rows] }
+        );
+      },
+      searchText: (n) => `${n.meta.name} ${n.id} ${n.meta.groupLabel}`,
+      glyph: (n) => ({ ch: g.navsat, color: groupInfo(n.meta.group).color }),
+      legend: () => `${g.navsat} GPS / Galileo / GLONASS / GEO satellites`,
     },
   ];
 
-  return layers.map((l, i) => ({ ...l, hotkey: String(i + 1) }));
+  // Digits toggle the first nine; the rest via `:layer <name>` or a click / tap on
+  // their row in the side panel.
+  return layers.map((l, i) => ({ ...l, hotkey: i < 9 ? String(i + 1) : ' ' }));
 }
 
 /** CT firehose source (a panel, not a map layer: certificates have no geography). */

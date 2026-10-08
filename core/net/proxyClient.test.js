@@ -66,3 +66,16 @@ test('errors carry the proxy reason when it sends one', async () => {
     return true;
   });
 });
+
+test('getBytes returns the body as a Uint8Array', async () => {
+  const fetchImpl = fakeFetch(async () => ({
+    ok: true,
+    status: 200,
+    arrayBuffer: async () => new Uint8Array([8, 1, 18, 0]).buffer,
+  }));
+  const c = createProxyClient({ baseUrl: 'http://p', fetchImpl });
+  const body = await c.getBytes('transit', '/x/vehicles');
+  assert.ok(body instanceof Uint8Array);
+  assert.deepEqual([...body], [8, 1, 18, 0]);
+  assert.match(fetchImpl.calls[0].opts.headers.accept, /protobuf/);
+});
