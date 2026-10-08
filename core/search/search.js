@@ -18,6 +18,7 @@ import { searchPois } from './pois.js';
  *   lookup?: (asset: { kind: string, value: string }) => Promise<object|null>,
  *   correlate?: (asset: { kind: string, value: string }) => Promise<object|null>,
  *   plot?: (result: object) => object,
+ *   savedPlaces?: { search: (q: string, limit?: number) => object[] } | null,
  * }} deps
  */
 export function createSearch({
@@ -28,6 +29,7 @@ export function createSearch({
   lookup,
   correlate,
   plot,
+  savedPlaces = null,
 }) {
   return {
     async search(query) {
@@ -51,6 +53,27 @@ export function createSearch({
           label: `Correlate ${asset.value}`,
           sub: 'multi-source',
           asset,
+        });
+      }
+
+      // The user's own saved places come first among places (offline).
+      for (const p of savedPlaces?.search(q, 3) ?? []) {
+        results.push({
+          kind: 'place',
+          label: p.name,
+          sub: 'saved',
+          longitude: p.lon,
+          latitude: p.lat,
+          view: p.view
+            ? {
+                lon: p.view.lon,
+                lat: p.view.lat,
+                alt: p.view.alt,
+                heading: p.view.heading,
+                pitch: p.view.pitch,
+                camera: true,
+              }
+            : null,
         });
       }
 
@@ -108,6 +131,16 @@ export function createSearch({
     async select(result) {
       if (result.kind === 'entity') {
         onSelectEntity(result.entity);
+      } else if (result.kind === 'place' && result.view?.camera && camera.flyToView) {
+        // A saved view: the exact camera it was saved with.
+        const v = result.view;
+        camera.flyToView({
+          longitude: v.lon,
+          latitude: v.lat,
+          height: v.alt,
+          heading: v.heading,
+          pitch: v.pitch,
+        });
       } else if (result.kind === 'place' && result.view && camera.flyAround) {
         const v = result.view;
         camera.flyAround({

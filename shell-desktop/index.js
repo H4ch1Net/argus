@@ -18,26 +18,28 @@ import './shell.css';
 /**
  * @param {HTMLElement} root
  */
-export async function mountShell(root) {
+export async function mountShell(root, bootOpts = {}) {
   root.classList.add('argus-shell-desktop');
 
   const globeEl = h('div.argus-globe');
   const hud = h('div.argus-hud');
   root.append(globeEl, hud);
 
-  const app = await bootGlobe(globeEl);
+  const app = await bootGlobe(globeEl, bootOpts);
 
   const bar = createBar();
   const panes = {
     layers: h('div.argus-pane.ct-scroll'),
     view: h('div.argus-pane.ct-scroll'),
     intel: h('div.argus-pane.ct-scroll'),
+    setup: h('div.argus-pane.ct-scroll'),
   };
   const tabs = createTabs({
     tabs: [
       { id: 'layers', label: 'LAYERS', pane: panes.layers },
       { id: 'view', label: 'VIEW', pane: panes.view },
       { id: 'intel', label: 'TOOLS', pane: panes.intel },
+      { id: 'setup', label: 'SETUP', pane: panes.setup },
     ],
   });
   const left = h(
@@ -104,7 +106,7 @@ export async function mountShell(root) {
   return {
     ...app,
     shell: 'desktop',
-    /** Place a component: bar | barEnd | layers | view | intel | target | stack | strip | stripEnd | notify | float */
+    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float */
     mount(slot, el) {
       if (!el) return;
       if (slot === 'bar') bar.add(el, 'start');

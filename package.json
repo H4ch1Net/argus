@@ -19,7 +19,7 @@
     "start:https": "node bin/argus.js web --https",
     "tui": "node bin/argus.js tui",
     "proxy": "node proxy/server.js",
-    "test": "node scripts/run-tests.js core shell-mobile shell-terminal",
+    "test": "node scripts/run-tests.js core shell-mobile shell-terminal shell-car",
     "test:proxy": "node scripts/run-tests.js proxy/test",
     "lint": "eslint .",
     "format": "prettier --write .",

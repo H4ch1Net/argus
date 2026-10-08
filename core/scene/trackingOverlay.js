@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { INK } from '../ui/palette.js';
+import { closestApproach, isConflict } from '../geo/cpa.js';
 
 // The tracking overlay: Bagley's "blob tracking" (design/ctos BagleyAvatar)
 // laid over the live globe. One 2D canvas above the scene, painted after each
@@ -26,13 +27,29 @@ const PICK_INTERVAL_MS = 125;
 const LAG = 0.38; // fraction of the gap a box closes per frame
 const DENSITY = { off: 0, low: 10, med: 22, high: 40 };
 const LABELLED = { low: 4, med: 8, high: 12 };
+// Movers and live events first; dense static infrastructure (relays, data
+// centres, camera networks) only fills the boxes nothing else wants, so a
+// city full of Tor relays cannot crowd the flights out of the scan.
 const LAYER_WEIGHT = {
   military: 1.4,
   flights: 1.2,
   ships: 1.1,
   cctv: 1.1,
   satellites: 0.9,
+  tor: 0.35,
+  datacenters: 0.4,
+  installations: 0.5,
+  landmarks: 0.5,
+  dams: 0.5,
+  trafficcams: 0.6,
+  webcams: 0.6,
+  radio: 0.6,
+  shodan: 0.7,
+  gdelt: 0.7,
 };
+// Minimum screen gap (px) between two scan boxes: a cluster gets one box, not
+// a pile of overlapping ones.
+const MIN_GAP = 26;
 const MAX_SPINES = 6;
 const FONT = `10.5px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
 const FONT_BIG = `12px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
@@ -83,6 +100,9 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
   let summary = { state: 'IDLE', total: 0, layers: 0, boxes: 0, hub: null, contacts: [] };
   const listeners = new Set();
   let settleFrames = 0;
+  let conflicts = new Set(); // contacts on a conflicting pass with the hub
+  let vectors = new Map(); // target -> motion, drawn as 60 s leader lines
+  let highlighted = null; // a contact pointed at in the panel or widget
   const occluder = new Cesium.EllipsoidalOccluder(
     Cesium.Ellipsoid.WGS84,
     Cesium.Cartesian3.ZERO,
@@ -131,17 +151,28 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       ? hub.target.position.getValue(viewer.clock.currentTime, new Cesium.Cartesian3())
       : null;
     const near = []; // nearest contacts to the hub (world distance)
+    let hubN = null; // the hub's own record (for its velocity)
 
     for (const { key, layer } of layers) {
       if (!layer.forEachVisible) continue;
       const weight = LAYER_WEIGHT[key] ?? 1;
-      layer.forEachVisible((target, world) => {
+      layer.forEachVisible((target, world, n) => {
         total += 1;
-        if (hub && target === hub.target) return;
+        if (hub && target === hub.target) {
+          hubN = n;
+          return;
+        }
         if (hubWorld) {
           const d = Cesium.Cartesian3.distance(hubWorld, world);
           if (near.length < 16 || d < near[near.length - 1].d) {
-            near.push({ target, key, layer, d, world: Cesium.Cartesian3.clone(world) });
+            near.push({
+              target,
+              key,
+              layer,
+              d,
+              n,
+              world: Cesium.Cartesian3.clone(world),
+            });
             near.sort((a, b) => a.d - b.d);
             if (near.length > 16) near.pop();
           }
@@ -154,14 +185,27 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       });
     }
     cand.sort((a, b) => b.score - a.score);
-    const chosen = cand.slice(0, want);
+    // Best first, skipping any candidate that would sit on a box already
+    // chosen (at most `want` comparisons each, so cheap at 8 Hz).
+    const chosen = [];
+    const gap2 = MIN_GAP * MIN_GAP;
+    for (const c of cand) {
+      if (chosen.length >= want) break;
+      let clear = true;
+      for (const o of chosen)
+        if ((o.p.x - c.p.x) ** 2 + (o.p.y - c.p.y) ** 2 < gap2) {
+          clear = false;
+          break;
+        }
+      if (clear) chosen.push(c);
+    }
     const keep = new Set();
     const nLabels = LABELLED[opts.density] ?? 0;
     chosen.forEach((c, i) => {
       keep.add(c.target);
       let b = boxes.get(c.target);
       if (!b) {
-        b = { x: c.p.x, y: c.p.y, key: c.key, label: null };
+        b = { x: c.p.x, y: c.p.y, key: c.key, label: null, target: c.target };
         boxes.set(c.target, b);
       }
       b.key = c.key;
@@ -187,8 +231,17 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       b.near = best;
     }
 
+    // Closest point of approach of each contact to the target, when both
+    // move: the pass that matters (radar and AIS practice), not just range.
+    const own = hubN ? motionOf(hubN) : null;
+    conflicts = new Set();
     const contacts = (hubWorld ? near : chosen.slice(0, 12)).map((c) => {
       const id = idFor(c.target);
+      const other = own && c.n ? motionOf(c.n) : null;
+      const cpa =
+        own && other && (own.moving || other.moving) ? closestApproach(own, other) : null;
+      const conflict = cpa ? isConflict(cpa, conflictLimits(hubN, c.n)) : false;
+      if (conflict) conflicts.add(c.target);
       return {
         id,
         target: c.target,
@@ -196,8 +249,15 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
         distanceM: hubWorld ? c.d : null,
         bearingDeg: hubWorld ? bearing(hubWorld, c.world) : null,
         label: labelFor?.(c.target) ?? null,
+        cpaM: cpa?.closing ? cpa.cpaM : null,
+        tcpaS: cpa?.closing ? cpa.tcpaS : null,
+        conflict,
       };
     });
+    vectors = new Map();
+    if (own?.moving) vectors.set(hub.target, own);
+    for (const c of near.slice(0, MAX_SPINES))
+      if (c.n && conflicts.has(c.target)) vectors.set(c.target, motionOf(c.n));
     if (hub) hub.spines = near.slice(0, MAX_SPINES).map((c) => c.target);
 
     const state = !layers.length
@@ -216,6 +276,7 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       boxes: boxes.size,
       hub: hub && { ...hub },
       contacts,
+      conflicts: contacts.filter((c) => c.conflict),
     };
     listeners.forEach((fn) => fn(summary));
   }
@@ -259,6 +320,7 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
     layoutLabels();
     if (opts.cities) drawCities();
     drawMesh();
+    drawVectors();
     drawBoxes();
     if (hub?.visible) drawHub(now);
     if (opts.frame) drawFrame();
@@ -321,6 +383,40 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
     g.restore();
   }
 
+  // 60-second leader lines: where the target and any contact on a conflicting
+  // pass will be in a minute, as radar scopes draw them.
+  const enu = new Cesium.Matrix4();
+  const lead = new Cesium.Cartesian3();
+  const off = new Cesium.Cartesian3();
+  function drawVectors() {
+    if (!vectors.size) return;
+    g.save();
+    g.lineWidth = 1;
+    for (const [t, m] of vectors) {
+      const pos = t.position.getValue(viewer.clock.currentTime, scratch);
+      if (!pos) continue;
+      const a = project(pos);
+      if (!a) continue;
+      Cesium.Transforms.eastNorthUpToFixedFrame(pos, Cesium.Ellipsoid.WGS84, enu);
+      off.x = m.ve * 60;
+      off.y = m.vn * 60;
+      off.z = 0;
+      Cesium.Matrix4.multiplyByPoint(enu, off, lead);
+      const b = project(lead);
+      if (!b) continue;
+      g.strokeStyle = conflicts.has(t) ? INK.error : INK.white;
+      g.setLineDash([4, 3]);
+      g.beginPath();
+      g.moveTo(a.x, a.y);
+      g.lineTo(b.x, b.y);
+      g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = g.strokeStyle;
+      g.fillRect(b.x - 1.5, b.y - 1.5, 3, 3);
+    }
+    g.restore();
+  }
+
   function drawBoxes() {
     g.save();
     g.font = FONT;
@@ -329,9 +425,17 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       const s = boxSize(b);
       const x = Math.round(b.x - s / 2) + 0.5;
       const y = Math.round(b.y - s / 2) + 0.5;
-      g.strokeStyle = 'rgba(217,217,217,0.7)';
-      g.lineWidth = 1;
+      const t = b.target;
+      const hot = conflicts.has(t);
+      g.strokeStyle = hot ? INK.error : 'rgba(217,217,217,0.7)';
+      g.lineWidth = hot ? 1.5 : 1;
       g.strokeRect(x, y, s, s);
+      if (t === highlighted) {
+        // Pointed at in the panel or the widget: a second, outer frame.
+        g.strokeStyle = INK.white;
+        g.lineWidth = 1;
+        g.strokeRect(x - 4, y - 4, s + 8, s + 8);
+      }
       const tag = String(b.id).padStart(2, '0');
       g.fillStyle = 'rgba(14,14,14,0.75)';
       const tw = g.measureText(tag).width;
@@ -554,6 +658,12 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       scene.requestRender();
     },
     options: () => ({ ...opts }),
+    /** Emphasise one contact on the map (pointed at in the panel or widget). */
+    highlight(target) {
+      if (highlighted === (target ?? null)) return;
+      highlighted = target ?? null;
+      scene.requestRender();
+    },
     setInsets(next) {
       Object.assign(insets, next);
       lastPick = 0;
@@ -597,4 +707,37 @@ function bearing(a, b) {
     Math.cos(ca.latitude) * Math.sin(cb.latitude) -
     Math.sin(ca.latitude) * Math.cos(cb.latitude) * Math.cos(dl);
   return ((Cesium.Math.toDegrees(Math.atan2(y, x)) % 360) + 360) % 360;
+}
+
+// A record's position and velocity for CPA: ships report knots, everything
+// else metres per second.
+function motionOf(n) {
+  const v = n?.velocity;
+  const knots = n?.type === 'ship';
+  const speed = Number.isFinite(v?.speed) ? v.speed * (knots ? 0.514444 : 1) : 0;
+  const heading = Number.isFinite(v?.heading)
+    ? v.heading
+    : Number.isFinite(v?.course)
+      ? v.course
+      : 0;
+  const rad = (heading * Math.PI) / 180;
+  return {
+    lat: n.position.latitude,
+    lon: n.position.longitude,
+    alt: Number.isFinite(n.position.altitude) ? n.position.altitude : undefined,
+    velocity: { speed, heading },
+    moving: speed > 0.5,
+    ve: speed * Math.sin(rad),
+    vn: speed * Math.cos(rad),
+  };
+}
+
+// What counts as a close pass depends on what passes: aircraft keep miles,
+// ships a nautical mile or so, everything else a few hundred metres.
+function conflictLimits(a, b) {
+  const air = a?.type === 'aircraft' && b?.type === 'aircraft';
+  const sea = a?.type === 'ship' || b?.type === 'ship';
+  if (air) return { cpaLimitM: 9260, withinS: 300, altLimitM: 300 }; // 5 NM, 1,000 ft
+  if (sea) return { cpaLimitM: 1852, withinS: 900, altLimitM: Infinity }; // 1 NM, 15 min
+  return { cpaLimitM: 300, withinS: 120, altLimitM: Infinity };
 }

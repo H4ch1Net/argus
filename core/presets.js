@@ -12,19 +12,31 @@ export const PRESETS = [
     layers: ['flights', 'quakes', 'transit', 'bikeshare'],
     geolocate: true,
   },
-  { id: 'sky', label: 'Sky', layers: ['flights', 'military', 'satellites', 'launches'] },
+  {
+    id: 'sky',
+    label: 'Sky',
+    layers: ['flights', 'military', 'satellites', 'launches', 'terminator'],
+  },
   {
     id: 'disaster',
     label: 'Disaster',
-    layers: ['quakes', 'fires', 'cyclones', 'clouds'],
+    layers: ['quakes', 'fires', 'cyclones', 'clouds', 'gdelt', 'perimeters'],
   },
-  { id: 'environment', label: 'Environment', layers: ['fires', 'clouds', 'radar'] },
+  {
+    id: 'environment',
+    label: 'Environment',
+    layers: ['fires', 'clouds', 'radar', 'airquality', 'aurora', 'webcams'],
+  },
   {
     id: 'surveillance',
     label: 'Surveillance',
-    layers: ['surveillance', 'trafficcams', 'cctv', 'installations'],
+    layers: ['surveillance', 'trafficcams', 'cctv', 'installations', 'borderwaits'],
   },
-  { id: 'internet', label: 'Internet', layers: ['bgp', 'cables', 'datacenters'] },
+  {
+    id: 'internet',
+    label: 'Internet',
+    layers: ['bgp', 'cables', 'datacenters', 'tor'],
+  },
 ];
 
 /** The default-on set (master plan 8): flights + earthquakes + one transit feed. */

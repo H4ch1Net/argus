@@ -14,7 +14,9 @@ import * as Cesium from 'cesium';
 //   streets   -> OpenStreetMap, roads + labels, so you can see which street a
 //                surveillance camera / ALPR reader actually sits on.
 //
-// These load their tiles directly (both HTTPS + CORS-enabled, so no mixed-content
+// Sentinel-2 cloudless, NASA Blue Marble and Black Marble and OpenTopoMap add
+// more of the Earth (a cloud-free satellite mosaic, relief and bathymetry, the
+// planet at night, contours). These load their tiles directly (HTTPS + CORS-enabled, so no mixed-content
 // block on mobile); proxy-side tile caching is a possible later optimization. They
 // are off by default (cellular-friendly, per the mobile constraints), matching the
 // locked decision that richer imagery is opt-in on top of the free baseline.
@@ -24,13 +26,41 @@ const ESRI_WORLD_IMAGERY =
 const ESRI_DARK_GRAY =
   'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer';
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+// Sentinel-2 cloudless (EOX IT Services, s2maps.eu): a cloud-free 10 m mosaic.
+// The 2016 edition is CC BY 4.0; later editions are CC BY-NC-SA 4.0 (personal,
+// non-commercial use, which is this project). Web Mercator tiles (matrix set
+// 'g'), keyless. Per the provider's documentation, not live-tested here.
+const EOX_S2 =
+  'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg';
+// NASA GIBS (keyless, public domain): Blue Marble shaded relief and bathymetry
+// by day, VIIRS Black Marble night lights.
+const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best';
+const GIBS_BLUE_MARBLE = `${GIBS}/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg`;
+const GIBS_BLACK_MARBLE = `${GIBS}/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`;
+// OpenTopoMap (CC BY-SA, OpenStreetMap data and SRTM): contours and hillshade.
+const OPENTOPOMAP = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
 
 export const IMAGERY_SOURCES = [
   { id: 'dark', label: 'Dark', title: 'Esri World Dark Gray Canvas' },
-  { id: 'satellite', label: 'Sat', title: 'Esri World Imagery' },
+  {
+    id: 'satellite',
+    label: 'Sat',
+    title: 'Esri World Imagery (aerial, to street level)',
+  },
+  { id: 'sentinel', label: 'S2', title: 'Sentinel-2 cloudless (EOX), 10 m, cloud free' },
+  {
+    id: 'bluemarble',
+    label: 'Blue',
+    title: 'NASA Blue Marble with relief and bathymetry',
+  },
+  { id: 'blackmarble', label: 'Night', title: 'NASA Black Marble: city lights at night' },
+  { id: 'topo', label: 'Topo', title: 'OpenTopoMap: contours and hillshade' },
   { id: 'streets', label: 'Streets', title: 'OpenStreetMap' },
   { id: 'base', label: 'Relief', title: 'Natural Earth II (offline)' },
 ];
+
+/** Already dark or toned at the source: the mono tone would only crush them. */
+const SELF_TONED = new Set(['dark', 'blackmarble']);
 
 // The ctOS "mono" tone: imagery desaturated and dimmed so the map sits behind
 // the data in grays, matching the UI. Applied to the base layer and to label
@@ -81,6 +111,39 @@ export function createImageryLayer(source) {
       {},
     );
   }
+  const template = {
+    sentinel: {
+      url: EOX_S2,
+      maximumLevel: 15,
+      credit:
+        'Sentinel-2 cloudless by EOX IT Services GmbH (contains modified Copernicus Sentinel data)',
+    },
+    bluemarble: {
+      url: GIBS_BLUE_MARBLE,
+      maximumLevel: 8,
+      credit: 'NASA Blue Marble (GIBS)',
+    },
+    blackmarble: {
+      url: GIBS_BLACK_MARBLE,
+      maximumLevel: 8,
+      credit: 'NASA Black Marble, VIIRS night lights (GIBS)',
+    },
+    topo: {
+      url: OPENTOPOMAP,
+      maximumLevel: 17,
+      credit: '© OpenTopoMap (CC BY-SA), © OpenStreetMap contributors, SRTM',
+    },
+  }[source];
+  if (template) {
+    return new Cesium.ImageryLayer(
+      new Cesium.UrlTemplateImageryProvider({
+        url: template.url,
+        maximumLevel: template.maximumLevel,
+        credit: new Cesium.Credit(template.credit),
+      }),
+      {},
+    );
+  }
   return createBaseImageryLayer();
 }
 
@@ -95,8 +158,9 @@ export function createImageryController(viewer, { mono = true } = {}) {
   let baseLayer = viewer.imageryLayers.length ? viewer.imageryLayers.get(0) : null;
   let monoOn = mono;
   const listeners = new Set();
-  // The dark canvas is already gray; toning it again would only crush it.
-  const tone = () => applyTone(baseLayer, monoOn && current !== 'dark');
+  // The dark canvas is already gray and night lights are dark by nature;
+  // toning them again would only crush them.
+  const tone = () => applyTone(baseLayer, monoOn && !SELF_TONED.has(current));
   tone();
   return {
     current: () => current,

@@ -50,6 +50,14 @@ test('every preset references known layer keys', () => {
     'cables',
     'radio',
     'bgp',
+    'perimeters',
+    'terminator',
+    'aurora',
+    'airquality',
+    'gdelt',
+    'tor',
+    'webcams',
+    'borderwaits',
   ]);
   for (const p of PRESETS) {
     for (const key of p.layers) assert.ok(known.has(key), `${p.id} -> ${key}`);

@@ -120,3 +120,15 @@ export function sunElevationDeg(lat, lon, date = new Date()) {
 export function sunAzimuthDeg(lat, lon, date = new Date()) {
   return sunPosition(lat, lon, date).azimuth;
 }
+
+/**
+ * The subsolar point (where the sun is overhead) at an instant: latitude is
+ * the solar declination, longitude where the local hour angle is zero.
+ * @param {Date} [date] instant (default now)
+ * @returns {{ lat: number, lon: number }} degrees, lon in -180..180
+ */
+export function subsolarPoint(date = new Date()) {
+  const p = sunPosition(0, 0, date);
+  const lon = ((((-p.hourAngle + 180) % 360) + 360) % 360) - 180;
+  return { lat: p.declination, lon };
+}

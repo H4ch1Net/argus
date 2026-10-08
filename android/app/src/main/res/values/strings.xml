@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Argus</string>
+    <string name="app_lockup" translatable="false">ARGUS</string>
+    <string name="boot_step" translatable="false">ARGUS_BOOT : %1$s</string>
+
+    <string name="action_settings">SETTINGS</string>
+    <string name="action_restart">RESTART</string>
+    <string name="action_save_restart">SAVE AND RESTART</string>
+    <string name="action_cancel">CANCEL</string>
+
+    <string name="settings_title">ARGUS : SETTINGS</string>
+    <string name="settings_version">Version %1$s. Proxy: %2$s</string>
+    <string name="settings_keys">KEYS</string>
+    <string name="settings_keys_help">One KEY=value per line, as in .env.example. Read only by the proxy on this phone, never by the page; stored app-private in %1$s and never backed up. Every key is optional.</string>
+    <string name="settings_display">DISPLAY</string>
+    <string name="settings_fullscreen">Full screen (hide the status and navigation bars)</string>
+    <string name="settings_network">NETWORK</string>
+    <string name="settings_lan">Share on Wi-Fi (LAN)</string>
+    <string name="settings_lan_help">Off: the proxy listens on this phone only (127.0.0.1). On: other devices on your network can open the globe at this phone\'s Wi-Fi address and use its feeds (and your keys\' budgets). Only on networks you trust.</string>
+    <string name="settings_log">PROXY LOG</string>
+    <string name="settings_log_empty">(no log yet)</string>
+    <string name="settings_save_failed">Could not save the keys: %1$s</string>
+
+    <string name="shortcut_settings">Settings and keys</string>
+    <string name="shortcut_fullscreen">Full screen on/off</string>
+    <string name="shortcut_restart">Restart proxy</string>
+
+    <string name="car_layers">Layers</string>
+    <string name="layer_flights">Flights</string>
+    <string name="layer_trafficcams">Traffic cameras</string>
+    <string name="layer_radar">Weather radar</string>
+    <string name="layer_quakes">Earthquakes</string>
+</resources>

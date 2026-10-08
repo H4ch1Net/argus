@@ -1,10 +1,13 @@
 // Dev-only mock surveillance source: Overpass-shaped nodes within the current
-// view (a mix of ALPR readers and ordinary cameras) so the layer is demonstrable
-// without a proxy. Dev-gated + dynamic-imported.
+// view (a mix of ALPR readers and ordinary cameras, most with a mapped facing,
+// some without) so the layer and its view cones are demonstrable without a
+// proxy. Dev-gated + dynamic-imported.
 
 import { computeViewportQuery } from '../sdk/viewport.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
+// Facings in every form the cone parser reads, plus none (a ring).
+const FACINGS = ['90', 'NE', '200;20', '45-120', 'SSW', null, '310', 'E'];
 
 export function createSurveillanceMockSource({ viewer, count = 30 }) {
   return async () => {
@@ -21,6 +24,9 @@ export function createSurveillanceMockSource({ viewer, count = 30 }) {
           'surveillance:type': alpr ? 'ALPR' : 'camera',
           surveillance: alpr ? 'public' : 'outdoor',
           operator: alpr ? 'Flock Safety' : 'City DOT',
+          ...(FACINGS[i % FACINGS.length]
+            ? { 'camera:direction': FACINGS[i % FACINGS.length] }
+            : {}),
         },
       };
     });

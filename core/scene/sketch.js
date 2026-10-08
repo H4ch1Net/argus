@@ -76,6 +76,21 @@ export function createSketch(viewer) {
         },
       });
     },
+    /** A circle on the ground: centre [lon, lat], radius in metres. */
+    circle(name, [lon, lat], radiusM) {
+      add(name, {
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        ellipse: {
+          semiMajorAxis: radiusM,
+          semiMinorAxis: radiusM,
+          material: WHITE.withAlpha(0.06),
+          outline: true,
+          outlineColor: WHITE.withAlpha(0.7),
+          height: 0,
+        },
+      });
+      return marker(name, [lon, lat], null);
+    },
     /** A closed area [[lon, lat], ...] (ring not repeated). */
     area(name, coords) {
       if (coords.length < 3) return null;

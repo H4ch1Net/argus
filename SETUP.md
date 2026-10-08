@@ -7,8 +7,9 @@ There are three ways to use Argus, all from one checkout:
 
 1. **The globe in a browser** on the PC (`npm start`).
 2. **The globe on the phone**, served from the PC over Wi-Fi (`npm run start:https`),
-   or run entirely on the phone in Termux with no PC at all
-   ([Android standalone](#android-standalone-termux-no-pc)).
+   or run entirely on the phone with no PC at all: the Android app
+   ([Android app](#android-app-no-pc-no-termux), which also adds Argus to
+   Android Auto) or Termux ([Android standalone](#android-standalone-termux-no-pc)).
 3. **The terminal version** in any terminal, including over SSH and in Termux
    (`npm run tui`).
 
@@ -140,6 +141,18 @@ Then copy the mkcert root (`mkcert -CAROOT` shows where `rootCA.pem` is) to the
 phone and install it: Settings, Security and privacy, More security settings,
 Install from device storage, CA certificate. Reload the page and use the browser
 menu's "Install app" / "Add to Home screen".
+
+### Android app (no PC, no Termux)
+
+The simplest way onto the phone: install `argus-android.apk` from the
+repository's releases page (`android-latest` for the newest build of `main`,
+or a numbered release) and open it. The app runs the proxy on the phone and
+shows the globe full screen; keys go in its SETUP tab or in Settings (long-press
+the icon), stay in the app's private storage, and never reach the page. It
+also puts Argus in Android Auto as a map app (a sideloaded app needs Android
+Auto's developer setting "Unknown sources" once). Everything about it,
+including Android Auto setup and building the APK yourself, is in
+**[docs/ANDROID.md](docs/ANDROID.md)**.
 
 ### Android standalone (Termux, no PC)
 

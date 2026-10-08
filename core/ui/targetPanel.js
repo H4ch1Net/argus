@@ -1,4 +1,6 @@
 import './targetPanel.css';
+import { formatDistance } from '../settings/store.js';
+import { formatTcpa } from '../geo/cpa.js';
 import { h, id2 } from './dom.js';
 import { createTrackWidget } from './trackWidget.js';
 import { layerTile } from './layerGlyphs.js';
@@ -11,22 +13,36 @@ import { layerTile } from './layerGlyphs.js';
 // select. With nothing selected it reads SCAN: the widget and the contacts
 // nearest the middle of the view.
 
-const fmtDist = (m) =>
-  m == null
-    ? ''
-    : m >= 100_000
-      ? `${Math.round(m / 1000)}KM`
-      : m >= 1000
-        ? `${(m / 1000).toFixed(1)}KM`
-        : `${Math.round(m)}M`;
+const fmtDistMetric = (m) =>
+  m >= 100_000
+    ? `${Math.round(m / 1000)}KM`
+    : m >= 1000
+      ? `${(m / 1000).toFixed(1)}KM`
+      : `${Math.round(m)}M`;
 const fmtBrg = (d) =>
   d == null ? '' : `${String(Math.round(d) % 360).padStart(3, '0')}°`;
 
 /**
  * @param {{ onClose?: () => void, onPickContact?: (c: object) => void }} opts
  */
-export function createTargetPanel({ onClose, onPickContact } = {}) {
-  const widget = createTrackWidget();
+export function createTargetPanel({
+  onClose,
+  onPickContact,
+  onHoverContact,
+  prefs = null,
+} = {}) {
+  // Contact distances in the units the settings ask for.
+  const fmtDist = (m) => {
+    if (m == null) return '';
+    const units = prefs?.get('units') ?? 'metric';
+    return units === 'metric'
+      ? fmtDistMetric(m)
+      : formatDistance(m, units).replace(' ', '');
+  };
+  const widget = createTrackWidget({
+    onHover: (c) => onHoverContact?.(c),
+    onPick: (c) => onPickContact?.(c),
+  });
   const stateEl = h('span.ct-target__state', {}, 'SCAN');
   const closeBtn = h(
     'button.ct-target__close.ct-btn',
@@ -260,24 +276,42 @@ export function createTargetPanel({ onClose, onPickContact } = {}) {
       });
       const list = s.contacts.slice(0, 10);
       const key = list
-        .map((c) => `${c.id}:${c.label}:${Math.round((c.distanceM ?? 0) / 100)}`)
+        .map(
+          (c) =>
+            `${c.id}:${c.label}:${Math.round((c.distanceM ?? 0) / 100)}:${c.conflict ? 1 : 0}:${Math.round((c.tcpaS ?? 0) / 5)}`,
+        )
         .join('|');
       if (key === lastContactsKey) return;
       lastContactsKey = key;
       contactsCount.textContent = String(list.length).padStart(2, '0');
       contactsEl.innerHTML = '';
       for (const c of list) {
+        // A closing contact shows its closest approach (distance and time);
+        // one on a conflicting pass is marked (core/geo/cpa.js limits).
+        // (Within ten minutes and 20 km: a pass an hour or a country away is
+        // noise, not information.)
+        const cpa =
+          c.cpaM != null && (c.conflict || (c.tcpaS < 600 && c.cpaM < 20_000))
+            ? `CPA ${fmtDist(c.cpaM)} ${formatTcpa(c.tcpaS)}`
+            : null;
         contactsEl.appendChild(
           h(
-            'button.ct-row.ct-target__contact',
-            { type: 'button', onclick: () => onPickContact?.(c) },
+            `button.ct-row.ct-target__contact${c.conflict ? '.is-conflict' : ''}`,
+            {
+              type: 'button',
+              onclick: () => onPickContact?.(c),
+              onpointerenter: () => onHoverContact?.(c),
+              onpointerleave: () => onHoverContact?.(null),
+            },
             h('span.ct-target__cid', {}, id2(c.id)),
             h('span.ct-tile', {}, layerTile(c.key)),
             h('span.ct-row__label', {}, c.label || c.key.toUpperCase()),
             h(
               'span.ct-row__meta',
               {},
-              [fmtDist(c.distanceM), fmtBrg(c.bearingDeg)].filter(Boolean).join(' '),
+              [cpa ?? fmtDist(c.distanceM), cpa ? null : fmtBrg(c.bearingDeg)]
+                .filter(Boolean)
+                .join(' '),
             ),
           ),
         );

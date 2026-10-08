@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the Argus icon. Each one goes through MainActivity (the only
+     exported activity). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="settings"
+        android:shortcutShortLabel="@string/shortcut_settings">
+        <intent
+            android:action="net.h4ch1.argus.action.SETTINGS"
+            android:targetClass="net.h4ch1.argus.MainActivity"
+            android:targetPackage="net.h4ch1.argus" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="fullscreen"
+        android:shortcutShortLabel="@string/shortcut_fullscreen">
+        <intent
+            android:action="net.h4ch1.argus.action.FULLSCREEN"
+            android:targetClass="net.h4ch1.argus.MainActivity"
+            android:targetPackage="net.h4ch1.argus" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="restart"
+        android:shortcutShortLabel="@string/shortcut_restart">
+        <intent
+            android:action="net.h4ch1.argus.action.RESTART"
+            android:targetClass="net.h4ch1.argus.MainActivity"
+            android:targetPackage="net.h4ch1.argus" />
+    </shortcut>
+</shortcuts>

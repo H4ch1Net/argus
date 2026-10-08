@@ -25,6 +25,41 @@ export const SENSOR_LABELS = Object.freeze({
 export const ANIMATED_MODES = Object.freeze(['nvg', 'snow']);
 
 /**
+ * FLIR palettes, as thermal cameras offer them: white hot, black hot, ironbow
+ * and a high-contrast rainbow. The shader takes the index.
+ */
+export const FLIR_PALETTES = Object.freeze([
+  { id: 'white', label: 'WHT HOT' },
+  { id: 'black', label: 'BLK HOT' },
+  { id: 'iron', label: 'IRON' },
+  { id: 'rainbow', label: 'RAINBOW' },
+]);
+
+/** NVG intensifier gain steps (manual gain on top of the automatic gain). */
+export const NVG_GAINS = Object.freeze([
+  { id: 'low', label: 'LOW', gain: 0.7 },
+  { id: 'med', label: 'MED', gain: 1.0 },
+  { id: 'high', label: 'HIGH', gain: 1.5 },
+]);
+
+/** The palette index for an id (white hot when unknown). */
+export const flirPaletteIndex = (id) =>
+  Math.max(
+    0,
+    FLIR_PALETTES.findIndex((p) => p.id === id),
+  );
+
+/** The gain for an NVG gain id (MED when unknown). */
+export const nvgGain = (id) => NVG_GAINS.find((g) => g.id === id)?.gain ?? 1;
+
+/**
+ * How many taps the richer passes may take on a tier: the halo around
+ * bright lights (NVG), the edge kernel (FLIR) and the CRT glow. The phone
+ * runs at reduced resolution with fewer taps; the desktop gets the full set.
+ */
+export const tapsFor = (tier) => (tier === 'full' ? 8 : 4);
+
+/**
  * @param {string} tier  'minimal' | 'balanced' | 'full'
  * @returns {{ modes: string[], crt: boolean, sharpen: boolean, bloom: boolean,
  *   textureScale: number }}

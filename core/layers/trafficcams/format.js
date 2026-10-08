@@ -1,6 +1,7 @@
 // Traffic camera entities + card. Pure.
 
 import { compassPoint } from './pose.js';
+import { kindLabel, kindsPass } from './kinds.js';
 
 /** Source result -> normalized entities (type 'trafficcam'). */
 export function parseTrafficCams(result) {
@@ -17,6 +18,9 @@ export function parseTrafficCams(result) {
       credit: c.credit ?? null,
       curated: Boolean(c.curated),
       direction: c.direction ?? null,
+      // Sub-kinds from the camera's own labels (./kinds.js): ramp, bridge,
+      // tunnel, pass, border.
+      kinds: c.kinds ?? [],
       pose: c.pose ?? null,
       imageUrl: c.imageUrl ?? null,
       imageFormat: c.imageFormat ?? null,
@@ -25,11 +29,19 @@ export function parseTrafficCams(result) {
   }));
 }
 
-export function trafficCamNote(result) {
+export function trafficCamNote(result, kindFilter = null) {
   if (!result) return '';
   if (result.tooWide) return 'zoom to a covered region';
   if (!result.inView) return 'no camera network in view';
-  return result.failed ? `${result.failed} catalogue(s) failed` : '';
+  const parts = [];
+  if (result.failed) parts.push(`${result.failed} catalogue(s) failed`);
+  if (kindFilter && !kindFilter.isAll) {
+    const hidden = (result.cameras ?? []).filter(
+      (c) => !kindsPass(c.kinds, kindFilter),
+    ).length;
+    if (hidden) parts.push(`${hidden} hidden by filter`);
+  }
+  return parts.join(' · ');
 }
 
 /**
@@ -79,6 +91,7 @@ export function describeTrafficCam(n) {
     subtitle: `${m.provider} · ${m.region}`,
     rows: [
       ['Facing', facing(m)],
+      ...(m.kinds?.length ? [['Covers', m.kinds.map(kindLabel).join(', ')]] : []),
       [
         'Coordinates',
         `${n.position.latitude.toFixed(4)}, ${n.position.longitude.toFixed(4)}`,
@@ -97,7 +110,7 @@ export function describeTrafficCam(n) {
 }
 
 export const trafficCamSearchText = (n) =>
-  `${n.meta.name} ${n.meta.provider} ${n.meta.region} camera`;
+  `${n.meta.name} ${n.meta.provider} ${n.meta.region} ${(n.meta.kinds ?? []).map(kindLabel).join(' ')} camera`;
 
 /** Largest decoded still accepted (TxDOT frames are tens of kilobytes). */
 export const MAX_STILL_BYTES = 8 * 1024 * 1024;

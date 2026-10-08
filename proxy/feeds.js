@@ -45,7 +45,10 @@ import { feeds as spaceFeeds } from './feeds/space.js';
 import { feeds as earthFeeds } from './feeds/earth.js';
 import { feeds as navFeeds } from './feeds/nav.js';
 import { feeds as cameraFeeds } from './feeds/cameras.js';
+import { feeds as webcamFeeds } from './feeds/webcams.js';
 import { feeds as imageryFeeds } from './feeds/imagery.js';
+import { feeds as trafficFeeds } from './feeds/traffic.js';
+import { feeds as contextFeeds } from './feeds/context.js';
 
 // Feeds added after the core set live in per-area modules beside this file
 // (proxy/feeds/*.js), each exporting its own array in the same Feed shape.
@@ -457,5 +460,8 @@ export const feeds = [
   ...earthFeeds,
   ...navFeeds,
   ...cameraFeeds,
+  ...webcamFeeds,
   ...imageryFeeds,
+  ...trafficFeeds,
+  ...contextFeeds,
 ];

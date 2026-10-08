@@ -277,6 +277,12 @@ select {
   color: var(--background);
   font-weight: 600;
 }
+/* A glyph on a pressed (light) button is inverted: its light ink turns dark like
+   the label and its dark backing melts into the chip (webcam category chips). */
+.ct-btn[aria-pressed='true'] canvas,
+.ct-btn.is-on canvas {
+  filter: invert(1);
+}
 .ct-btn--ok[aria-pressed='true'],
 .ct-btn--ok.is-on {
   background: var(--success);
@@ -560,6 +566,22 @@ select {
   margin: 0 calc(-1 * var(--row-pad-x));
   width: calc(100% + 2 * var(--row-pad-x));
 }
+/* A captioned control: a small label above a segmented choice. */
+.ct-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ct-field__label {
+  color: var(--textSecondary);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ct-field[hidden] {
+  display: none;
+}
+
 .ct-section__note {
   color: var(--textSecondary);
   font-size: 10.5px;
@@ -860,4 +882,12 @@ button.ct-brief__line:hover {
 
 .argus-clean .ct-clean-exit {
   display: inline-flex;
+}
+
+/* MY PLACES rows: the place, then rename and delete. */
+.ct-places__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 4px;
+  align-items: stretch;
 }

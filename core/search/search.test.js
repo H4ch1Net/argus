@@ -44,3 +44,26 @@ test('landmarks answer offline and fly to their own view', async () => {
   assert.equal(flown.length, 1);
   assert.ok(flown[0].range > 0);
 });
+
+test('saved places answer search and fly to their saved camera', async () => {
+  const views = [];
+  const cam = { flyTo: () => {}, flyToView: (v) => views.push(v) };
+  const savedPlaces = {
+    search: (q) =>
+      q === 'base'
+        ? [
+            {
+              name: 'Base',
+              lat: 1,
+              lon: 2,
+              view: { lat: 1, lon: 2, alt: 900, heading: 10, pitch: -40 },
+            },
+          ]
+        : [],
+  };
+  const s = createSearch({ manager, camera: cam, onSelectEntity: () => {}, savedPlaces });
+  const hit = (await s.search('base')).find((r) => r.sub === 'saved');
+  assert.ok(hit);
+  await s.select(hit);
+  assert.equal(views[0].height, 900);
+});

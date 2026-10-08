@@ -158,3 +158,67 @@ dd.ct-kv__section {
   padding: 0 7px;
   font-size: 9px;
 }
+
+/* A contact on a conflicting pass with the target (closest approach inside
+   its limit): an alert state, so it takes the error colour. */
+.ct-target__contact.is-conflict .ct-row__label,
+.ct-target__contact.is-conflict .ct-row__meta {
+  color: var(--error);
+}
+
+/* COMPARE tray (core/ui/compareTray.js): pinned contacts side by side. */
+.ct-compare {
+  width: min(460px, calc(100vw - 32px));
+  padding: 8px 10px 10px;
+  background: var(--panel-translucent);
+  border: 1px solid var(--textSecondary);
+  margin-top: 6px;
+}
+.ct-compare[hidden] {
+  display: none;
+}
+.ct-compare__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.ct-compare__head .ct-btn {
+  margin-left: auto;
+  min-height: 22px;
+  font-size: 10px;
+}
+.ct-compare__grid {
+  display: grid;
+  gap: 3px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-compare__k {
+  color: var(--textSecondary);
+  letter-spacing: 0.06em;
+}
+.ct-compare__v {
+  color: var(--textPrimaryDim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-compare__name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textPrimary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-compare__x {
+  color: var(--textSecondary);
+}

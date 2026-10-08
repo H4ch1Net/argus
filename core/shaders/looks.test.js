@@ -42,3 +42,16 @@ test('bloom is off below the threshold and eased above it', () => {
   const mid = bloomUniforms(0.5);
   assert.ok(mid.contrast < 255 && mid.contrast > 87);
 });
+
+test('FLIR palettes and NVG gains resolve with safe fallbacks', async () => {
+  const { FLIR_PALETTES, flirPaletteIndex, nvgGain, tapsFor } =
+    await import('./looks.js');
+  assert.equal(FLIR_PALETTES.length, 4);
+  assert.equal(flirPaletteIndex('white'), 0);
+  assert.equal(flirPaletteIndex('iron'), 2);
+  assert.equal(flirPaletteIndex('nope'), 0);
+  assert.equal(nvgGain('high'), 1.5);
+  assert.equal(nvgGain('nope'), 1);
+  assert.equal(tapsFor('full'), 8);
+  assert.equal(tapsFor('balanced'), 4);
+});

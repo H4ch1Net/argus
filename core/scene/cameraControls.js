@@ -115,15 +115,20 @@ export function createCameraControls(viewer) {
           Cesium.Cartographic.fromDegrees(longitude, latitude),
         ) ?? groundM;
       const center = Cesium.Cartesian3.fromDegrees(longitude, latitude, ground + height);
-      viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 1), {
-        offset: new Cesium.HeadingPitchRange(
-          Cesium.Math.toRadians(heading),
-          Cesium.Math.toRadians(pitch),
-          range,
-        ),
-        duration,
+      // Resolves true when the flight lands, false when something cancels it.
+      return new Promise((resolve) => {
+        viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 1), {
+          offset: new Cesium.HeadingPitchRange(
+            Cesium.Math.toRadians(heading),
+            Cesium.Math.toRadians(pitch),
+            range,
+          ),
+          duration,
+          complete: () => resolve(true),
+          cancel: () => resolve(false),
+        });
+        viewer.scene.requestRender();
       });
-      viewer.scene.requestRender();
     },
 
     /** The camera as plain degrees and metres: a view to keep and go back to. */

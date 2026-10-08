@@ -9,6 +9,11 @@
 // position bottom left, SIG and TRK bottom right. Greys and white; success
 // green on LOCK; dimmed and dashed with no signal.
 //
+// It is a control as well as a picture: range rings mark distance, a contact
+// on a conflicting pass (closest approach inside its limit, core/geo/cpa.js)
+// is ringed in red, pointing at a node highlights that contact on the map,
+// and tapping a node selects it (Pointer Events, so mouse, touch and pen).
+//
 // It animates at ~20 fps only while on screen and the page is visible; reduced
 // motion freezes it.
 
@@ -16,10 +21,15 @@ const GRAY = '#d9d9d9';
 const WHITE = '#ffffff';
 const MUTED = '#7a7a7a';
 const OK = '#00fa9a';
+const ALERT = '#fc3e38';
 const FONT = `10px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
 const FRAME_MS = 50;
 
-export function createTrackWidget() {
+/**
+ * @param {{ onHover?: (contact: object|null) => void,
+ *   onPick?: (contact: object) => void }} [opts]
+ */
+export function createTrackWidget({ onHover, onPick } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'ct-trackwidget';
   canvas.setAttribute('role', 'img');
@@ -40,6 +50,39 @@ export function createTrackWidget() {
   let last = 0;
   let visible = true;
   let packets = [];
+  let hoverId = null;
+  const byId = new Map(); // id -> contact (for hover and tap)
+  const rings = []; // [{ r, label }] range rings for the current layout
+
+  // Pointer input: the nearest node within reach is the one meant.
+  const nodeAt = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    let best = null;
+    let bd = (e.pointerType === 'touch' ? 22 : 14) ** 2;
+    for (const [id, n] of nodes) {
+      const d = (n.x - x) ** 2 + (n.y - y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = id;
+      }
+    }
+    return best;
+  };
+  const setHover = (id) => {
+    if (id === hoverId) return;
+    hoverId = id;
+    canvas.style.cursor = id === null ? '' : 'pointer';
+    onHover?.(id === null ? null : (byId.get(id) ?? null));
+    kick();
+  };
+  canvas.addEventListener('pointermove', (e) => setHover(nodeAt(e)));
+  canvas.addEventListener('pointerleave', () => setHover(null));
+  canvas.addEventListener('pointerup', (e) => {
+    const id = nodeAt(e);
+    if (id !== null && byId.has(id)) onPick?.(byId.get(id));
+  });
 
   function resize() {
     const r = canvas.getBoundingClientRect();
@@ -77,6 +120,20 @@ export function createTrackWidget() {
     const rMax = Math.min(w, hgt) / 2 - 26;
     const list = model.contacts.slice(0, 8);
     const far = Math.max(1, ...list.map((c) => c.distanceM ?? 0));
+    byId.clear();
+    for (const c of model.contacts) byId.set(c.id, c);
+    // Range rings on the same log scale the nodes use: 1, 10, 100, 1000 km.
+    rings.length = 0;
+    if (list.some((c) => Number.isFinite(c.bearingDeg))) {
+      for (const km of [1, 10, 100, 1000]) {
+        const m = km * 1000;
+        if (m >= far) break;
+        rings.push({
+          r: 26 + (rMax - 26) * (Math.log1p(m) / Math.log1p(far)),
+          label: `${km}KM`,
+        });
+      }
+    }
     const keep = new Set();
     list.forEach((c, i) => {
       let ang;
@@ -188,6 +245,41 @@ export function createTrackWidget() {
     g.stroke();
     corners(6.5, 6.5, w - 6.5, hgt - 6.5, 9, WHITE, 1);
 
+    // Range rings (ellipses: the layout stretches bearing 1.35 x across).
+    if (rings.length) {
+      g.strokeStyle = 'rgba(217,217,217,0.14)';
+      g.fillStyle = 'rgba(217,217,217,0.35)';
+      g.setLineDash([2, 4]);
+      for (const ring of rings) {
+        g.beginPath();
+        g.ellipse(hub.x, hub.y, ring.r * 1.35, ring.r * 0.9, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.setLineDash([]);
+      // Labels just outside each ring (just inside near the widget edge),
+      // outermost first: on the log scale neighbouring rings sit a few pixels
+      // apart, so a label that would touch one already placed, a contact
+      // node, or the edge is left off. The ring itself still shows.
+      const ly = hub.y - 2;
+      const placed = [];
+      for (let i = rings.length - 1; i >= 0; i -= 1) {
+        const ring = rings[i];
+        const tw = g.measureText(ring.label).width;
+        let lx = hub.x + ring.r * 1.35 + 3;
+        if (lx + tw > w - 4) lx = hub.x + ring.r * 1.35 - tw - 3;
+        if (lx < hub.x + 10 || lx + tw > w - 4) continue;
+        if (placed.some(([a, b]) => lx < b + 6 && lx + tw > a - 6)) continue;
+        let clear = true;
+        for (const n of nodes.values())
+          if (n.x > lx - 12 && n.x < lx + tw + 12 && n.y > ly - 18 && n.y < ly + 12) {
+            clear = false;
+            break;
+          }
+        if (!clear) continue;
+        placed.push([lx, lx + tw]);
+        g.fillText(ring.label, lx, ly);
+      }
+    }
     g.globalAlpha = off ? 0.35 : 1;
     const list = [...nodes.entries()];
     // Mesh: dashed edges between neighbours (each to the next nearest).
@@ -231,11 +323,26 @@ export function createTrackWidget() {
     g.textBaseline = 'bottom';
     for (const [id, n] of list) {
       const core = 6;
-      g.fillStyle = n.glow > 0.2 ? WHITE : GRAY;
+      const c = byId.get(id);
+      const hot = Boolean(c?.conflict);
+      const hovered = id === hoverId;
+      g.fillStyle = hot ? ALERT : n.glow > 0.2 || hovered ? WHITE : GRAY;
       g.fillRect(Math.round(n.x - core / 2), Math.round(n.y - core / 2), core, core);
-      const s = 16;
-      g.strokeStyle = `rgba(217,217,217,${0.55 + n.glow * 0.45})`;
+      const s = hovered ? 20 : 16;
+      g.strokeStyle = hot
+        ? ALERT
+        : hovered
+          ? WHITE
+          : `rgba(217,217,217,${0.55 + n.glow * 0.45})`;
+      g.lineWidth = hot || hovered ? 1.5 : 1;
       g.strokeRect(Math.round(n.bx - s / 2) + 0.5, Math.round(n.by - s / 2) + 0.5, s, s);
+      g.lineWidth = 1;
+      if (hot) {
+        // A ring for a conflicting pass, with its time to closest approach.
+        g.beginPath();
+        g.arc(n.x, n.y, 13, 0, Math.PI * 2);
+        g.stroke();
+      }
       g.fillStyle = MUTED;
       g.fillText(
         String(id).padStart(2, '0'),

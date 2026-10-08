@@ -127,7 +127,12 @@ test('presets apply the shared layer sets and skip globe-only layers', async () 
     await app.runCommand('preset surveillance');
     await settle();
     const on = app.layers.filter((l) => l.running).map((l) => l.key);
-    assert.deepEqual(on.sort(), ['installations', 'surveillance', 'trafficcams']);
+    assert.deepEqual(on.sort(), [
+      'borderwaits',
+      'installations',
+      'surveillance',
+      'trafficcams',
+    ]);
     assert.match(logText(app), /globe-only layers skipped: cctv/);
   } finally {
     app.stop();
