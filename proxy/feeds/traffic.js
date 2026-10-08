@@ -75,14 +75,17 @@ export const feeds = [
     // narrative (core/layers/chp/parse.js). CHP_CAD_URL may point at another
     // copy of the same file (e.g. http://media.chp.ca.gov/sa_xml if https is
     // refused); the path stays pinned.
-    // Per public CHP feed consumers, not live-tested here.
+    // Live-tested Oct 2026: CHP answers 406 Not Acceptable when the request's Accept
+    // header is exactly application/xml, application/json or text/html (what a browser
+    // fetch may forward), and 200 for text/xml or */*. The relay forwards the client's
+    // Accept, so this feed pins its own.
     id: 'chp-cad',
     baseUrl: 'https://media.chp.ca.gov/sa_xml',
     baseUrlEnv: 'CHP_CAD_URL',
     methods: ['GET'],
     allowPaths: [exactPath('/sa_xml/sa.xml')],
     allowQuery: pinnedQuery({}),
-    headers: UA,
+    headers: { ...UA, accept: 'text/xml, */*;q=0.1' },
     governor: { ratePerMinute: 6 },
     cache: { ttlMs: MINUTE, staleMs: 30 * MINUTE, maxEntries: 2 },
   },
