@@ -246,6 +246,10 @@ async function setupScene(app, splash) {
   const placesStore = createPlacesStore(placesStorage);
   const placesSource = async () => placesStore.list().map(placeToNormalized);
 
+  // Keyed sources inside a layer (Windy, NPS, WSDOT, 511 states): offered only
+  // when the proxy reports the feed configured (its key is set).
+  const keyed = (id) => Boolean(health && feedConfigured(health, id));
+
   const registrations = [
     {
       key: 'flights',
@@ -440,6 +444,69 @@ async function setupScene(app, splash) {
       mock: () => Promise.resolve(null),
     },
     {
+      key: 'incidents',
+      group: 'Ground & sea',
+      label: 'Traffic incidents',
+      // Hidden until the proxy has a TomTom key (TOMTOM_API_KEY, same as flow).
+      requires: 'tomtom-incidents',
+      loadDef: () =>
+        import('./core/layers/incidents/definition.js').then(
+          (m) => m.incidentsDefinition,
+        ),
+      proxy: async (c) => {
+        const { createIncidentSource } =
+          await import('./core/layers/incidents/source.js');
+        return createIncidentSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/incidents/source.js').then((m) =>
+              m.createIncidentMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'chp',
+      group: 'Ground & sea',
+      label: 'CHP incidents (CA)',
+      loadDef: () =>
+        import('./core/layers/chp/definition.js').then((m) => m.chpDefinition),
+      // The public statewide CHP CAD list (keyless XML).
+      proxy: (c) => (_q, sig) => c.getText('chp-cad', '/sa.xml', { signal: sig }),
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/chp/mockSource.js').then((m) => m.createChpMockSource())
+          : Promise.resolve(null),
+    },
+    {
+      key: 'borderwaits',
+      group: 'Ground & sea',
+      label: 'Border waits',
+      loadDef: () =>
+        import('./core/layers/borderwaits/definition.js').then(
+          (m) => m.borderWaitsDefinition,
+        ),
+      // CBP (into the US) and CBSA (into Canada) wait times at the bundled ports,
+      // each card linked to the nearest published traffic cameras when zoomed in.
+      proxy: async (c) => {
+        const [{ createBorderWaitSource }, { createTrafficCamSource }] =
+          await Promise.all([
+            import('./core/layers/borderwaits/source.js'),
+            import('./core/layers/trafficcams/sources.js'),
+          ]);
+        return createBorderWaitSource({
+          proxyClient: c,
+          cameraSource: createTrafficCamSource({ proxyClient: c, isConfigured: keyed }),
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/borderwaits/mockSource.js').then((m) =>
+              m.createBorderWaitMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'ships',
       group: 'Ground & sea',
       label: 'Ships',
@@ -569,6 +636,71 @@ async function setupScene(app, splash) {
           : Promise.resolve(null),
     },
     {
+      key: 'aurora',
+      group: 'Earth & weather',
+      label: 'Aurora',
+      loadDef: () =>
+        import('./core/layers/aurora/definition.js').then((m) => m.auroraDefinition),
+      // NOAA SWPC OVATION nowcast + planetary K index (keyless).
+      proxy: async (c) => {
+        const { createAuroraSource } = await import('./core/layers/aurora/source.js');
+        return createAuroraSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/aurora/source.js').then((m) =>
+              m.createAuroraMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'airquality',
+      group: 'Earth & weather',
+      label: 'Air quality',
+      loadDef: () =>
+        import('./core/layers/airquality/definition.js').then(
+          (m) => m.airQualityDefinition,
+        ),
+      // Current AQI and pollutants over a grid of the view (Open-Meteo / CAMS, keyless).
+      proxy: async (c) => {
+        const { createAirQualitySource } =
+          await import('./core/layers/airquality/source.js');
+        return createAirQualitySource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/airquality/source.js').then((m) =>
+              m.createAirQualityMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'terminator',
+      group: 'Earth & weather',
+      label: 'Day / night',
+      loadDef: () =>
+        import('./core/layers/terminator/definition.js').then(
+          (m) => m.terminatorDefinition,
+        ),
+      // Computed from the sun's position; the proxy adds NASA Black Marble
+      // city lights on the night side (one cached image).
+      proxy: async (c) => {
+        const [{ createTerminatorSource }, { terminatorWidth }] = await Promise.all([
+          import('./core/layers/terminator/source.js'),
+          import('./core/layers/terminator/night.js'),
+        ]);
+        return createTerminatorSource({
+          proxyClient: c,
+          width: terminatorWidth(app.profile?.animationFps ?? 30),
+        });
+      },
+      // Computed, so it works with no proxy too (shade and line, no lights).
+      mock: () =>
+        import('./core/layers/terminator/source.js').then((m) =>
+          m.createTerminatorSource(),
+        ),
+    },
+    {
       key: 'cyclonecones',
       group: 'Earth & weather',
       label: 'Storm cones',
@@ -627,8 +759,8 @@ async function setupScene(app, splash) {
       group: 'Infrastructure',
       label: 'Surveillance',
       loadDef: () =>
-        import('./core/layers/surveillance/definition.js').then(
-          (m) => m.surveillanceDefinition,
+        import('./core/layers/surveillance/definition.js').then((m) =>
+          m.createSurveillanceDefinition({ tier: app.tier }),
         ),
       proxy: async (c) => {
         const { createOverpassSource } = await import('./core/layers/overpass/client.js');
@@ -689,16 +821,36 @@ async function setupScene(app, splash) {
         import('./core/layers/trafficcams/definition.js').then(
           (m) => m.trafficCamsDefinition,
         ),
-      // Public DOT cameras (Caltrans, TfL, Statens vegvesen) in view; stills on demand.
+      // Public DOT cameras in view (keyless networks, plus WSDOT and the 511
+      // states when their keys are set); stills on demand.
       proxy: async (c) => {
         const { createTrafficCamSource } =
           await import('./core/layers/trafficcams/sources.js');
-        return createTrafficCamSource({ proxyClient: c });
+        return createTrafficCamSource({ proxyClient: c, isConfigured: keyed });
       },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/trafficcams/mockSource.js').then((m) =>
               m.createTrafficCamMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'webcams',
+      group: 'Infrastructure',
+      label: 'Public webcams',
+      loadDef: () =>
+        import('./core/layers/webcams/definition.js').then((m) => m.webcamsDefinition),
+      // NASA EPIC and the observatory stills (keyless); Windy (WINDY_WEBCAMS_KEY)
+      // and NPS (NPS_API_KEY) when the proxy has their keys. Stills on demand.
+      proxy: async (c) => {
+        const { createWebcamSource } = await import('./core/layers/webcams/sources.js');
+        return createWebcamSource({ proxyClient: c, isConfigured: keyed });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/webcams/mockSource.js').then((m) =>
+              m.createWebcamMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
@@ -862,6 +1014,39 @@ async function setupScene(app, splash) {
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/bgp/mockSource.js').then((m) => m.createBgpMockSource())
+          : Promise.resolve(null),
+    },
+    {
+      key: 'tor',
+      group: 'Signals',
+      label: 'Tor relays',
+      loadDef: () =>
+        import('./core/layers/tor/definition.js').then((m) => m.torDefinition),
+      // Onionoo running-relay list (keyless, hourly).
+      proxy: async (c) => {
+        const { onionooQuery, ONIONOO_PATH } = await import('./core/layers/tor/parse.js');
+        return (_q, sig) =>
+          c.getJson('onionoo', ONIONOO_PATH, { params: onionooQuery(), signal: sig });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/tor/mockSource.js').then((m) => m.createTorMockSource())
+          : Promise.resolve(null),
+    },
+    {
+      key: 'gdelt',
+      group: 'Signals',
+      label: 'News events',
+      loadDef: () =>
+        import('./core/layers/gdelt/definition.js').then((m) => m.gdeltDefinition),
+      // GDELT GEO 2.0, three fixed theme queries only (never free text).
+      proxy: async (c) => {
+        const { createGdeltSource } = await import('./core/layers/gdelt/source.js');
+        return createGdeltSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/gdelt/source.js').then((m) => m.createGdeltMockSource())
           : Promise.resolve(null),
     },
     {
@@ -1429,6 +1614,26 @@ async function setupScene(app, splash) {
       ),
     );
   }
+
+  // Webcam categories and traffic-camera kinds: the chips set each layer's
+  // shared filter; refresh() redraws from data the source already holds (no new
+  // request). A layer that is off picks the filter up when enabled.
+  const { createWebcamFilter, createCameraKindFilter } =
+    await import('./core/layers/webcams/filter.js');
+  view.push(
+    section(
+      'WEBCAMS',
+      createWebcamFilter({ onChange: () => manager.getLayer('webcams')?.refresh?.() }).el,
+    ),
+  );
+  view.push(
+    section(
+      'TRAFFIC CAMS',
+      createCameraKindFilter({
+        onChange: () => manager.getLayer('trafficcams')?.refresh?.(),
+      }).el,
+    ),
+  );
 
   // Weather history: step the timed overlays (radar, clouds, lightning) back
   // through the last day of observations. Shown once a product reports times.
@@ -2073,28 +2278,35 @@ async function setupScene(app, splash) {
   if (desktop) {
     for (const seg of readouts.createCameraReadout(app.viewer, { prefs: app.settings }))
       app.mount('strip', seg);
-    // The wind at the middle of the view, while the wind layer is on.
-    const windSeg = createSegment({
-      label: 'WIND',
-      value: '--',
-      title: 'Wind at the view centre',
+    // The field layers' readings at the middle of the view, each shown while
+    // its layer is on: WIND, AIR (US AQI) and AURORA (chance and Kp).
+    const [{ formatAirQuality }, { formatAurora }] = await Promise.all([
+      import('./core/layers/airquality/field.js'),
+      import('./core/layers/aurora/parse.js'),
+    ]);
+    const fieldReadouts = [
+      ['wind', 'WIND', 'Wind at the view centre', windFormat],
+      ['airquality', 'AIR', 'Air quality (US AQI) at the view centre', formatAirQuality],
+      ['aurora', 'AURORA', 'Chance of visible aurora here, and Kp', formatAurora],
+    ].map(([key, label, title, format]) => {
+      const seg = createSegment({ label, value: '--', title });
+      seg.el.hidden = true;
+      app.mount('strip', seg);
+      return { key, seg, format };
     });
-    windSeg.el.hidden = true;
-    app.mount('strip', windSeg);
-    let windT = 0;
+    let fieldT = 0;
     app.viewer.scene.postRender.addEventListener(() => {
       const now = performance.now();
-      if (now - windT < 500) return;
-      windT = now;
-      const wl = manager.isEnabled('wind') ? manager.getLayer('wind') : null;
-      windSeg.el.hidden = !wl;
-      if (!wl) return;
+      if (now - fieldT < 500) return;
+      fieldT = now;
       const c = app.viewer.camera.positionCartographic;
-      const sample = wl.sample?.(
-        (c.longitude * 180) / Math.PI,
-        (c.latitude * 180) / Math.PI,
-      );
-      windSeg.set(sample ? windFormat(sample) : '--');
+      const lon = (c.longitude * 180) / Math.PI;
+      const lat = (c.latitude * 180) / Math.PI;
+      for (const r of fieldReadouts) {
+        const l = manager.isEnabled(r.key) ? manager.getLayer(r.key) : null;
+        r.seg.el.hidden = !l;
+        if (l) r.seg.set(r.format(l.sample?.(lon, lat) ?? null) ?? '--');
+      }
     });
     const timeSeg = createSegment({ label: 'T' });
     timeSeg.el.querySelector('.ct-seg__value').replaceWith(scrubber.el);
@@ -2273,10 +2485,14 @@ async function setupScene(app, splash) {
       const hash = encodeView();
       history.replaceState(null, '', hash);
       // For "Start in: last view" (an installed app opens without the hash).
-      try {
-        localStorage.setItem('argus.lastView', hash);
-      } catch {
-        // storage blocked: the address bar still holds the view
+      // Not in the car shell: it shares one origin and localStorage with the
+      // phone WebView, so its follow view must not become the phone's start.
+      if (app.shell !== 'car') {
+        try {
+          localStorage.setItem('argus.lastView', hash);
+        } catch {
+          // storage blocked: the address bar still holds the view
+        }
       }
     }, 800);
   };

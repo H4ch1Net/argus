@@ -37,9 +37,17 @@ export function createGroundBatch(
   scene,
   { collect, scaleFor = () => 1, debounceMs = 300 },
 ) {
-  const supported =
-    Cesium.GroundPrimitive.isSupported(scene) &&
-    Cesium.GroundPolylinePrimitive.isSupported(scene);
+  // Ground primitives drape on terrain but are not on every GPU or Cesium
+  // build; if the check is missing or throws, degrade to no cones (the layer's
+  // points still show) rather than failing to start.
+  let supported = false;
+  try {
+    supported =
+      Cesium.GroundPrimitive?.isSupported?.(scene) === true &&
+      Cesium.GroundPolylinePrimitive?.isSupported?.(scene) === true;
+  } catch {
+    supported = false;
+  }
   if (!supported && !warned) {
     warned = true;
     console.warn('[argus] ground primitives unsupported here: view cones are off');

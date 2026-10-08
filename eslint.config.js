@@ -3,7 +3,14 @@ import globals from 'globals';
 import prettier from 'eslint-config-prettier';
 
 export default [
-  { ignores: ['dist/**', 'node_modules/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'android/app/src/main/assets/**',
+      'android/app/build/**',
+    ],
+  },
   js.configs.recommended,
   {
     files: ['**/*.js'],
