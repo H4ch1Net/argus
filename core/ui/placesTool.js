@@ -1,3 +1,4 @@
+import './scenesTool.css';
 import { h } from './dom.js';
 import { section, createChoice } from './controls.js';
 
@@ -25,7 +26,7 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
   const nameInput = h('input.ct-scenes__input', {
     type: 'text',
     maxlength: '60',
-    placeholder: 'Name (optional)',
+    placeholder: 'optional',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': 'Place name',
@@ -132,7 +133,7 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
       current: kind,
       onSelect: (id) => (kind = id),
     }).el,
-    nameInput,
+    h('label.ct-scenes__field', {}, h('span.ct-scenes__label', {}, 'NAME'), nameInput),
     h(
       'div.ct-seg',
       {},

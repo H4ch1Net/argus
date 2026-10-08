@@ -281,6 +281,17 @@ export function createSetupTab({
   const el = h(
     'div',
     {},
+    // The settings dialog, first: on a phone this is its only way in (the
+    // desktop bar also has SET, and the comma key).
+    h(
+      'div.ct-seg',
+      { style: { marginBottom: '10px' } },
+      h(
+        'button.ct-btn',
+        { type: 'button', style: { flex: '1' }, onclick: () => openSettings() },
+        'SETTINGS  \u2699',
+      ),
+    ),
     section('STATUS', checks),
     section(
       'KEYS',
@@ -354,7 +365,6 @@ export function createSetupTab({
       h(
         'div.ct-seg',
         {},
-        h('button.ct-btn', { type: 'button', onclick: () => openSettings() }, 'SETTINGS'),
         h('button.ct-btn', { type: 'button', onclick: () => openKeys() }, 'KEYBOARD'),
       ),
     ),

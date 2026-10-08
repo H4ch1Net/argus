@@ -254,9 +254,31 @@ export function createTrackWidget({ onHover, onPick } = {}) {
         g.beginPath();
         g.ellipse(hub.x, hub.y, ring.r * 1.35, ring.r * 0.9, 0, 0, Math.PI * 2);
         g.stroke();
-        g.fillText(ring.label, hub.x + ring.r * 1.35 + 3, hub.y - 2);
       }
       g.setLineDash([]);
+      // Labels just outside each ring (just inside near the widget edge),
+      // outermost first: on the log scale neighbouring rings sit a few pixels
+      // apart, so a label that would touch one already placed, a contact
+      // node, or the edge is left off. The ring itself still shows.
+      const ly = hub.y - 2;
+      const placed = [];
+      for (let i = rings.length - 1; i >= 0; i -= 1) {
+        const ring = rings[i];
+        const tw = g.measureText(ring.label).width;
+        let lx = hub.x + ring.r * 1.35 + 3;
+        if (lx + tw > w - 4) lx = hub.x + ring.r * 1.35 - tw - 3;
+        if (lx < hub.x + 10 || lx + tw > w - 4) continue;
+        if (placed.some(([a, b]) => lx < b + 6 && lx + tw > a - 6)) continue;
+        let clear = true;
+        for (const n of nodes.values())
+          if (n.x > lx - 12 && n.x < lx + tw + 12 && n.y > ly - 18 && n.y < ly + 12) {
+            clear = false;
+            break;
+          }
+        if (!clear) continue;
+        placed.push([lx, lx + tw]);
+        g.fillText(ring.label, lx, ly);
+      }
     }
     g.globalAlpha = off ? 0.35 : 1;
     const list = [...nodes.entries()];

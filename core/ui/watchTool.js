@@ -1,3 +1,4 @@
+import './scenesTool.css';
 import { h } from './dom.js';
 import { section, createChoice } from './controls.js';
 
@@ -25,7 +26,7 @@ export function createWatchTool({ fences, sketch, centre, pick, flyTo, notify })
   const nameInput = h('input.ct-scenes__input', {
     type: 'text',
     maxlength: '40',
-    placeholder: 'Area name (optional)',
+    placeholder: 'optional',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': 'Area name',
@@ -103,7 +104,7 @@ export function createWatchTool({ fences, sketch, centre, pick, flyTo, notify })
       current: radiusM,
       onSelect: (id) => (radiusM = id),
     }).el,
-    nameInput,
+    h('label.ct-scenes__field', {}, h('span.ct-scenes__label', {}, 'AREA'), nameInput),
     h(
       'div.ct-seg',
       {},

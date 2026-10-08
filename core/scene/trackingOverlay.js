@@ -27,13 +27,29 @@ const PICK_INTERVAL_MS = 125;
 const LAG = 0.38; // fraction of the gap a box closes per frame
 const DENSITY = { off: 0, low: 10, med: 22, high: 40 };
 const LABELLED = { low: 4, med: 8, high: 12 };
+// Movers and live events first; dense static infrastructure (relays, data
+// centres, camera networks) only fills the boxes nothing else wants, so a
+// city full of Tor relays cannot crowd the flights out of the scan.
 const LAYER_WEIGHT = {
   military: 1.4,
   flights: 1.2,
   ships: 1.1,
   cctv: 1.1,
   satellites: 0.9,
+  tor: 0.35,
+  datacenters: 0.4,
+  installations: 0.5,
+  landmarks: 0.5,
+  dams: 0.5,
+  trafficcams: 0.6,
+  webcams: 0.6,
+  radio: 0.6,
+  shodan: 0.7,
+  gdelt: 0.7,
 };
+// Minimum screen gap (px) between two scan boxes: a cluster gets one box, not
+// a pile of overlapping ones.
+const MIN_GAP = 26;
 const MAX_SPINES = 6;
 const FONT = `10.5px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
 const FONT_BIG = `12px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
@@ -169,7 +185,20 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       });
     }
     cand.sort((a, b) => b.score - a.score);
-    const chosen = cand.slice(0, want);
+    // Best first, skipping any candidate that would sit on a box already
+    // chosen (at most `want` comparisons each, so cheap at 8 Hz).
+    const chosen = [];
+    const gap2 = MIN_GAP * MIN_GAP;
+    for (const c of cand) {
+      if (chosen.length >= want) break;
+      let clear = true;
+      for (const o of chosen)
+        if ((o.p.x - c.p.x) ** 2 + (o.p.y - c.p.y) ** 2 < gap2) {
+          clear = false;
+          break;
+        }
+      if (clear) chosen.push(c);
+    }
     const keep = new Set();
     const nLabels = LABELLED[opts.density] ?? 0;
     chosen.forEach((c, i) => {
