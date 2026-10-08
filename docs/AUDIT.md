@@ -13,6 +13,15 @@ Status vocabulary:
 - **Broken**: present but errors or does nothing.
 - **Missing**: not implemented.
 
+This file is a running record, one section per pass (Phases A to E). File names
+and defaults in an earlier phase describe the code at that time; the latest
+phase that mentions an item is its current status. In particular, Phase E
+replaced the old UI modules (`imagerySwitcher.js`, `layerToggles.js`,
+`metadataCard.js`, `locateButton.js`, `presetBar.js`, `searchBox.js`,
+`sensorControls.js`, `controlPanel.js`) with the ctOS components (the bar, the
+LAYERS / VIEW / TOOLS menus, the target panel, the view stack's GEO cell), and
+changed the default basemap on capable devices from Satellite to DARK.
+
 ---
 
 ## How this was verified
@@ -670,3 +679,199 @@ governor) per run, which upstream rate limits still bound.
 - **Termux installer** on a real phone (checked for syntax and its refusal off
   Termux only).
 - Deferred features are listed in [COMPARISON.md](COMPARISON.md).
+
+## Phase E: ctOS interface, faster renderer, the rest of the reference
+
+Goal of this pass: move the whole UI onto the ctOS design system the owner
+supplied (`design/ctos`), make the globe cheaper to draw, give aircraft real
+silhouettes (and 3D models up close), fix selection (a click used to zoom the
+camera in with no card), add blob-tracking chrome and map labels, and port the
+reference project's remaining features that fit the guardrails. Commits after
+`52cd673` up to `e3f138b`. The comparison with the reference, including what was left out and
+why, is in [COMPARISON.md](COMPARISON.md).
+
+### Environment limits of this pass (read first)
+
+- **No network at all.** The npm registry and every data host were blocked by
+  policy, so Cesium, Vite, `satellite.js` and `ws` could not be installed and no
+  upstream was reached. **Nothing in this pass ran against real Cesium, a GPU,
+  a real phone, or a live feed.**
+- Every new upstream is marked "per the reference implementation, not
+  live-tested here" in `proxy/feeds.js` and `proxy/feeds/*.js`. Endpoints,
+  parameters and field names come from the reference project's working source.
+- The UI was checked in a scratch preview harness (not shipped): the real
+  shells and components on a stub Cesium in headless Chromium, with
+  screenshots. That checks layout, styling and DOM behaviour only. Which states
+  were captured was not recorded item by item, so read "Stub-checked" below as a
+  layout check, not as proof that an interaction works on a real globe.
+- Performance work is by design and code reading. No frame time, GPU load or
+  thermal behaviour was measured on any hardware.
+
+Status words added for this pass:
+
+- **Stub-checked**: rendered in the stub harness and screenshotted (see above).
+- **Not live-tested**: the code path is unit-tested with fixtures, but its
+  upstream was never reached.
+
+### Broken before, fixed now
+
+| #   | Problem                                                                                         | Cause                                                                                                        | Fix / evidence                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Clicking a contact zoomed the camera in and no card appeared (owner report)                     | Selecting handed the camera to Cesium's `trackedEntity`, which flies in to the entity; the card was not seen | Selecting never moves the camera: it sets the target, trail and hub lock and opens the target panel. FOLLOW is explicit and keeps the current distance. `core/interaction/tracker.js`. Stub-checked |
+| 2   | Every contact was a Cesium Entity (property objects and visualizer work per contact, per frame) | The SDK rendered points and billboards through the Entity API                                                | One BillboardCollection per layer; picking returns layer targets (`picker.js` `pickedTarget`). By code; not measured on a GPU                                                                       |
+| 3   | Each satellite orbit ring was its own entity                                                    | Per-satellite polylines                                                                                      | One shared PolylineCollection per scene, realigned every 30 s (`core/layers/satellites/definition.js`). By code                                                                                     |
+| 4   | CCTV image screens could reappear after being hidden                                            | The new per-frame horizon cull re-showed any billboard in view                                               | Screens hide through their billboard, so the cull cannot re-show them (`core/layers/cctv/definition.js`, commit `743734d`). By code                                                                 |
+| 5   | With thousands of contacts in view the overlay re-projected all of them up to 8 times a second  | Box choice ran every 125 ms regardless of load                                                               | Above 2,000 contacts in view it runs every 375 ms. By code                                                                                                                                          |
+| 6   | The target panel's tracking widget stayed blank after the panel opened                          | Resizing cleared its canvas, and its loop stopped while the closed panel gave it no size                     | It redraws and restarts its loop on resize (`core/ui/trackWidget.js`, commit `e3f138b`). By code                                                                                                    |
+
+### Rendering and performance
+
+| Item                                                                  | Status                    | Evidence / notes                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Point and billboard layers on one BillboardCollection per layer       | Working (by code)         | `core/layers/sdk/createLayer.js`, `renderers.js`. Glyph canvases go into the atlas once per glyph id. Every layer definition loads through `createLayer` in the stub harness.                                                                                                                      |
+| Movers re-interpolate on a ~15 Hz fleet tick                          | Working (by code)         | `FLEET_TICK_MS = 66`; camera-only frames redo the horizon cull and nothing else.                                                                                                                                                                                                                   |
+| A billboard position is written only after it moved more than a metre | Working (by code)         | `distanceSquared > 1` against the last written position (each write re-uploads the collection's vertex data).                                                                                                                                                                                      |
+| Horizon culling per frame without allocation                          | Working (by code)         | One reused `EllipsoidalOccluder` and scratch Cartesians per layer.                                                                                                                                                                                                                                 |
+| Shared frame pacer (`core/scene/renderMode.js`)                       | Working (by code + tests) | Requests frames only while something animates, at the highest claimed rate: 30 fps full tier, 20 balanced, 15 minimal (`profile.js` `animationFps`), 60 while cockpit holds its claim. `renderMode.test.js`.                                                                                       |
+| Full tier `resolutionScale` capped at 1.25, MSAA 1                    | Working (by code)         | `core/capability/profile.js`; balanced and minimal were already at 1.0 to 1.25.                                                                                                                                                                                                                    |
+| Satellite orbit rings in one PolylineCollection, refreshed every 30 s | Working (by code)         | See fix 3. Needs `satellite.js`, so not run here.                                                                                                                                                                                                                                                  |
+| New `polygon` render type (storm cones, fire perimeters)              | Working (by code + tests) | Ground-clamped fill and outline; ring helpers in `core/layers/sdk/rings.js` (`rings.test.js`).                                                                                                                                                                                                     |
+| Raster swap without a blank frame                                     | Working (by code + tests) | `core/layers/sdk/rasterSwap.js` (`rasterSwap.test.js`), used by the timed weather overlays.                                                                                                                                                                                                        |
+| New `field` render type (sampled overlays: wind)                      | Working (by code)         | `core/layers/sdk/fieldLayer.js`: fetched per view grid, drawn by the definition's own renderer, paused when backgrounded.                                                                                                                                                                          |
+| Close-range 3D aircraft (`core/scene/modelLod.js`)                    | Working (by code)         | Below 800 km of camera height, aircraft within 150 km (kept to 185 km) become glTF models of their class; at most 60 on the full tier, 12 balanced, none minimal; re-chosen twice a second. On by default on the desktop, off on the phone (VIEW > 3D MODELS). Never loaded into real Cesium here. |
+| Frame cost on the S25 / a Kali laptop                                 | Unverified                | Nothing was measured. First real check: the FPS meter in the bar and the VIEW > SYSTEM readout with flights on over a busy region.                                                                                                                                                                 |
+
+### ctOS interface
+
+| Item                                                                                                          | Status            | Evidence / notes                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tokens and primitives (`core/ui/theme.css`): mono font stack, square corners, corner frames, state colours    | Stub-checked      | Success and error are used only for state. The font is the locally installed JetBrains Mono, else a monospace fallback; nothing is downloaded.   |
+| Bar: 37px, ARGUS lockup, preset cells, FPS / OBJ meters, SEARCH, feed state, UTC                              | Stub-checked      | `core/ui/hud/bar.js`, `readouts.js`. FPS and OBJ live only on the desktop bar.                                                                   |
+| Desktop: LAYERS / VIEW / TOOLS menu, target panel, view stack, bottom strip (POS / ALT / HDG, timeline, TERM) | Stub-checked      | `shell-desktop/index.js`. M and T toggle the panels.                                                                                             |
+| Phone: compact bar, view stack, bottom sheet LAYERS / TARGET / VIEW / TOOLS (peek, half, full)                | Stub-checked      | `shell-mobile/index.js`, `bottomSheet.js`. Not on a real phone; Samsung Internet untested.                                                       |
+| Notifications (mako style)                                                                                    | Stub-checked      | `core/ui/hud/notify.js`. A repeated key replaces its card, so a failing layer shows one notice.                                                  |
+| Search launcher (rofi style, `/` or Ctrl+K)                                                                   | Stub-checked      | `core/ui/hud/launcher.js`.                                                                                                                       |
+| Terminal (kitty style, backtick)                                                                              | Stub-checked      | `core/ui/terminal.js`; same passive command set as before.                                                                                       |
+| Boot splash                                                                                                   | Stub-checked      | `core/ui/splash.js`; reduced motion skips the animation.                                                                                         |
+| Layer menu (grouped, LYR filter, per-row count / LOAD / OFF / N/A / ERR, ALL OFF)                             | Stub-checked      | `core/ui/layerMenu.js`; replaces the old toggle chips.                                                                                           |
+| Linux installer font check                                                                                    | Working (by code) | `scripts/install-linux.sh` step 7 looks for JetBrains Mono with `fc-list` and prints `sudo apt install fonts-jetbrains-mono` when it is missing. |
+
+### Map palette and icons
+
+| Item                                                                                                                                               | Status                    | Evidence / notes                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Palette (`core/ui/palette.js`): grays, Mono Glow teals and mint; red only for hazards (fires, M6+ quakes, major hurricanes, high-severity threats) | Working (by code + tests) | `palette.test.js` keeps every registered layer in the palette.                                                                       |
+| Aircraft class from ICAO type or emitter category (OpenSky `extended=1`, adsb.lol `category`)                                                      | Working (by code + tests) | `core/layers/flights/aircraftClass.js` (`aircraftClass.test.js`). Not live-tested: OpenSky's category field was never received here. |
+| Ten silhouettes (airliner, widebody, four-engine, turboprop, bizjet, light, glider, helicopter, fast jet, drone)                                   | Stub-checked              | `core/ui/aircraftIcons.js`.                                                                                                          |
+| Heading-up against local north (aligned axis)                                                                                                      | Working (by code)         | `renderers.js` `orient()`. Correct orientation under a tilted, rotated real camera is unverified.                                    |
+| ctOS glyphs for every other layer (hull, vehicle, satellite, node, square, diamond, frame, bracket, cross, triangle, dot, pulse)                   | Stub-checked              | `core/ui/glyphs.js`, `layerGlyphs.js` (the menu tiles draw the same glyphs).                                                         |
+
+### Selection and tracking
+
+| Item                                                                                                  | Status            | Evidence / notes                                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Click or tap selects and opens the target panel without moving the camera                             | Stub-checked      | See fix 1.                                                                                                          |
+| FOLLOW (F) at the current distance, FLY TO, COCKPIT (C, movers, not on minimal), Esc releases         | Working (by code) | `tracker.js`, `cockpit.js` (capture-phase Esc leaves cockpit first). Camera behaviour needs real Cesium to confirm. |
+| Tracking overlay: boxes with two-digit IDs, density OFF / LOW / MED / HIGH, dashed mesh, hub 00, LOCK | Stub-checked      | `core/scene/trackingOverlay.js`. Boxes come from feed positions only.                                               |
+| Viewport frame with corner readouts (state, ID00 quality / OBJ, x/y, SIG / TRK)                       | Stub-checked      |                                                                                                                     |
+| Offline city names from the bundled list (434 places)                                                 | Stub-checked      | `core/search/places.js`, shared with search and the terminal map.                                                   |
+| Target panel: tracking widget driven by the nearest real contacts; CONTACTS with the same IDs         | Stub-checked      | `core/ui/targetPanel.js`, `trackWidget.js`. The widget animates at about 20 fps only while visible.                 |
+| Phone: the target glides into the free area above the sheet                                           | Working (by code) | `core/scene/nudge.js` (sideways only, never a zoom). Not on a phone.                                                |
+
+### Labels and basemaps
+
+| Item                                                                                       | Status            | Evidence / notes                                                                                                                                  |
+| ------------------------------------------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DARK basemap (Esri World Dark Gray Canvas), default on capable unmetered devices           | Working (by code) | `core/scene/imagery.js`, `main.js`. Supersedes the Phase B default (Satellite). Esri's dark canvas was not reached (egress blocked).              |
+| SAT, STREETS, RELIEF (offline), MONO switch                                                | Working (by code) | MONO desaturates and dims imagery and label overlays (not the already-gray dark canvas). RELIEF stays the default on metered or minimal devices.  |
+| VIEW > LABELS: CITY NAMES (offline), PLACES + BORDERS, STREET NAMES (Esri reference tiles) | Partial           | City names stub-checked. The Esri reference label services (dark-canvas reference, Boundaries and Places, World Transportation) were not reached. |
+
+### Ported reference features
+
+All of these are "per the reference implementation, not live-tested here" for
+their upstreams. Pure logic is unit-tested with fixtures.
+
+| Feature                                                                                                      | Status                                   | Tests / evidence                                                                                                                                                                | Upstream (proxy feed)                                        |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Storm cones and tracks                                                                                       | Not live-tested                          | `forecast.test.js`, `cyclonecones.test.js` (advisory coherence gate)                                                                                                            | NHC GIS MapServer (`nhc-gis`)                                |
+| Fire perimeters (US)                                                                                         | Not live-tested                          | `perimeters.test.js`, `earthFeeds.test.js`                                                                                                                                      | NIFC WFIGS (`wfigs`)                                         |
+| Dams                                                                                                         | Not live-tested                          | `dams.test.js`                                                                                                                                                                  | Overpass (`overpass`)                                        |
+| GOES IR                                                                                                      | Not live-tested                          | `products.test.js`                                                                                                                                                              | nowCOAST (`nowcoast`)                                        |
+| Weather history timeline (VIEW > WEATHER HISTORY)                                                            | Not live-tested                          | `capabilities.test.js` (refuses DOCTYPE / ENTITY), `timeline.test.js`                                                                                                           | nowCOAST WMS GetCapabilities and timed GetMap                |
+| Noir and Snow looks; sharpen and bloom (desktop)                                                             | Working (by code + tests)                | `looks.test.js` (tier gating). The shaders were never compiled on a GPU.                                                                                                        | none                                                         |
+| Satellite classes and the visual group                                                                       | Working (by code + tests)                | `classes.test.js`, `groups.test.js`. Needs `satellite.js` on the globe (not installable here).                                                                                  | CelesTrak (`celestrak`)                                      |
+| Starlink dense (full tier only)                                                                              | Working (by code + tests)                | `roundRobin.test.js`; never run with real TLEs.                                                                                                                                 | CelesTrak                                                    |
+| NEXT PASS prediction                                                                                         | Working (by code + tests)                | `passes.test.js` with a synthetic orbit, not with `satellite.js`.                                                                                                               | none (published elements)                                    |
+| Launch REPLAY (reconstructed estimate)                                                                       | Not live-tested                          | `replay.test.js`; every result carries `estimate: true` and the RECONSTRUCTED ESTIMATE label.                                                                                   | Launch Library 2 detail record (`ll2`)                       |
+| 978 MHz UAT receivers (`LOCAL_UAT_URL`)                                                                      | Not live-tested                          | `localadsb/parse.test.js`; no real dump978 was available.                                                                                                                       | your own decoder (`local-uat`, local only)                   |
+| TRACE 24H backfill (flights and military)                                                                    | Not live-tested                          | `trace.test.js`. Undocumented upstream path; only time, position and altitude are read.                                                                                         | adsb.lol (`adsblol-trace`)                                   |
+| adsbdb enrichment                                                                                            | Not live-tested                          | `enrich.test.js` (owner fields dropped); route rows shown at run time only, never stored.                                                                                       | adsbdb (`adsbdb`)                                            |
+| OSRM route planner, FLY ALONG, `argus route`                                                                 | Not live-tested                          | `osrm.test.js`, `cli.test.js`, `navFeeds.test.js` (stops, 600 km legs, 2,500 km total)                                                                                          | FOSSGIS OSRM (`osrm`)                                        |
+| Draw and measure, `argus measure`                                                                            | Working (by code + tests)                | `geometry.test.js`; `argus measure London Paris` run here offline: 343.5 km, initial bearing 148.1 degrees.                                                                     | none                                                         |
+| Share links in the URL hash (the address bar always holds the view)                                          | Working (by code + tests)                | `state.test.js` (decoding fails closed on anything malformed).                                                                                                                  | none (local only)                                            |
+| Offline places (434) and Photon in the geocoder chain                                                        | Working offline; Photon not live-tested  | `places.test.js`, `photon.test.js`, `geocoder.test.js`; `argus geocode Tokyo` answered here from the bundled list.                                                              | Photon (`photon`), Nominatim (`nominatim`)                   |
+| Analog radio tuner (TOOLS > RADIO)                                                                           | Not live-tested                          | `tuner.test.js`; https streams only; the listen counter path is per the reference.                                                                                              | Radio Browser (`radiobrowser`)                               |
+| Nine camera networks (Ontario 511, DriveBC, Calgary, Fintraffic, TxDOT, Austin, Tarktee, Tallinn, Warendorf) | Not live-tested                          | `networks.test.js`, `pose.test.js`, `nearest.test.js`, `cameraFeeds.test.js`. Live Traffic NSW and DelDOT skipped (COMPARISON.md).                                              | one catalogue feed and one image-only feed per network       |
+| Recent imagery (HLS, VIIRS)                                                                                  | Not live-tested                          | `catalog.test.js`, `imageryFeeds.test.js`                                                                                                                                       | NASA CMR (`cmr`), GIBS (`gibs`), Worldview Snapshots (`wvs`) |
+| TomTom traffic flow raster                                                                                   | Not live-tested                          | `spec.test.js`. Needs `TOMTOM_API_KEY`. The raster path follows TomTom's documented pattern; the reference used vector tiles, so it is unverified.                              | TomTom (`tomtom-flow`, key injected, 6,000 tiles a day)      |
+| Wind (Open-Meteo current 10 m wind, particle streaks; WIND readout on the desktop)                           | Not live-tested                          | `wind/field.test.js`, `windFeed.test.js`. The reference decodes GFS / ECMWF GRIB; Argus uses Open-Meteo's grid instead (no GRIB decoder could be installed), current wind only. | Open-Meteo (`openmeteo-wind`, 120 requests a day)            |
+| 3D aircraft models (eight GLBs copied unchanged from the reference, CC BY 4.0)                               | Working (by code)                        | Credited in `public/models/README.md` and DATA CREDITS.                                                                                                                         | none (bundled)                                               |
+| Cockpit briefing strip (desktop)                                                                             | Not live-tested                          | `briefing.test.js` (the RSS parser refuses DOCTYPE / ENTITY; news searched by place name only)                                                                                  | Nominatim reverse, Open-Meteo, Google News RSS, GDELT        |
+| Data credits view (TOOLS > DATA CREDITS)                                                                     | Working (by code + tests)                | `credits.test.js`: every proxy feed and direct upstream has a credit.                                                                                                           | none                                                         |
+| CLI: `argus route A B` (`--mode` car, foot or bike), `argus measure A B`                                     | Working (measure); route not live-tested | `cli.test.js`; `measure` and an exact bundled `geocode` make no outbound request.                                                                                               | as above                                                     |
+| New env vars `LOCAL_UAT_URL`, `TOMTOM_API_KEY`                                                               | Working (by code + tests)                | `.env.example`, proxy feed tests; each layer is offered only when its feed is configured.                                                                                       | n/a                                                          |
+
+### Not implemented, and why
+
+- **Voice control**: out of scope by the `CLAUDE.md` guardrail.
+- **Mapillary street level**: needs a token in the browser, which conflicts
+  with "no secrets in client code", and its imagery shows people. Parked for
+  the owner's decision.
+- **Traffic simulation**: the reference's vehicles are fabricated. Only
+  TomTom's real flow raster was ported.
+- **Wind from GFS / ECMWF GRIB** (the reference's approach): needs a
+  server-side GRIB decoder dependency that could not be installed here
+  (registry blocked). The Wind layer uses Open-Meteo's current wind grid
+  instead, so there is no forecast timeline.
+- **WebUSB SDR, HLS camera video, the scene director**: deferred.
+
+### Verified in this pass
+
+Re-run on a clean export of commit `e3f138b` (the counts grew with each
+commit: 459 core passes at `8256f92`, 462 at `743734d`):
+
+- `npm test` (core, mobile shell, terminal shell): 465 pass, 2 fail. The two
+  failing suites (`core/layers/satellites/propagate.test.js`,
+  `core/scene/occlusion.test.js`) import `satellite.js` / `cesium`, which could
+  not be installed.
+- `npm run test:proxy`: 96 of 96 pass with a `ws` implementation (Playwright's
+  bundled copy, mapped in by a scratch loader). Without `ws`, 82 pass and the
+  four websocket suites fail to load.
+- The CLI offline paths: `argus measure London Paris`, `argus measure` with
+  coordinates and `--json`, and `argus geocode Tokyo` (answered from the
+  bundled list).
+- The terminal shell on demo data: a frame rendered headless at 100 columns
+  (the one in the README), with the bundled city names and the longer layer list.
+- The web UI in the stub harness, as described under the environment limits.
+
+### Still unverified or incomplete (and why)
+
+- **Everything on real Cesium**: the BillboardCollection renderer, the frame
+  pacer's real frame rates, heading-up silhouettes under a tilted camera, the
+  overlay's alignment with real projected positions, shader compilation, label
+  tiles, the wind streaks, and the 3D aircraft models (orientation, scale,
+  picking). First check on Kali: `npm install && npm start`, flights on over a busy
+  region, the FPS meter, a click on an aircraft (panel opens, camera stays),
+  FOLLOW, Esc.
+- **Every new upstream, live** (egress blocked): NHC GIS, WFIGS, nowCOAST
+  GetCapabilities and GOES, NASA CMR / GIBS / Worldview Snapshots, adsb.lol
+  traces, adsbdb, OSRM, Photon, Open-Meteo (briefing and wind), GDELT, Google
+  News RSS, the nine
+  camera networks, TomTom raster flow, Esri dark canvas and reference labels.
+- **Phone**: the bottom sheet, the glide above the sheet, thermal behaviour of
+  the new renderer, the tracking overlay and the wind streaks on the S25, and
+  whether 12 models fit the balanced tier's budget.
+- **Satellites on the globe** (stations, classes, Starlink dense, NEXT PASS from
+  real TLEs): need `satellite.js`.
+- Unchanged from earlier phases: keyed feeds without keys here, photoreal
+  tiles, CertStream upstream silence, CCTV and threats demo-only.
