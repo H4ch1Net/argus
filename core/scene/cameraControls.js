@@ -80,6 +80,41 @@ export function createCameraControls(viewer) {
       orbitCentre({ pitch: Cesium.Math.toRadians(steep ? -35 : -90) }, duration);
     },
 
+    /** The camera as plain degrees and metres: a view to keep and go back to. */
+    getView() {
+      const c = viewer.camera;
+      const g = c.positionCartographic;
+      return {
+        longitude: Cesium.Math.toDegrees(g.longitude),
+        latitude: Cesium.Math.toDegrees(g.latitude),
+        height: g.height,
+        heading: Cesium.Math.toDegrees(c.heading),
+        pitch: Cesium.Math.toDegrees(c.pitch),
+        roll: Cesium.Math.toDegrees(c.roll),
+      };
+    },
+
+    /**
+     * Fly to a view from getView(). Resolves true when the flight ends, false
+     * when something cancels it (a press on the globe, another flight).
+     */
+    flyToView(v, duration = 1.5) {
+      return new Promise((resolve) => {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(v.longitude, v.latitude, v.height),
+          orientation: {
+            heading: Cesium.Math.toRadians(v.heading ?? 0),
+            pitch: Cesium.Math.toRadians(v.pitch ?? -90),
+            roll: Cesium.Math.toRadians(v.roll ?? 0),
+          },
+          duration,
+          complete: () => resolve(true),
+          cancel: () => resolve(false),
+        });
+        viewer.scene.requestRender();
+      });
+    },
+
     /**
      * Place the camera at a point and aim it (degrees). Used by the mobile
      * shell's point-at-sky mode: stand at the user's position and look where the

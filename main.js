@@ -1035,11 +1035,35 @@ async function setupScene(app, splash) {
     cells?.setActive(id);
     layerMenu?.setActivePreset(id);
   };
-  const runPreset = (preset) => {
+  // Presets stage a picture and give the exact view back when you leave, as
+  // the reference's Global Context does: entering one from a free view keeps
+  // the camera and layers; pressing the active preset again restores them,
+  // keeping any layer you switched on or off by hand in between.
+  let before = null; // { layers: Set, view } from the free view
+  let staged = null; // the layer set the preset put on
+  const enabledKeys = () => new Set(manager.active().map((a) => a.key));
+  const runPreset = async (preset, { initial = false } = {}) => {
+    // Around Me pressed again re-centres on you; any other active preset
+    // pressed again leaves it.
+    if (activePreset === preset.id && before && !preset.geolocate) return leavePreset();
+    if (!before && !initial) before = { layers: enabledKeys(), view: camera.getView() };
     setPreset(preset.id);
-    applyPreset(manager, preset);
+    await applyPreset(manager, preset);
+    staged = enabledKeys();
     if (preset.geolocate) app.aroundMe?.(camera);
   };
+  async function leavePreset() {
+    const now = enabledKeys();
+    const added = [...now].filter((k) => !staged.has(k));
+    const removed = new Set([...staged].filter((k) => !now.has(k)));
+    const want = new Set([...before.layers, ...added].filter((k) => !removed.has(k)));
+    const { view } = before;
+    before = null;
+    staged = null;
+    setPreset(null);
+    await applyPreset(manager, { layers: [...want] });
+    camera.flyToView(view, 1.2);
+  }
   if (desktop) {
     const CODES = {
       'around-me': 'NEAR',
@@ -1087,7 +1111,9 @@ async function setupScene(app, splash) {
     manager,
     presets: desktop ? [] : PRESETS,
     onPreset: runPreset,
-    onManualToggle: () => setPreset(null),
+    // A layer switched by hand: the preset stays (and its exit keeps the
+    // change); only a preset-free view clears the highlight.
+    onManualToggle: () => !before && setPreset(null),
   });
   app.mount('layers', layerMenu.el);
   setPreset(activePreset);
@@ -1794,7 +1820,7 @@ async function setupScene(app, splash) {
       tryTrack();
     }
   } else if (aroundMe) {
-    runPreset(aroundMe);
+    runPreset(aroundMe, { initial: true });
   } else {
     for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }

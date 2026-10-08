@@ -11,7 +11,7 @@ export const SHORTCUTS = Object.freeze([
   { keys: ['`'], label: 'Terminal' },
   { keys: ['M'], label: 'Menu', desktop: true },
   { keys: ['T'], label: 'Target panel', desktop: true },
-  { keys: ['1', '…', '6'], label: 'Presets (Near, Sky, Watch, Haz, Env, Net)' },
+  { keys: ['1', '…', '6'], label: 'Presets (Near, Sky, Haz, Env, Watch, Net)' },
   { keys: ['N', 'P'], label: 'Next / previous contact' },
   { keys: ['F'], label: 'Follow the target' },
   { keys: ['C'], label: 'Cockpit (ride along)' },
