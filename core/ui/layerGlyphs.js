@@ -28,6 +28,7 @@ const LAYER_GLYPH = {
   lightning: 'cross',
   surveillance: 'bracket',
   landmarks: 'frame',
+  myplaces: 'diamond',
   cctv: 'bracket',
   trafficcams: 'bracket',
   trafficflow: 'vehicle',
@@ -40,6 +41,13 @@ const LAYER_GLYPH = {
   threats: 'triangle',
   bgp: 'dot',
   wind: 'dot',
+  incidents: 'xmark',
+  chp: 'triangle',
+  aurora: 'wave',
+  airquality: 'cells',
+  terminator: 'half',
+  tor: 'exit',
+  gdelt: 'news',
 };
 
 function source(key) {

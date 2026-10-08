@@ -43,6 +43,7 @@ export const LAYER_INK = Object.freeze({
   lightning: INK.white,
   surveillance: INK.gray,
   landmarks: INK.dimmer,
+  myplaces: INK.mint,
   cctv: INK.white,
   trafficcams: INK.teal,
   datacenters: INK.cyan,
@@ -60,6 +61,16 @@ export const LAYER_INK = Object.freeze({
   imagery: INK.dimmer,
   trafficflow: INK.teal,
   wind: INK.gray,
+  // Traffic incidents (TomTom) and California CHP dispatch incidents: severity
+  // turns a marker red per contact; the layer ink is the neutral one.
+  incidents: INK.white,
+  chp: INK.dim,
+  aurora: INK.mint,
+  // AQI markers use the EPA category colours (a state legend); this is the tile.
+  airquality: INK.gray,
+  terminator: INK.slate,
+  tor: INK.teal,
+  gdelt: INK.dimmer,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

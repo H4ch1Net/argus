@@ -1,0 +1,166 @@
+/* SETTINGS dialog (core/ui/settingsPanel.js) and the SETUP tab
+   (core/ui/setupTab.js): ctOS panels, square, grays, the kitty tab idiom. */
+
+.ct-settings__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #0e0e0e99;
+}
+
+.ct-settings__backdrop[hidden] {
+  display: none;
+}
+
+.ct-settings {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 100%);
+  max-height: min(680px, 100%);
+  background: var(--panel-translucent);
+  border: 1px solid var(--ctosGray);
+  box-shadow: var(--window-shadow);
+}
+
+.ct-settings__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--panel-padding) var(--panel-padding) 8px;
+  color: var(--textPrimary);
+  letter-spacing: 0.08em;
+}
+
+.ct-settings__head .ct-btn {
+  margin-left: auto;
+}
+
+.ct-settings__tabs {
+  display: flex;
+  gap: 3px;
+  padding: 0 var(--panel-padding);
+}
+
+.ct-settings__tab {
+  flex: 1 1 0;
+  min-height: 30px;
+  border: 0;
+  background: var(--backgroundBright);
+  color: var(--textSecondary);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  cursor: pointer;
+}
+
+.ct-settings__tab[aria-selected='true'] {
+  background: var(--ctosGray);
+  color: var(--background);
+}
+
+.ct-settings__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px var(--panel-padding) var(--panel-padding);
+}
+
+.ct-settings__page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ct-settings__page[hidden] {
+  display: none;
+}
+
+.ct-settings__about {
+  color: var(--textPrimary);
+  font-size: 18px;
+  letter-spacing: 0.3em;
+}
+
+/* SETUP tab */
+.ct-setup__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--backgroundBright);
+}
+
+.ct-setup__name {
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.ct-setup__for {
+  grid-column: 1 / -1;
+  color: var(--textSecondary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.ct-setup__state {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--textSecondary);
+}
+
+.ct-setup__state[data-on='true'] {
+  color: var(--success);
+}
+
+.ct-setup__input {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
+}
+
+.ct-setup__input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--textSecondary);
+  background: var(--background);
+  color: var(--textPrimary);
+  font: inherit;
+  font-size: 11px;
+}
+
+.ct-setup__check {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+.ct-setup__check b {
+  font-weight: normal;
+  color: var(--textPrimary);
+}
+
+.ct-setup__check b[data-state='bad'] {
+  color: var(--error);
+}
+
+.ct-setup__check b[data-state='ok'] {
+  color: var(--success);
+}
+
+/* Reduce motion: decorative animation stops (the settings switch, or the OS). */
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation: none !important;
+  transition: none !important;
+}

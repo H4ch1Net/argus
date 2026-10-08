@@ -4,13 +4,18 @@ import {
   SENSOR_MODES,
   SENSOR_LABELS,
   ANIMATED_MODES,
+  FLIR_PALETTES,
+  NVG_GAINS,
+  flirPaletteIndex,
+  nvgGain,
+  tapsFor,
   lookSupport,
   sharpenAmount,
   strength,
   bloomUniforms,
 } from './looks.js';
 
-// Sensor shaders and looks: NVG (night vision), FLIR (thermal), Noir and Snow
+// Sensor shaders and looks: NVG (night vision), FLIR (thermal, four palettes), Noir and Snow
 // sensor modes, a CRT overlay, and sharpen and bloom toggles, as Cesium
 // PostProcessStages. The danger zone on mobile (full-screen fragment passes,
 // master plan 6.1), so they are capability-gated (looks.js):
@@ -27,60 +32,153 @@ import {
 // Noir, Snow and the sharpen pass are adapted from gods-eye-view
 // src/styles/noir.js, src/styles/snow.js and src/ui/visualPresets.js (MIT).
 
-export { SENSOR_MODES, SENSOR_LABELS };
+export { SENSOR_MODES, SENSOR_LABELS, FLIR_PALETTES, NVG_GAINS };
 
-const NVG_FRAGMENT = `
+// Night vision, as a Gen 3 image intensifier behaves: an automatic gain that
+// lifts a dark scene and holds back a bright one (measured from a sparse grid
+// over the frame), a soft-saturating tube response, halos around bright
+// points (lights, contacts), scintillation that is strongest in the dark, the
+// fibre-optic honeycomb, the P43 green-yellow phosphor and a soft tube edge.
+// TAPS sets the halo samples (fewer on the phone).
+const nvgFragment = (taps) => `
+#define TAPS ${taps}
 uniform sampler2D colorTexture;
+uniform vec2 colorTextureDimensions;
 uniform float time;
+uniform float gain;
 in vec2 v_textureCoordinates;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 void main() {
-  vec3 c = texture(colorTexture, v_textureCoordinates).rgb;
-  float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  lum = pow(clamp(lum, 0.0, 1.0), 0.7) * 1.5;      // gain
-  vec3 nvg = vec3(0.03, 1.0, 0.12) * lum;          // green phosphor
-  vec2 d = v_textureCoordinates - 0.5;
-  nvg *= smoothstep(0.85, 0.25, length(d));        // vignette
-  nvg += (hash(v_textureCoordinates + fract(time)) - 0.5) * 0.08; // sensor noise
-  out_FragColor = vec4(nvg, 1.0);
+  vec2 uv = v_textureCoordinates;
+  vec2 px = 1.0 / colorTextureDimensions;
+  float lum = luma(texture(colorTexture, uv).rgb);
+  float avg = 0.0;
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      avg += luma(texture(colorTexture, vec2(0.17 + 0.33 * float(i), 0.17 + 0.33 * float(j))).rgb);
+    }
+  }
+  avg /= 9.0;
+  float g = gain * clamp(0.32 / max(avg, 0.02), 0.7, 7.0);
+  float l = 1.0 - exp(-lum * g * 1.8);
+  float halo = 0.0;
+  for (int k = 0; k < TAPS; k++) {
+    float a = float(k) * 6.2831853 / float(TAPS);
+    vec2 o = vec2(cos(a), sin(a)) * px * 7.0;
+    halo += smoothstep(0.6, 1.0, luma(texture(colorTexture, uv + o).rgb) * g * 0.6);
+  }
+  l += halo / float(TAPS) * 0.45;
+  float n = hash(floor(uv * colorTextureDimensions) + floor(fract(time * 7.3) * 97.0)) - 0.5;
+  l += n * (0.06 + 0.16 * (1.0 - clamp(l, 0.0, 1.0)));
+  vec2 q = uv * colorTextureDimensions / 2.5;
+  l *= 0.95 + 0.05 * abs(sin(q.x * 3.1416) * sin((q.y + 0.5 * mod(floor(q.x), 2.0)) * 3.1416));
+  vec3 phos = mix(vec3(0.015, 0.05, 0.02), vec3(0.66, 1.0, 0.52), clamp(l, 0.0, 1.15));
+  vec2 d = (uv - 0.5) * vec2(colorTextureDimensions.x / colorTextureDimensions.y, 1.0);
+  phos *= smoothstep(0.98, 0.42, length(d));
+  out_FragColor = vec4(phos, 1.0);
 }
 `;
 
-const FLIR_FRAGMENT = `
+// Thermal (FLIR). A scene camera sees colour, not heat, so heat is estimated
+// from it: water reads cold, vegetation cool, built-up and bare ground warm,
+// lights and contacts (bright, white glyphs) hottest. Then what a thermal
+// imager does: a slightly soft detector, an edge-enhancement pass (DDE), a
+// fixed-pattern column noise, and the palette the operator picks (white hot,
+// black hot, ironbow, rainbow). TAPS sets the edge kernel size.
+const flirFragment = (taps) => `
+#define TAPS ${taps}
 uniform sampler2D colorTexture;
+uniform vec2 colorTextureDimensions;
+uniform float palette;
 in vec2 v_textureCoordinates;
-vec3 thermal(float t) {
-  return vec3(
-    smoothstep(0.0, 0.45, t),
-    smoothstep(0.35, 0.8, t),
-    smoothstep(0.7, 1.0, t)
-  );
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float heatOf(vec3 c) {
+  float lum = dot(c, vec3(0.299, 0.587, 0.114));
+  float water = clamp((c.b - max(c.r, c.g)) * 4.0, 0.0, 1.0);
+  float veg = clamp((c.g - max(c.r, c.b)) * 4.0, 0.0, 1.0);
+  float h = 0.12 + lum * 0.82 - water * 0.3 - veg * 0.12;
+  return clamp(h + smoothstep(0.85, 1.0, lum) * 0.25, 0.0, 1.0);
+}
+vec3 ironbow(float t) {
+  vec3 a = vec3(0.0, 0.0, 0.0), b = vec3(0.2, 0.0, 0.45), c = vec3(0.75, 0.05, 0.35);
+  vec3 d = vec3(1.0, 0.45, 0.0), e = vec3(1.0, 0.85, 0.2), f = vec3(1.0, 1.0, 0.95);
+  if (t < 0.2) return mix(a, b, t / 0.2);
+  if (t < 0.45) return mix(b, c, (t - 0.2) / 0.25);
+  if (t < 0.65) return mix(c, d, (t - 0.45) / 0.2);
+  if (t < 0.85) return mix(d, e, (t - 0.65) / 0.2);
+  return mix(e, f, (t - 0.85) / 0.15);
+}
+vec3 rainbow(float t) {
+  return clamp(vec3(
+    1.5 - abs(4.0 * t - 3.0),
+    1.5 - abs(4.0 * t - 2.0),
+    1.5 - abs(4.0 * t - 1.0)
+  ), 0.0, 1.0);
 }
 void main() {
-  vec3 c = texture(colorTexture, v_textureCoordinates).rgb;
-  float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  out_FragColor = vec4(thermal(pow(clamp(lum, 0.0, 1.0), 0.85)), 1.0);
+  vec2 uv = v_textureCoordinates;
+  vec2 px = 1.0 / colorTextureDimensions;
+  float h = heatOf(texture(colorTexture, uv).rgb);
+  float soft = 0.0;
+  float edge = 0.0;
+  for (int k = 0; k < TAPS; k++) {
+    float a = float(k) * 6.2831853 / float(TAPS);
+    float s = heatOf(texture(colorTexture, uv + vec2(cos(a), sin(a)) * px * 1.5).rgb);
+    soft += s;
+  }
+  soft /= float(TAPS);
+  edge = h - soft;
+  float t = clamp(mix(h, soft, 0.35) + edge * 1.6, 0.0, 1.0);
+  t += (hash(vec2(floor(uv.x * colorTextureDimensions.x), 3.0)) - 0.5) * 0.025;
+  t = clamp(t, 0.0, 1.0);
+  vec3 col;
+  if (palette < 0.5) col = vec3(t);
+  else if (palette < 1.5) col = vec3(1.0 - t);
+  else if (palette < 2.5) col = ironbow(t);
+  else col = rainbow(t);
+  out_FragColor = vec4(col, 1.0);
 }
 `;
 
-const CRT_FRAGMENT = `
+// CRT monitor: barrel curvature with rounded corners, an aperture-grille RGB
+// mask, scanlines that thin out on bright lines, chromatic fringing, a little
+// phosphor glow and a vignette. Static (no frames needed while idle).
+const crtFragment = (taps) => `
+#define TAPS ${taps}
 uniform sampler2D colorTexture;
+uniform vec2 colorTextureDimensions;
 in vec2 v_textureCoordinates;
 void main() {
   vec2 cc = v_textureCoordinates - 0.5;
-  vec2 uv = v_textureCoordinates + cc * dot(cc, cc) * 0.12; // slight barrel
+  vec2 uv = v_textureCoordinates + cc * dot(cc, cc) * 0.14;
+  vec2 edgeD = abs(uv - 0.5) * 2.0;
+  float corner = smoothstep(1.0, 0.985, max(edgeD.x, edgeD.y))
+    * smoothstep(0.06, 0.0, length(max(edgeD - 0.94, 0.0)));
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
     out_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
-  float ca = 0.0016;                                // chromatic aberration
+  vec2 px = 1.0 / colorTextureDimensions;
+  float ca = 1.6 * px.x;
   vec3 col = vec3(
     texture(colorTexture, uv + vec2(ca, 0.0)).r,
     texture(colorTexture, uv).g,
     texture(colorTexture, uv - vec2(ca, 0.0)).b
   );
-  col -= sin(uv.y * 900.0) * 0.06;                  // scanlines
-  col *= smoothstep(0.95, 0.3, length(cc));         // vignette
+  vec3 glow = vec3(0.0);
+  for (int k = 0; k < TAPS; k++) {
+    float a = float(k) * 6.2831853 / float(TAPS);
+    glow += texture(colorTexture, uv + vec2(cos(a), sin(a)) * px * 3.0).rgb;
+  }
+  col += glow / float(TAPS) * 0.18;
+  float lum = dot(col, vec3(0.299, 0.587, 0.114));
+  float line = 0.5 + 0.5 * cos(uv.y * colorTextureDimensions.y * 3.1416);
+  col *= mix(1.0, 0.55 + 0.45 * line, 1.0 - clamp(lum * 0.8, 0.0, 0.7));
+  float m = mod(floor(uv.x * colorTextureDimensions.x), 3.0);
+  vec3 mask = m < 1.0 ? vec3(1.0, 0.72, 0.72) : (m < 2.0 ? vec3(0.72, 1.0, 0.72) : vec3(0.72, 0.72, 1.0));
+  col *= mask * 1.12;
+  col *= smoothstep(0.98, 0.32, length(cc)) * corner;
   out_FragColor = vec4(col, 1.0);
 }
 `;
@@ -215,6 +313,9 @@ export function createSensorShaders(viewer, { tier }) {
   let bloom = 0;
   let savedBloom = null; // the scene's own bloom settings, restored when ours is off
   let holdsRender = false;
+  let flirPalette = 'white';
+  let nvgGainId = 'med';
+  const taps = tapsFor(tier);
 
   const makeStage = (name, fragmentShader, uniforms) =>
     new Cesium.PostProcessStage({ name, fragmentShader, uniforms, textureScale });
@@ -230,10 +331,17 @@ export function createSensorShaders(viewer, { tier }) {
     }
     if (sensor === 'nvg') {
       stages.push(
-        makeStage('argus-nvg', NVG_FRAGMENT, { time: () => performance.now() / 1000 }),
+        makeStage('argus-nvg', nvgFragment(taps), {
+          time: () => performance.now() / 1000,
+          gain: () => nvgGain(nvgGainId),
+        }),
       );
     } else if (sensor === 'flir') {
-      stages.push(makeStage('argus-flir', FLIR_FRAGMENT, {}));
+      stages.push(
+        makeStage('argus-flir', flirFragment(taps), {
+          palette: () => flirPaletteIndex(flirPalette),
+        }),
+      );
     } else if (sensor === 'noir') {
       stages.push(
         makeStage('argus-noir', NOIR_FRAGMENT, {
@@ -253,7 +361,7 @@ export function createSensorShaders(viewer, { tier }) {
         }),
       );
     }
-    if (crtOn && crtSupported) stages.push(makeStage('argus-crt', CRT_FRAGMENT, {}));
+    if (crtOn && crtSupported) stages.push(makeStage('argus-crt', crtFragment(taps), {}));
     for (const stage of stages) collection.add(stage);
     updateRenderMode();
     scene.requestRender();
@@ -299,6 +407,8 @@ export function createSensorShaders(viewer, { tier }) {
     crtSupported,
     sharpenSupported: support.sharpen,
     bloomSupported: support.bloom,
+    FLIR_PALETTES,
+    NVG_GAINS,
     /** The sensor modes this tier offers, in menu order (labels: SENSOR_LABELS). */
     modes: [...support.modes],
     labels: SENSOR_LABELS,
@@ -319,6 +429,22 @@ export function createSensorShaders(viewer, { tier }) {
     setSensor(mode) {
       sensor = support.modes.includes(mode) ? mode : 'none';
       rebuild();
+    },
+    get flirPalette() {
+      return flirPalette;
+    },
+    get nvgGain() {
+      return nvgGainId;
+    },
+    /** FLIR palette: 'white' | 'black' | 'iron' | 'rainbow' (a uniform: no rebuild). */
+    setFlirPalette(id) {
+      flirPalette = FLIR_PALETTES.some((p) => p.id === id) ? id : 'white';
+      scene.requestRender();
+    },
+    /** NVG manual gain: 'low' | 'med' | 'high' (a uniform: no rebuild). */
+    setNvgGain(id) {
+      nvgGainId = NVG_GAINS.some((g) => g.id === id) ? id : 'med';
+      scene.requestRender();
     },
     setCrt(on) {
       if (!crtSupported) return;

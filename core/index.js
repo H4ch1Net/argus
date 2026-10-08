@@ -26,6 +26,8 @@ export { createCapabilityReadout } from './ui/capabilityReadout.js';
  * @param {HTMLElement} container
  * @param {object} [opts]
  * @param {(state: { lost: boolean }) => void} [opts.onContextChange]
+ * @param {string} [opts.tier]  a tier to use instead of the detected one
+ * @param {object} [opts.profile]  profile values that win over the tier's
  * @returns {Promise<{
  *   viewer: import('cesium').Viewer,
  *   capabilities: object,
@@ -38,8 +40,18 @@ export { createCapabilityReadout } from './ui/capabilityReadout.js';
  */
 export async function bootGlobe(container, opts = {}) {
   const capabilities = detectCapabilities();
-  const { tier, reasons } = deriveTier(capabilities);
-  const profile = qualityProfileForTier(tier, capabilities);
+  const derived = deriveTier(capabilities);
+  // The user's quality choice (SETTINGS) wins over the detected tier, and its
+  // frame-rate, resolution and detail choices over the tier's own values.
+  const forced = ['minimal', 'balanced', 'full'].includes(opts.tier) ? opts.tier : null;
+  const tier = forced ?? derived.tier;
+  const reasons = forced
+    ? [...derived.reasons, `set to ${forced} in settings`]
+    : derived.reasons;
+  const profile = {
+    ...qualityProfileForTier(tier, capabilities),
+    ...(opts.profile ?? {}),
+  };
 
   const readout = createCapabilityReadout({ capabilities, tier, reasons, profile });
 

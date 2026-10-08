@@ -1,6 +1,7 @@
 // Request router. Kept free of server/transport concerns so it can be tested by
 // wrapping it in a plain http.createServer with an injected feed registry.
 
+import { handleSetup } from './setup.js';
 import { sendJson } from './respond.js';
 import { handlePreflight } from './cors.js';
 import { handleRelay, resolveBaseUrl } from './relay.js';
@@ -58,6 +59,11 @@ export function createRequestHandler({
           // Websocket feeds: whether each endpoint is attached and has its key.
           streams: streams?.() ?? undefined,
         });
+        return;
+      }
+      // The SETUP tab: which keys are set, and saving new ones (loopback only).
+      if (url.pathname === '/setup/keys') {
+        await handleSetup(req, res, { feeds, file: config.keysFile });
         return;
       }
       if (url.pathname.startsWith('/feed/')) {

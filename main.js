@@ -68,7 +68,22 @@ async function main() {
         ? await import('./shell-mobile/index.js')
         : await import('./shell-desktop/index.js');
 
-    const app = await mountShell(root);
+    // Settings (core/settings/store.js) shape the boot: tier, frame rate,
+    // resolution and globe detail. Everything else applies once it is up.
+    const { createSettingsStore, profileOverrides } =
+      await import('./core/settings/store.js');
+    let storage = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    const settings = createSettingsStore(storage);
+    const app = await mountShell(root, {
+      tier: settings.get('tier'),
+      profile: profileOverrides(settings.all()),
+    });
+    app.settings = settings;
     if (import.meta.env.DEV) {
       // Expose for console poking during development only; never in a build.
       window.__argus = { shell: shellName, ...app };
@@ -100,8 +115,16 @@ async function main() {
 async function setupScene(app, splash) {
   const dev = import.meta.env.DEV;
   const { discoverProxy, feedConfigured } = await import('./core/net/discoverProxy.js');
+  // A proxy chosen in SETUP (e.g. a home machine, from a phone browser) wins
+  // over the build-time one and the page's own origin.
+  let chosenProxy = null;
+  try {
+    chosenProxy = localStorage.getItem('argus.proxyBase');
+  } catch {
+    chosenProxy = null;
+  }
   const { base: proxyBase, health } = await discoverProxy({
-    explicit: import.meta.env.VITE_PROXY_BASE_URL || null,
+    explicit: chosenProxy || import.meta.env.VITE_PROXY_BASE_URL || null,
     origin: location.origin,
   });
   splash?.step(
@@ -206,6 +229,18 @@ async function setupScene(app, splash) {
           m.createCycloneForecastMockSource(),
         )
       : Promise.resolve(null);
+
+  // The user's saved places (core/places/saved.js), on this device only: a
+  // map layer, TOOLS > MY PLACES, and search.
+  const { createPlacesStore, placeToNormalized } = await import('./core/places/saved.js');
+  let placesStorage = null;
+  try {
+    placesStorage = window.localStorage;
+  } catch {
+    placesStorage = null;
+  }
+  const placesStore = createPlacesStore(placesStorage);
+  const placesSource = async () => placesStore.list().map(placeToNormalized);
 
   const registrations = [
     {
@@ -825,6 +860,16 @@ async function setupScene(app, splash) {
           ? import('./core/layers/bgp/mockSource.js').then((m) => m.createBgpMockSource())
           : Promise.resolve(null),
     },
+    {
+      key: 'myplaces',
+      group: 'Mine',
+      label: 'My places',
+      loadDef: () =>
+        import('./core/layers/myplaces/definition.js').then((m) => m.myPlacesDefinition),
+      // Local, no network: the same source with or without a proxy.
+      proxy: async () => placesSource,
+      mock: async () => placesSource,
+    },
   ];
 
   // Layers with no verified real feed. They are always synthetic, so they are
@@ -900,6 +945,7 @@ async function setupScene(app, splash) {
 
   let tracker = null;
   const panel = createTargetPanel({
+    prefs: app.settings,
     onClose: () => tracker?.deselect(),
     onPickContact: (c) => tracker?.select(c.target),
   });
@@ -1020,6 +1066,7 @@ async function setupScene(app, splash) {
     lookup,
     correlate,
     plot: (result) => osintPlotter.plot(result),
+    savedPlaces: placesStore,
   });
   const launcher = createLauncher({
     onQuery: (q) => searchCtl.search(q),
@@ -1109,7 +1156,7 @@ async function setupScene(app, splash) {
       onClick: () => app.showTab?.('view'),
     }),
   );
-  if (desktop) app.mount('barEnd', readouts.createStatusSegment());
+  if (desktop) app.mount('barEnd', readouts.createStatusSegment({ prefs: app.settings }));
 
   // ------------------------------------------------------------- layer menu
   const layerMenu = createLayerMenu({
@@ -1152,7 +1199,10 @@ async function setupScene(app, splash) {
   // Capable, unmetered devices start on the dark canvas (the ctOS look, and
   // light on tiles); metered or minimal devices keep the offline relief.
   const imagery = createImageryController(app.viewer, { mono: true });
-  if (capable) imagery.set('dark');
+  const settings = app.settings;
+  const savedImagery = settings?.get('imagery') ?? 'auto';
+  if (savedImagery !== 'auto') imagery.set(savedImagery);
+  else if (capable) imagery.set('dark');
   const labels = createLabelsController(app.viewer, { imagery });
 
   const terrain = createTerrainController(app.viewer, {
@@ -1170,13 +1220,21 @@ async function setupScene(app, splash) {
       }
     },
   });
-  const defTerrain = defaultTerrainId({ tier: app.tier, metered });
+  const chosenTerrain = settings?.get('terrain') ?? 'auto';
+  const defTerrain =
+    chosenTerrain !== 'auto'
+      ? chosenTerrain
+      : defaultTerrainId({ tier: app.tier, metered });
   if (defTerrain !== 'flat') terrain.set(defTerrain);
   const terrainChoice = createChoice({
-    label: 'Terrain',
+    caption: 'Terrain',
     options: TERRAIN_SOURCES,
     current: defTerrain,
-    onSelect: (id) => terrain.set(id),
+    onSelect: async (id) => {
+      const applied = await terrain.set(id);
+      settings?.set('terrain', applied ?? id);
+      return applied;
+    },
   });
 
   const view = [];
@@ -1184,7 +1242,10 @@ async function setupScene(app, splash) {
     label: 'Base imagery',
     options: IMAGERY_SOURCES,
     current: imagery.current(),
-    onSelect: (id) => imagery.set(id),
+    onSelect: (id) => {
+      imagery.set(id);
+      settings?.set('imagery', id);
+    },
   });
   // The label switches, kept so a share link can repaint them.
   const labelSwitches = {
@@ -1271,7 +1332,57 @@ async function setupScene(app, splash) {
       ),
     );
   }
-  view.push(section('TERRAIN', terrainChoice.el));
+  // EARTH: terrain, relief exaggeration, detail, and the sun, atmosphere and
+  // stars (core/scene/earth.js). Every choice is remembered (SETTINGS).
+  const { createEarthController } = await import('./core/scene/earth.js');
+  const earth = createEarthController(app.viewer, { tier: app.tier });
+  const earthSetting = (key, apply) => (value) => {
+    apply(value);
+    settings?.set(key, value);
+  };
+  earth.setLighting(settings?.get('lighting') ?? false);
+  earth.setAtmosphere(settings?.get('atmosphere') ?? true);
+  earth.setStars(settings?.get('stars') ?? true);
+  earth.setExaggeration(settings?.get('exaggeration') ?? 1);
+  view.push(
+    section(
+      'EARTH',
+      terrainChoice.el,
+      createChoice({
+        caption: 'Relief',
+        options: [1, 1.5, 2, 3].map((k) => ({ id: k, label: `${k}X` })),
+        current: earth.state().exaggeration,
+        onSelect: earthSetting('exaggeration', (k) => earth.setExaggeration(k)),
+      }).el,
+      createChoice({
+        caption: 'Detail',
+        options: [
+          { id: 'low', label: 'Low' },
+          { id: 'standard', label: 'Std' },
+          { id: 'high', label: 'High' },
+        ],
+        current: settings?.get('detail') ?? 'standard',
+        onSelect: earthSetting('detail', (d) => earth.setDetail(d)),
+      }).el,
+      createSwitch({
+        label: 'Sun lighting',
+        on: earth.state().lighting,
+        title: 'The real day and night terminator at the scene time',
+        onToggle: earthSetting('lighting', (on) => earth.setLighting(on)),
+      }).el,
+      createSwitch({
+        label: 'Atmosphere',
+        on: earth.state().atmosphere,
+        title: 'Sky limb, ground haze and fog',
+        onToggle: earthSetting('atmosphere', (on) => earth.setAtmosphere(on)),
+      }).el,
+      createSwitch({
+        label: 'Stars, sun, moon',
+        on: earth.state().stars,
+        onToggle: earthSetting('stars', (on) => earth.setStars(on)),
+      }).el,
+    ),
+  );
 
   // Satellites: Starlink dense mode (thousands of points), full tier only.
   const { denseAllowedForTier } = await import('./core/layers/constellations/groups.js');
@@ -1305,6 +1416,8 @@ async function setupScene(app, splash) {
   // weakest tier at all; balanced renders reduced-resolution single-pass; full
   // gets full resolution plus the stackable CRT overlay.
   let shaders = null;
+  let onLookChange = null; // set once the Intel HUD exists (it follows the look)
+  let syncLookOptions = () => {};
   let sensorChoice = null;
   let crtSwitch = null;
   if (app.tier !== 'minimal') {
@@ -1314,16 +1427,37 @@ async function setupScene(app, splash) {
       id,
       label: shaders.labels?.[id] ?? id.toUpperCase(),
     }));
+    // Per-look settings, shown only for their look: the FLIR palette and the
+    // NVG intensifier gain (uniforms: switching costs no shader rebuild).
+    const flirChoice = createChoice({
+      caption: 'Thermal palette',
+      options: (shaders.FLIR_PALETTES ?? []).map((p) => ({ id: p.id, label: p.label })),
+      current: shaders.flirPalette ?? 'white',
+      onSelect: (id) => shaders.setFlirPalette(id),
+    });
+    const gainChoice = createChoice({
+      caption: 'NVG gain',
+      options: (shaders.NVG_GAINS ?? []).map((g) => ({ id: g.id, label: g.label })),
+      current: shaders.nvgGain ?? 'med',
+      onSelect: (id) => shaders.setNvgGain(id),
+    });
+    syncLookOptions = () => {
+      flirChoice.el.hidden = shaders.sensor !== 'flir';
+      gainChoice.el.hidden = shaders.sensor !== 'nvg';
+    };
     sensorChoice = createChoice({
       label: 'Sensor mode',
       options: modes,
       current: shaders.sensor ?? 'none',
       onSelect: (id) => {
         shaders.setSensor(id);
+        syncLookOptions();
+        onLookChange?.(shaders.sensor);
         return shaders.sensor;
       },
     });
-    const items = [sensorChoice.el];
+    syncLookOptions();
+    const items = [sensorChoice.el, gainChoice.el, flirChoice.el];
     if (shaders.crtSupported) {
       crtSwitch = createSwitch({
         label: 'CRT overlay',
@@ -1348,6 +1482,8 @@ async function setupScene(app, splash) {
   const syncSensorUi = () => {
     sensorChoice?.paint(shaders?.sensor ?? 'none');
     crtSwitch?.set(Boolean(shaders?.crt));
+    syncLookOptions();
+    onLookChange?.(shaders?.sensor ?? 'none');
   };
   // Display: clean view (the interface hides) and orbit (the camera circles
   // the middle of the view). Both also on the keyboard: V and O.
@@ -1399,15 +1535,25 @@ async function setupScene(app, splash) {
     intelHud.setInsets(i);
   };
   intelHud.setInsets(overlay.geometry().insets);
-  const setHud = (on) => {
+  // As in the reference, NVG and FLIR bring the HUD up (and Normal takes it
+  // down again) unless the HUD was switched by hand.
+  let hudByHand = false;
+  const setHud = (on, { byHand = true } = {}) => {
+    if (byHand) hudByHand = true;
     intelHud.setVisible(on);
     hudSwitch.set(on);
   };
   const hudSwitch = createSwitch({
     label: 'Intel HUD',
     title: 'MGRS, GSD and NIIRS, sun elevation, off-nadir angle (H)',
-    onToggle: (on) => intelHud.setVisible(on),
+    onToggle: (on) => {
+      hudByHand = true;
+      intelHud.setVisible(on);
+    },
   });
+  onLookChange = (look) => {
+    if (!hudByHand) setHud(look === 'nvg' || look === 'flir', { byHand: false });
+  };
   camera.beforeMove(() => orbit.stop());
   view.push(section('DISPLAY', hudSwitch.el, cleanSwitch.el, orbitSwitch.el));
 
@@ -1442,10 +1588,84 @@ async function setupScene(app, splash) {
   };
   panel.setStepper?.(stepContact);
 
+  // SETTINGS (a dialog: the bar's SET cell, SETUP, or the comma key) and the
+  // SETUP tab. Settings apply live where they can; the tier needs a reload.
+  const [{ createSettingsPanel }, { createSetupTab }, { qualityProfileForTier }] =
+    await Promise.all([
+      import('./core/ui/settingsPanel.js'),
+      import('./core/ui/setupTab.js'),
+      import('./core/capability/profile.js'),
+    ]);
+  const settingsPanel = createSettingsPanel({
+    settings: app.settings,
+    tier: app.tier,
+    notify,
+  });
+  app.mount('overlay', settingsPanel.el);
+  const tierProfile = qualityProfileForTier(app.tier, app.capabilities);
+  const hudRoot = document.querySelector('.argus-hud');
+  const applySetting = (key, value) => {
+    const v = app.viewer;
+    if (key === 'fps') {
+      v.targetFrameRate = value === 'auto' ? tierProfile.targetFrameRate : value;
+    } else if (key === 'resolution') {
+      v.resolutionScale = value === 'auto' ? tierProfile.resolutionScale : value;
+    } else if (key === 'detail') {
+      earth.setDetail(value);
+    } else if (key === 'uiScale') {
+      if (hudRoot) hudRoot.style.zoom = value === 100 ? '' : String(value / 100);
+    } else if (key === 'reducedMotion') {
+      document.documentElement.dataset.reducedMotion = String(Boolean(value));
+    } else if (key === 'tier') {
+      notifier.push({
+        title: 'QUALITY CHANGED',
+        body: 'Reload to rebuild the globe at the new quality.',
+        key: 'tier',
+        timeoutMs: 0,
+        action: { label: 'RELOAD', onClick: () => location.reload() },
+      });
+    } else if (key === 'units' || key === 'coords') {
+      app.viewer.scene.requestRender();
+    }
+    v.scene.requestRender();
+  };
+  app.settings.subscribe(applySetting);
+  applySetting('uiScale', app.settings.get('uiScale'));
+  applySetting('reducedMotion', app.settings.get('reducedMotion'));
+  if (desktop) {
+    app.mount(
+      'barEnd',
+      createSegment({
+        label: 'SET',
+        value: '⚙',
+        title: 'Settings (,)',
+        onClick: () => settingsPanel.toggle(),
+      }).el,
+    );
+  }
+  const setup = createSetupTab({
+    proxyBase,
+    health,
+    tier: app.tier,
+    capabilities: app.capabilities,
+    notify,
+    openSettings: () => settingsPanel.open(),
+    openKeys: () => keyHelpRef?.open(),
+  });
+  app.mount('setup', setup.el);
+  let keyHelpRef = null;
+
   // Keyboard shortcuts and the "?" list (core/ui/shortcuts.js).
   const shortcuts = await import('./core/ui/shortcuts.js');
   const keyHelp = shortcuts.createShortcutHelp({ desktop });
+  keyHelpRef = keyHelp;
   app.mount('overlay', keyHelp.el);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    e.preventDefault();
+    settingsPanel.toggle();
+  });
   shortcuts.bindShortcuts({
     help: () => keyHelp.toggle(),
     hud: () => setHud(!intelHud.visible()),
@@ -1611,6 +1831,54 @@ async function setupScene(app, splash) {
   });
   intel.push(scenes.el);
 
+  // My places: the user's own locations and landmarks.
+  const { createPlacesTool } = await import('./core/ui/placesTool.js');
+  intel.push(
+    createPlacesTool({
+      store: placesStore,
+      centre: () => {
+        const cv = app.viewer.scene.canvas;
+        return sketchMod.windowToLatLon(app.viewer, {
+          x: cv.clientWidth / 2,
+          y: cv.clientHeight / 2,
+        });
+      },
+      view: () => {
+        const v = camera.getView();
+        return {
+          lat: v.latitude,
+          lon: v.longitude,
+          alt: v.height,
+          heading: v.heading,
+          pitch: v.pitch,
+        };
+      },
+      flyTo: (p) => {
+        orbit.stop();
+        tracker.unfollow?.();
+        if (p.view)
+          camera.flyToView({
+            longitude: p.view.lon,
+            latitude: p.view.lat,
+            height: p.view.alt,
+            heading: p.view.heading,
+            pitch: p.view.pitch,
+          });
+        else
+          camera.flyAround({
+            longitude: p.lon,
+            latitude: p.lat,
+            range: 2500,
+            pitch: -45,
+          });
+        if (!manager.isEnabled('myplaces')) manager.enable('myplaces');
+      },
+      pick: (onPoint) => armTap(onPoint, 'TAP THE PLACE TO SAVE'),
+      notify,
+      onChange: () => manager.getLayer('myplaces')?.refresh?.(),
+    }).el,
+  );
+
   // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
   intel.push(
     createPoiTool({
@@ -1677,7 +1945,8 @@ async function setupScene(app, splash) {
   const scrubber = createTimeScrubber({ clock });
 
   if (desktop) {
-    for (const seg of readouts.createCameraReadout(app.viewer)) app.mount('strip', seg);
+    for (const seg of readouts.createCameraReadout(app.viewer, { prefs: app.settings }))
+      app.mount('strip', seg);
     // The wind at the middle of the view, while the wind layer is on.
     const windSeg = createSegment({
       label: 'WIND',
@@ -1874,12 +2143,31 @@ async function setupScene(app, splash) {
   let hashTimer = null;
   const writeHash = () => {
     clearTimeout(hashTimer);
-    hashTimer = setTimeout(() => history.replaceState(null, '', encodeView()), 800);
+    hashTimer = setTimeout(() => {
+      const hash = encodeView();
+      history.replaceState(null, '', hash);
+      // For "Start in: last view" (an installed app opens without the hash).
+      try {
+        localStorage.setItem('argus.lastView', hash);
+      } catch {
+        // storage blocked: the address bar still holds the view
+      }
+    }, 800);
   };
 
+  const startView = app.settings?.get('startView') ?? 'default';
+  let lastView = null;
+  if (location.hash.length <= 1 && startView === 'last') {
+    try {
+      lastView = localStorage.getItem('argus.lastView');
+    } catch {
+      lastView = null;
+    }
+  }
+  const startHash = location.hash.length > 1 ? location.hash : lastView;
   const shared =
-    location.hash.length > 1
-      ? share.decodeShareHash(location.hash, {
+    startHash && startHash.length > 1
+      ? share.decodeShareHash(startHash, {
           layerKeys: manager.keys(),
           imageryIds: IMAGERY_SOURCES.map((x) => x.id),
           terrainIds: TERRAIN_SOURCES.map((x) => x.id),
@@ -1893,7 +2181,10 @@ async function setupScene(app, splash) {
   // its layer set, so the highlighted preset matches what is on); desktop starts
   // at the world view with the defaults. A shared link wins over both.
   splash?.step('GREETER_UI_INITIALIZING', 85);
-  const aroundMe = !desktop && app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
+  const aroundMe =
+    (!desktop || startView === 'aroundme') &&
+    app.aroundMe &&
+    PRESETS.find((p) => p.id === 'around-me');
   if (shared) {
     if (shared.camera) {
       camera.lookFrom({

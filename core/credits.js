@@ -353,7 +353,8 @@ export const CREDITS = [
     terms:
       'NASA open data, no restrictions; acknowledgement: "We acknowledge the use of imagery provided by services from NASA\'s Global Imagery Browse Services (GIBS), part of NASA\'s Earth Science Data and Information System (ESDIS)"',
     url: 'https://gibs.earthdata.nasa.gov',
-    layers: ['imagery'],
+    // Also the Blue Marble and Black Marble basemaps (VIEW > BASEMAP).
+    layers: ['imagery', 'basemap'],
     feeds: ['gibs', 'wvs'],
     hosts: [
       'gibs.earthdata.nasa.gov',
@@ -373,6 +374,28 @@ export const CREDITS = [
     layers: ['imagery'],
     feeds: ['cmr'],
     hosts: ['cmr.earthdata.nasa.gov'],
+    attribution: 'required',
+  },
+
+  {
+    id: 'eox-s2cloudless',
+    name: 'Sentinel-2 cloudless by EOX IT Services GmbH',
+    terms:
+      'Sentinel-2 cloudless (s2maps.eu): the 2016 edition CC BY 4.0, later editions CC BY-NC-SA 4.0 (non-commercial); credit "Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data)"',
+    url: 'https://s2maps.eu',
+    layers: ['basemap'],
+    hosts: ['tiles.maps.eox.at'],
+    attribution: 'required',
+    nonCommercial: true,
+  },
+  {
+    id: 'opentopomap',
+    name: 'OpenTopoMap',
+    terms:
+      'CC BY-SA 3.0 map style; data © OpenStreetMap contributors (ODbL) and SRTM; light personal use under its tile policy',
+    url: 'https://opentopomap.org/about',
+    layers: ['basemap'],
+    hosts: ['tile.opentopomap.org'],
     attribution: 'required',
   },
 

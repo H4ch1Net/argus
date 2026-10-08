@@ -469,6 +469,10 @@ export function createLayer(viewer, def, ctx) {
       }
       moversActive(false);
     },
+    /** Fetch again now (a local source changed: saved places, a filter). */
+    refresh() {
+      if (running && mode !== 'push') poll();
+    },
     setEnabled(on) {
       setShown(on);
       if (on) this.start();

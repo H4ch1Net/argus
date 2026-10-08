@@ -18,10 +18,14 @@ export function section(title, ...children) {
  * actually took effect, so a choice that falls back (photoreal without a key)
  * shows the truth instead of what was pressed.
  * @param {{ options: { id: string, label: string, title?: string }[], current?: string,
- *   onSelect: (id: string) => any, label?: string }} opts
+ *   onSelect: (id: string) => any, label?: string, caption?: string }} opts
  */
-export function createChoice({ options, current, onSelect, label }) {
-  const el = h('div.ct-seg', { role: 'group', 'aria-label': label || '' });
+export function createChoice({ options, current, onSelect, label, caption }) {
+  const seg = h('div.ct-seg', { role: 'group', 'aria-label': label || caption || '' });
+  // caption: a visible label above the buttons, for rows that need naming.
+  const el = caption
+    ? h('div.ct-field', {}, h('div.ct-field__label', {}, caption), seg)
+    : seg;
   const buttons = new Map();
   for (const o of options) {
     const b = h(
@@ -35,7 +39,7 @@ export function createChoice({ options, current, onSelect, label }) {
       o.label,
     );
     buttons.set(o.id, b);
-    el.appendChild(b);
+    seg.appendChild(b);
   }
   const paint = (id) => {
     for (const [k, b] of buttons) b.setAttribute('aria-pressed', String(k === id));

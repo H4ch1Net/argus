@@ -1,4 +1,5 @@
 import './targetPanel.css';
+import { formatDistance } from '../settings/store.js';
 import { h, id2 } from './dom.js';
 import { createTrackWidget } from './trackWidget.js';
 import { layerTile } from './layerGlyphs.js';
@@ -11,21 +12,27 @@ import { layerTile } from './layerGlyphs.js';
 // select. With nothing selected it reads SCAN: the widget and the contacts
 // nearest the middle of the view.
 
-const fmtDist = (m) =>
-  m == null
-    ? ''
-    : m >= 100_000
-      ? `${Math.round(m / 1000)}KM`
-      : m >= 1000
-        ? `${(m / 1000).toFixed(1)}KM`
-        : `${Math.round(m)}M`;
+const fmtDistMetric = (m) =>
+  m >= 100_000
+    ? `${Math.round(m / 1000)}KM`
+    : m >= 1000
+      ? `${(m / 1000).toFixed(1)}KM`
+      : `${Math.round(m)}M`;
 const fmtBrg = (d) =>
   d == null ? '' : `${String(Math.round(d) % 360).padStart(3, '0')}°`;
 
 /**
  * @param {{ onClose?: () => void, onPickContact?: (c: object) => void }} opts
  */
-export function createTargetPanel({ onClose, onPickContact } = {}) {
+export function createTargetPanel({ onClose, onPickContact, prefs = null } = {}) {
+  // Contact distances in the units the settings ask for.
+  const fmtDist = (m) => {
+    if (m == null) return '';
+    const units = prefs?.get('units') ?? 'metric';
+    return units === 'metric'
+      ? fmtDistMetric(m)
+      : formatDistance(m, units).replace(' ', '');
+  };
   const widget = createTrackWidget();
   const stateEl = h('span.ct-target__state', {}, 'SCAN');
   const closeBtn = h(
