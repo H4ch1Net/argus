@@ -325,7 +325,8 @@ npm run dev:https          # dev server over HTTPS, to test on the phone
 ```
 
 The dev server forwards `/health`, `/feed`, `/tiles`, and `/ws` to the proxy on
-`localhost:8787`, so the app always talks to its own origin (that is what makes
+`localhost` (following `PROXY_PORT` and `PROXY_HTTPS` from the same `.env` files
+the proxy reads), so the app always talks to its own origin (that is what makes
 the phone work over HTTPS). With no proxy running, the dev build falls back to
 labelled demo data. `ARGUS_PROXY_TARGET` points the forwarding elsewhere (`off`
 disables it); `VITE_PROXY_BASE_URL` makes the app call a proxy on another origin

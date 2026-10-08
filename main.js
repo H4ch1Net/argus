@@ -604,46 +604,51 @@ async function setupScene(app) {
   let savedSensor = null;
   let savedTerrain = null;
   if (app.tier !== 'full') {
+    const rungs = [];
+    // Post-processing is only a rung where shaders exist (not on the minimal tier).
+    if (shaders) {
+      rungs.push({
+        label: 'post-processing off',
+        down: () => {
+          savedSensor = { sensor: shaders.sensor, crt: shaders.crt };
+          shaders.setSensor('none');
+          shaders.setCrt(false);
+          sensorUi?.sync();
+        },
+        up: () => {
+          if (!savedSensor) return;
+          shaders.setSensor(savedSensor.sensor);
+          shaders.setCrt(savedSensor.crt);
+          savedSensor = null;
+          sensorUi?.sync();
+        },
+      });
+    }
+    rungs.push(
+      {
+        label: 'reduced resolution',
+        down: () => {
+          app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
+        },
+        up: () => {
+          app.viewer.resolutionScale = app.profile.resolutionScale;
+        },
+      },
+      {
+        label: 'flat terrain',
+        down: () => {
+          savedTerrain = terrain.current();
+          if (savedTerrain !== 'flat') terrainSwitcher.setActive('flat');
+        },
+        up: () => {
+          if (savedTerrain && savedTerrain !== 'flat')
+            terrainSwitcher.setActive(savedTerrain);
+          savedTerrain = null;
+        },
+      },
+    );
     attachThermalLadder(app.viewer, {
-      targetFrameRate: app.profile.targetFrameRate,
-      rungs: [
-        null,
-        {
-          down: () => {
-            if (!shaders) return;
-            savedSensor = { sensor: shaders.sensor, crt: shaders.crt };
-            shaders.setSensor('none');
-            shaders.setCrt(false);
-            sensorUi?.sync();
-          },
-          up: () => {
-            if (!shaders || !savedSensor) return;
-            shaders.setSensor(savedSensor.sensor);
-            shaders.setCrt(savedSensor.crt);
-            savedSensor = null;
-            sensorUi?.sync();
-          },
-        },
-        {
-          down: () => {
-            app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
-          },
-          up: () => {
-            app.viewer.resolutionScale = app.profile.resolutionScale;
-          },
-        },
-        {
-          down: () => {
-            savedTerrain = terrain.current();
-            if (savedTerrain !== 'flat') terrainSwitcher.setActive('flat');
-          },
-          up: () => {
-            if (savedTerrain && savedTerrain !== 'flat')
-              terrainSwitcher.setActive(savedTerrain);
-            savedTerrain = null;
-          },
-        },
-      ],
+      rungs,
       onChange: (level, label) => {
         app.readout.setThermal?.(label, level);
         console.info(`[argus] thermal ladder: ${label}`);

@@ -122,3 +122,15 @@ test('navigations fall back to the cached shell when offline', async () => {
   assert.equal(intercepted, true);
   assert.equal(res.body, '/');
 });
+
+test('caches are versioned per build and old builds are dropped on activate', async () => {
+  assert.match(SRC, /__ARGUS_BUILD__/, 'the build stamp placeholder is present');
+  const sw = load();
+  await sw.dispatch('/assets/x.js');
+  // A previous build's cache, as an older service worker would have left it.
+  await sw.stores.set('argus-static-oldbuild', new Map());
+  await sw.handlers.activate({ waitUntil: (p) => p });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sw.stores.has('argus-static-oldbuild'), false);
+  assert.equal(sw.stores.has('argus-static-__ARGUS_BUILD__'), true);
+});

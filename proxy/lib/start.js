@@ -68,8 +68,10 @@ async function attachWebsockets(server, env, warn) {
 }
 
 /**
+ * Secrets and settings are read from process.env (load .env files first with
+ * lib/env.js); the relay, tile broker, and /health read the same environment.
+ *
  * @param {object} [opts]
- * @param {NodeJS.ProcessEnv} [opts.env]      environment (secrets are read from here)
  * @param {number} [opts.port]                overrides PROXY_PORT (0 = ephemeral)
  * @param {string|null} [opts.host]           overrides PROXY_HOST (bind address)
  * @param {boolean} [opts.https]              overrides PROXY_HTTPS
@@ -79,7 +81,7 @@ async function attachWebsockets(server, env, warn) {
  * @returns {Promise<{ server: import('node:http').Server, port: number, url: string, wsUrl: string, https: boolean, feeds: object[], close: () => Promise<void> }>}
  */
 export async function startProxy(opts = {}) {
-  const env = opts.env ?? process.env;
+  const env = process.env;
   const warn = opts.warn ?? ((m) => console.warn(`[argus-proxy] ${m}`));
   const config = loadConfig(env);
   if (opts.port !== undefined) config.port = opts.port;

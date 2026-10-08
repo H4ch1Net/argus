@@ -8,8 +8,11 @@
 //   /cesium/*, /icons/*  stale-while-revalidate, entry-capped
 //   everything else      not intercepted
 
-const SHELL = 'argus-shell-v1';
-const STATIC = 'argus-static-v1';
+// Replaced with a per-build id at build time (vite.config.js), so each build
+// starts with fresh caches and the activate step drops the previous build's.
+const BUILD = '__ARGUS_BUILD__';
+const SHELL = `argus-shell-${BUILD}`;
+const STATIC = `argus-static-${BUILD}`;
 const STATIC_MAX_ENTRIES = 600;
 const LIVE = /^\/(feed|ws|health|tiles)(\/|$)/;
 

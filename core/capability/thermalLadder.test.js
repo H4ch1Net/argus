@@ -2,12 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createThermalLadder, THERMAL_LEVELS } from './thermalLadder.js';
 
-// Drive the ladder with a frame-time sequence at a fixed cadence.
+// Drive the ladder with a frame-time sequence at a fixed cadence. `dt` may be a
+// function of the current level (a device whose frame time depends on quality).
 function run(ladder, clock, ms, dt) {
   const events = [];
-  for (let elapsed = 0; elapsed < ms; elapsed += dt) {
-    clock.t += dt;
-    const r = ladder.sample(dt);
+  for (let elapsed = 0; elapsed < ms; ) {
+    const d = typeof dt === 'function' ? dt(ladder.level) : dt;
+    clock.t += d;
+    elapsed += d;
+    const r = ladder.sample(d);
     if (r.changed) events.push(r);
   }
   return events;
@@ -49,9 +52,13 @@ test('a short spike does not trigger a step', () => {
   assert.equal(ladder.level, 0);
 });
 
-test('idle gaps (on-demand rendering) are ignored', () => {
+test('idle gaps are ignored and reset the evidence built before them', () => {
   const { clock, ladder } = setup();
   assert.deepEqual(run(ladder, clock, 120_000, 2000), []);
+  // 3 s of overload, a long background pause, then normal frames: no step.
+  run(ladder, clock, 3000, 70);
+  run(ladder, clock, 60_000, 5000);
+  assert.deepEqual(run(ladder, clock, 6000, 33), []);
   assert.equal(ladder.level, 0);
 });
 
@@ -63,4 +70,29 @@ test('stops at the last rung and recovers slowly once comfortable', () => {
   assert.equal(up.length, 1);
   assert.equal(up[0].direction, 'up');
   assert.equal(ladder.level, 2);
+});
+
+test('recovery backs off instead of cycling on a device that reheats', () => {
+  // Hot at full resolution (50 ms), fine one rung down (34 ms): a naive ladder
+  // would step up and down forever.
+  const { clock, ladder } = setup({ labels: ['full', 'reduced'] });
+  const events = run(ladder, clock, 30 * 60_000, (level) => (level === 0 ? 50 : 34));
+  assert.ok(events.length <= 8, `settled instead of cycling (${events.length} changes)`);
+  assert.ok(ladder.recoverWait > 120_000, 'the recovery wait grew');
+});
+
+test('the budget follows the live frame-rate cap (cockpit mode at 60 fps)', () => {
+  let fps = 30;
+  const { clock, ladder } = setup({ getTargetFrameRate: () => fps });
+  fps = 60;
+  // 30 ms frames are fine at 30 fps but nearly double a 60 fps budget.
+  const events = run(ladder, clock, 40_000, 30);
+  assert.ok(events.length >= 1 && events[0].direction === 'down');
+});
+
+test('levels and labels come from the rungs the caller has', () => {
+  const { clock, ladder } = setup({ labels: ['full quality', 'flat terrain'] });
+  run(ladder, clock, 300_000, 80);
+  assert.equal(ladder.level, 1, 'never beyond the last rung');
+  assert.equal(ladder.label, 'flat terrain');
 });

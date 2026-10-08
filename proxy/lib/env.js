@@ -40,7 +40,8 @@ export function parseDotEnv(text) {
     const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
     if (!m) continue;
     let value = m[2];
-    const quoted = value.match(/^(['"])(.*)\1$/);
+    // A quoted value may be followed by a comment: KEY="a b" # note
+    const quoted = value.match(/^(['"])(.*?)\1\s*(?:#.*)?$/);
     if (quoted) value = quoted[2];
     else value = value.replace(/\s+#.*$/, '').trim();
     out[m[1]] = value;

@@ -181,3 +181,37 @@ test('compute-position layers evaluate position from time', async () => {
   assert.equal(layer.entities(42_000)[0].position.longitude, 42);
   layer.stop();
 });
+
+test('a fast start/stop/start subscribes to a push stream exactly once', async () => {
+  const env = fakeEnv();
+  let subs = 0;
+  let unsubs = 0;
+  let resolveSource;
+  const layer = createTerminalLayer(
+    {
+      key: 'race',
+      mode: 'push',
+      makeSource: () =>
+        new Promise((r) => {
+          resolveSource = r;
+        }),
+      normalize: (x) => x,
+    },
+    { now: env.now, timers: env.timers },
+  );
+  const first = layer.start();
+  layer.stop();
+  const second = layer.start();
+  resolveSource(() => {
+    subs += 1;
+    return () => {
+      unsubs += 1;
+    };
+  });
+  await Promise.all([first, second]);
+  assert.equal(subs, 1, 'only the live start subscribes');
+  assert.equal(env.intervals.size, 1, 'one stale-sweep timer');
+  layer.stop();
+  assert.equal(unsubs, 1);
+  assert.equal(env.intervals.size, 0);
+});

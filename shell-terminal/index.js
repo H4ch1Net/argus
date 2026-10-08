@@ -108,6 +108,8 @@ export async function runTui(argv = []) {
   process.on('exit', restore);
   process.on('SIGTERM', () => finish(0));
   process.on('SIGHUP', () => finish(0));
+  // Ctrl-C arrives as a key in raw mode; this covers `kill -INT` from outside.
+  process.on('SIGINT', () => finish(130));
   process.on('uncaughtException', (err) => {
     restore();
     console.error('[argus tui] crashed:', err);

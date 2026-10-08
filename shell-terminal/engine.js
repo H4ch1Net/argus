@@ -43,7 +43,7 @@ export function createTerminalLayer(def, env = {}) {
   let settleTimer = null;
   let aborter = null;
   let unsubscribe = null;
-  let source = null;
+  let generation = 0; // bumped by stop(), so a start() still awaiting its source bails
   const status = { state: 'off', count: 0, message: '', updatedAt: null };
 
   function setStatus(patch) {
@@ -83,10 +83,16 @@ export function createTerminalLayer(def, env = {}) {
     for (const id of records.keys()) if (!seen.has(id)) records.delete(id);
   }
 
+  // Cache the promise, not the result, so overlapping starts share one source.
+  let sourcePromise = null;
   async function ensureSource() {
-    if (!source) source = await def.makeSource();
-    if (!source) throw new Error(def.unavailable || 'no source available');
-    return source;
+    sourcePromise ??= Promise.resolve(def.makeSource());
+    const src = await sourcePromise;
+    if (!src) {
+      sourcePromise = null; // allow a retry once the reason is fixed
+      throw new Error(def.unavailable || 'no source available');
+    }
+    return src;
   }
 
   async function poll() {
@@ -156,11 +162,12 @@ export function createTerminalLayer(def, env = {}) {
     async start() {
       if (running) return;
       running = true;
+      const gen = ++generation;
       setStatus({ state: 'loading', message: '' });
       if (mode === 'push') {
         try {
           const src = await ensureSource();
-          if (!running) return;
+          if (gen !== generation || !running) return; // stopped (or restarted) meanwhile
           unsubscribe = src(pushIngest, { getQuery });
           staleTimer = timers.setInterval(sweepStale, Math.min(5_000, staleMs));
           setStatus({
@@ -178,6 +185,7 @@ export function createTerminalLayer(def, env = {}) {
 
     stop() {
       running = false;
+      generation += 1;
       if (timer) timers.clearInterval(timer);
       if (staleTimer) timers.clearInterval(staleTimer);
       if (settleTimer) timers.clearTimeout(settleTimer);

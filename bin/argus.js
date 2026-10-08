@@ -191,6 +191,11 @@ async function main() {
   }
   const { runCli, CLI_COMMANDS } = await import('../shell-terminal/cli.js');
   if (CLI_COMMANDS.includes(cmd)) {
+    // `argus quakes | head`: a closed pipe ends the command quietly, not with a trace.
+    process.stdout.on('error', (err) => {
+      if (err.code === 'EPIPE') process.exit(0);
+      throw err;
+    });
     process.exitCode = await runCli(cmd, argv);
     return;
   }

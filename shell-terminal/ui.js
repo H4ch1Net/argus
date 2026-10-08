@@ -165,7 +165,11 @@ function drawMap(scr, box, state) {
       if (rank > maxRank) continue;
       const c = cellOf(lon, lat);
       if (!c) continue;
-      const label = `${state.unicode ? '∙' : '.'}${name}`;
+      // Strict ASCII mode also drops accents (São Paulo -> Sao Paulo).
+      const shown = state.unicode
+        ? name
+        : name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const label = `${state.unicode ? '∙' : '.'}${shown}`;
       if (!canvas.free(c.col, c.row, label.length)) continue;
       canvas.text(c.col, c.row, label, THEME.city, { priority: -0.5 });
     }

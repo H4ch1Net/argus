@@ -44,3 +44,10 @@ test('loadEnvFiles never overrides set values and earlier files win', () => {
   assert.equal(env.PRESET, 'from-env');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('a quoted value followed by a comment keeps only the value', () => {
+  assert.deepEqual(parseDotEnv('KEY="abc def" # note\nOTHER=\'x\'   # c'), {
+    KEY: 'abc def',
+    OTHER: 'x',
+  });
+});

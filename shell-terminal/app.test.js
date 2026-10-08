@@ -161,3 +161,50 @@ test('ascii mode draws no braille or arrows; q quits', async () => {
     app.stop();
   }
 });
+
+test('a terminal smaller than the minimum does not redraw or refetch every frame', async () => {
+  const backend = await connectBackend({ demo: true });
+  let clears = 0;
+  const app = createTuiApp({
+    backend,
+    write: (s) => {
+      if (s.includes('\x1b[2J')) clears += 1;
+    },
+    size: () => ({ cols: 30, rows: 8 }),
+    colorMode: 'none',
+  });
+  await app.start({ layers: [] });
+  for (let i = 0; i < 5; i += 1) app.render();
+  assert.equal(clears, 1, 'only the first frame clears the screen');
+  app.stop();
+});
+
+test('tracking a mover re-scopes the viewport feeds once it drifts', async () => {
+  const { app } = await demoApp({ layers: ['quakes'] });
+  try {
+    const layer = app.layers.find((l) => l.key === 'quakes');
+    let refetches = 0;
+    const original = layer.viewChanged;
+    layer.viewChanged = () => {
+      refetches += 1;
+      original();
+    };
+    await app.runCommand('goto 0,0 500000');
+    await settle(400);
+    const before = refetches;
+    // Simulate following an entity that keeps moving east.
+    app.state.selected = { layer: 'osint', id: 'probe' };
+    app.state.osint = [
+      { id: 'probe', value: 'x', position: { longitude: 0, latitude: 0 } },
+    ];
+    app.state.tracking = true;
+    for (let lon = 0; lon <= 12; lon += 0.5) {
+      app.state.osint[0].position = { longitude: lon, latitude: 0 };
+      app.render();
+    }
+    await settle(400);
+    assert.ok(refetches > before, 'the feeds followed the tracked entity');
+  } finally {
+    app.stop();
+  }
+});

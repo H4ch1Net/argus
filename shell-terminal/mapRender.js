@@ -25,8 +25,10 @@ export function drawPolyline(canvas, ink, view, m, points, { close = false } = {
     xs.push(xs[xs.length - 1] + dl / m.dLon);
     ys.push(ys[0]);
   }
-  const shifts = turn < m.dotsW * 3 ? [0, -turn, turn] : [0];
-  for (const s of shifts) {
+  // Always draw the copies a full turn either side: a line spanning more than
+  // half the world (Eurasia, Antarctica) can sit a turn away from the view once
+  // unwrapped. Off-screen copies are clipped away cheaply.
+  for (const s of [0, -turn, turn]) {
     for (let i = 1; i < xs.length; i += 1) {
       canvas.line(ink, xs[i - 1] + s, ys[i - 1], xs[i] + s, ys[i]);
     }

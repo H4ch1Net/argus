@@ -79,7 +79,7 @@ export function createTuiApp(opts) {
     live: true,
     frozenAt: null,
     sidePanel: true,
-    showGrid: true,
+    showGrid: unicode, // in ASCII the grid dots crowd the coastline characters
     showCities: true,
     mode: 'map', // map | command | help
     input: '',
@@ -212,11 +212,13 @@ export function createTuiApp(opts) {
   // --- view changes ---------------------------------------------------------
 
   let settleTimer = null;
+  let settledView = null; // the view the feeds were last fetched for
   function viewChanged() {
     dirty = true;
     if (settleTimer) timers.clearTimeout(settleTimer);
     settleTimer = timers.setTimeout(() => {
       settleTimer = null;
+      settledView = state.view;
       for (const rt of layers) rt.viewChanged();
       viewer.fireMoveEnd();
       maybeUpgradeBasemap();
@@ -337,17 +339,21 @@ export function createTuiApp(opts) {
   function followSelection() {
     const p = entityPosition(state.selected);
     if (!p) return;
-    const lonDrift = Math.abs(shortestLonDelta(state.view.lon, p.longitude));
-    const latDrift = Math.abs(state.view.lat - p.latitude);
     state.view = makeView({
       lon: p.longitude,
       lat: p.latitude,
       degPerDot: state.view.degPerDot,
     });
-    // Refetch viewport feeds only once the entity has really moved the view.
+    // Refetch viewport feeds (and re-scope the AIS subscription) once the view
+    // has moved a fifth of its size away from where the feeds last settled.
+    const base = settledView ?? state.view;
     const m = mapMetrics();
-    if (lonDrift > m.dLon * m.dotsW * 0.2 || latDrift > m.dLat * m.dotsH * 0.2)
+    const lonDrift = Math.abs(shortestLonDelta(base.lon, state.view.lon));
+    const latDrift = Math.abs(base.lat - state.view.lat);
+    if (lonDrift > m.dLon * m.dotsW * 0.2 || latDrift > m.dLat * m.dotsH * 0.2) {
+      settledView = state.view;
       viewChanged();
+    }
   }
 
   /** Visible entities ordered by distance from the map centre. */
@@ -591,18 +597,27 @@ export function createTuiApp(opts) {
 
   // --- CT ticker --------------------------------------------------------------
 
+  let ctConnecting = false;
   async function toggleCt() {
+    if (ctConnecting) return; // a toggle is already connecting
     if (state.ct.on) {
       state.ct.stop?.();
       state.ct = { on: false, certs: [], rate: null, stop: null };
       log('CT ticker off', 'info');
       return;
     }
-    const source = await makeCtSource({
-      demo: backend.mode === 'demo',
-      wsBase: backend.wsBase,
-      health: backend.health,
-    });
+    ctConnecting = true;
+    let source;
+    try {
+      source = await makeCtSource({
+        demo: backend.mode === 'demo',
+        wsBase: backend.wsBase,
+        health: backend.health,
+      });
+    } finally {
+      ctConnecting = false;
+    }
+    if (!running) return;
     if (!source) {
       log('CT stream unavailable (proxy websockets are off)', 'warn');
       return;
@@ -797,6 +812,7 @@ export function createTuiApp(opts) {
   // --- frame loop --------------------------------------------------------------
 
   let prevLines = [];
+  let rawSize = { cols: 0, rows: 0 };
   let fullRedraw = true;
   let running = false;
   let tickTimer = null;
@@ -836,7 +852,10 @@ export function createTuiApp(opts) {
   function render() {
     if (!running) return;
     const { cols, rows } = size();
-    if (cols !== state.cols || rows !== state.rows) {
+    // Compare the raw size: the stored one is clamped for layout, so comparing
+    // against it would treat every frame on a tiny terminal as a resize.
+    if (cols !== rawSize.cols || rows !== rawSize.rows) {
+      rawSize = { cols, rows };
       const wasWorld =
         !state.view ||
         state.view.degPerDot >= worldDegPerDot(mapBox().w, mapBox().h) * 0.999;
@@ -898,6 +917,7 @@ export function createTuiApp(opts) {
   async function start({ layers: initial = null } = {}) {
     running = true;
     const { cols, rows } = size();
+    rawSize = { cols, rows };
     state.cols = Math.max(40, cols);
     state.rows = Math.max(12, rows);
     state.view = at

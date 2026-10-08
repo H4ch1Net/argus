@@ -505,9 +505,34 @@ way. Same honesty rule as before: "verified" below means run and observed.
 - **Launcher + installer**: `bin/argus.js` (`web`, `proxy`, `tui`, CLI) and
   `scripts/install-linux.sh` (command on PATH, keys file, menu launchers, GPU check).
 
+### Independent review of this pass (fixed)
+
+A separate review of the whole Phase C diff, which reproduced each issue with
+scratch scripts, found these; all are fixed with regression tests that fail on
+the earlier code:
+
+- Terminal: on a terminal smaller than 40x12 every frame was treated as a resize
+  (flicker, and viewport feeds refetched about once a second).
+- Terminal: while tracking, viewport feeds and the AIS subscription box never
+  followed the tracked entity (drift was measured frame to frame).
+- Terminal: coastlines of world-spanning rings (Eurasia, Antarctica) vanished
+  when zoomed in east of their first point (wrapped copies were skipped).
+- Terminal: a fast layer toggle could subscribe a push stream twice and leak a
+  socket and a timer (start/stop race); same for the CT ticker.
+- Thermal ladder: recovery could cycle forever on a device that reheats
+  (frame intervals are capped, so headroom is invisible); it now backs off. Idle
+  gaps now reset the evidence, the budget follows cockpit mode's 60 fps cap, and
+  a rung that does nothing on the device (post-processing without shaders) is
+  skipped.
+- `.env`: a quoted value followed by a comment kept its quotes.
+- Dev forwarding ignored the proxy's `PROXY_PORT` / `PROXY_HTTPS`.
+- Service worker caches are now versioned per build, so a Cesium upgrade cannot
+  mix old and new code on the first load.
+- The terminal is restored on an external SIGINT; `argus ... | head` exits quietly.
+
 ### Verified in this pass
 
-- Unit tests: `npm test` 177 of 179 pass; the 2 failures are the suites that need
+- Unit tests: `npm test` passes everything except the 2 suites that need
   `satellite.js` / `cesium`, which could not be installed here. Proxy: 54 of 54
   pass when run with a `ws` implementation (Playwright's bundled copy).
 - Proxy run with `--static`: `/health`, app files with correct types and cache
