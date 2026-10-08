@@ -77,6 +77,21 @@ import {
   installationColorHex,
   infraSearchText,
 } from '../core/layers/infrastructure/format.js';
+import { createBikeshareSource } from '../core/layers/bikeshare/systems.js';
+import {
+  parseBikeshare,
+  bikeshareNote,
+  describeBikeStation,
+  bikeColorHex,
+  bikeshareSearchText,
+} from '../core/layers/bikeshare/format.js';
+import { createTrafficCamSource } from '../core/layers/trafficcams/sources.js';
+import {
+  parseTrafficCams,
+  trafficCamNote,
+  describeTrafficCam,
+  trafficCamSearchText,
+} from '../core/layers/trafficcams/format.js';
 import { parseLandingPoints } from '../core/layers/cables/parse.js';
 import { describeLanding } from '../core/layers/cables/format.js';
 import {
@@ -107,6 +122,8 @@ export const GLYPHS = {
     installation: '⊞',
     landing: '◇',
     navsat: '✧',
+    trafficcam: '◘',
+    bike: '¤',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -128,6 +145,8 @@ export const GLYPHS = {
     installation: 'M',
     landing: '=',
     navsat: ':',
+    trafficcam: 'T',
+    bike: '$',
   },
 };
 
@@ -540,6 +559,47 @@ export function buildLayers({
       glyph: (n) => ({ ch: g.radio, color: radioColorHex(n) }),
       priority: (n) => Math.log10(Math.max(1, n.meta.clicks ?? 1)) / 4,
       legend: () => `${g.radio} radio stations (amber = news/scanner)`,
+    },
+    {
+      key: 'trafficcams',
+      label: 'Traffic cams',
+      mode: 'poll',
+      intervalMs: 15 * 60_000,
+      viewportBounded: true,
+      maxEntities: 4000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/trafficcams/mockSource.js')
+            ).createTrafficCamMockSource({ viewer })
+          : createTrafficCamSource({ proxyClient: client }),
+      normalize: (raw) => parseTrafficCams(raw),
+      // The card carries the still's proxy URL as a link (a terminal shows no images).
+      describe: describeTrafficCam,
+      searchText: trafficCamSearchText,
+      glyph: () => ({ ch: g.trafficcam, color: '#5fe3ff' }),
+      statusNote: (_q, raw) => trafficCamNote(raw),
+      legend: () => `${g.trafficcam} public traffic cameras (stills on request)`,
+    },
+    {
+      key: 'bikeshare',
+      label: 'Bikeshare',
+      mode: 'poll',
+      intervalMs: 60_000,
+      viewportBounded: true,
+      maxEntities: 6000,
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/bikeshare/mockSource.js')
+            ).createBikeshareMockSource({ viewer })
+          : createBikeshareSource({ proxyClient: client }),
+      normalize: (raw) => parseBikeshare(raw),
+      describe: (n) => describeBikeStation(n),
+      searchText: bikeshareSearchText,
+      glyph: (n) => ({ ch: g.bike, color: bikeColorHex(n.meta) }),
+      statusNote: (_q, raw) => bikeshareNote(raw),
+      legend: () => `${g.bike} bikeshare stations (green ok, amber low, red empty)`,
     },
     {
       key: 'datacenters',

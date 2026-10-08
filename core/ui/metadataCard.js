@@ -21,6 +21,7 @@ export function createMetadataCard({ onClose } = {}) {
     <button class="argus-card__close" type="button" aria-label="Close">&times;</button>
     <div class="argus-card__title" data-role="title"></div>
     <div class="argus-card__subtitle" data-role="subtitle"></div>
+    <img class="argus-card__image" data-role="image" alt="" referrerpolicy="no-referrer" hidden />
     <div class="argus-card__rows" data-role="rows"></div>
     <div class="argus-card__links" data-role="links" hidden></div>
     <div class="argus-card__actions" data-role="actions" hidden></div>
@@ -31,6 +32,10 @@ export function createMetadataCard({ onClose } = {}) {
   const rowsEl = el.querySelector('[data-role="rows"]');
   const actionsEl = el.querySelector('[data-role="actions"]');
   const linksEl = el.querySelector('[data-role="links"]');
+  const imageEl = el.querySelector('[data-role="image"]');
+  imageEl.addEventListener('error', () => {
+    imageEl.hidden = true; // a camera that is offline right now: keep the card tidy
+  });
 
   el.querySelector('.argus-card__close').addEventListener('click', () => onClose?.());
 
@@ -57,9 +62,20 @@ export function createMetadataCard({ onClose } = {}) {
         )
         .join('');
       rowsEl.innerHTML = flat + sections;
-      // Source links (an advisory, a station's stream, a launch page). Only https
-      // URLs, opened in a new tab with no referrer back to this app.
-      const links = (model.links || []).filter((l) => /^https:\/\//i.test(l?.url || ''));
+      // An image (a traffic camera's latest still, fetched through the proxy),
+      // set only when it changes so a refreshing card does not reload it.
+      const img = /^https?:\/\//i.test(model.image?.url || '') ? model.image : null;
+      if (!img) {
+        imageEl.hidden = true;
+        imageEl.removeAttribute('src');
+      } else if (imageEl.getAttribute('src') !== img.url) {
+        imageEl.alt = img.alt || '';
+        imageEl.src = img.url;
+        imageEl.hidden = false;
+      }
+      // Source links (an advisory, a station's stream, a launch page): http(s)
+      // only, opened in a new tab with no referrer back to this app.
+      const links = (model.links || []).filter((l) => /^https?:\/\//i.test(l?.url || ''));
       linksEl.innerHTML = links
         .map(
           (l) =>

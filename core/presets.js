@@ -9,7 +9,7 @@ export const PRESETS = [
   {
     id: 'around-me',
     label: 'Around Me',
-    layers: ['flights', 'quakes', 'transit'],
+    layers: ['flights', 'quakes', 'transit', 'bikeshare'],
     geolocate: true,
   },
   { id: 'sky', label: 'Sky', layers: ['flights', 'military', 'satellites', 'launches'] },
@@ -22,7 +22,7 @@ export const PRESETS = [
   {
     id: 'surveillance',
     label: 'Surveillance',
-    layers: ['surveillance', 'landmarks', 'cctv', 'installations'],
+    layers: ['surveillance', 'trafficcams', 'cctv', 'installations'],
   },
   { id: 'internet', label: 'Internet', layers: ['bgp', 'cables', 'datacenters'] },
 ];

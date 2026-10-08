@@ -263,6 +263,86 @@ export const feeds = [
     headers: UA,
     cache: { ttlMs: 24 * HOUR, staleMs: 30 * 24 * HOUR },
   },
+  // Public traffic cameras (keyless). Each network has a catalogue feed (cached
+  // 15 minutes) and an image-only feed for its stills, fetched when a camera's
+  // card is opened. Only the documented catalogue and still paths are reachable.
+  {
+    // Caltrans, one JSON catalogue per district, stills on the same host.
+    id: 'caltrans',
+    baseUrl: 'https://cwwp2.dot.ca.gov/data',
+    methods: ['GET'],
+    allowPaths: [/^\/data\/d\d{1,2}\/cctv\/cctvStatusD\d{2}\.json$/],
+    headers: UA,
+    cache: { ttlMs: 15 * MINUTE, staleMs: 24 * HOUR },
+  },
+  {
+    id: 'caltrans-img',
+    baseUrl: 'https://cwwp2.dot.ca.gov/data',
+    methods: ['GET'],
+    allowPaths: [/^\/data\/d\d{1,2}\/cctv\/image\/[\w.-]+\/[\w.-]+\.jpg$/],
+    headers: UA,
+    governor: { ratePerMinute: 120 },
+  },
+  {
+    // Transport for London JamCams ("Powered by TfL Open Data"); an optional
+    // TFL_APP_KEY only raises TfL's anonymous rate limit.
+    id: 'tfl',
+    baseUrl: 'https://api.tfl.gov.uk',
+    methods: ['GET'],
+    allowPaths: [/^\/Place\/Type\/JamCam$/],
+    headers: UA,
+    inject: [{ secret: 'TFL_APP_KEY', as: 'query', name: 'app_key', required: false }],
+    cache: { ttlMs: 15 * MINUTE, staleMs: 24 * HOUR },
+  },
+  {
+    id: 'tfl-img',
+    baseUrl: 'https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk',
+    methods: ['GET'],
+    allowPaths: [/^\/jamcams\.tfl\.gov\.uk\/[\d.]+\.jpg$/],
+    headers: UA,
+    governor: { ratePerMinute: 120 },
+  },
+  {
+    // Statens vegvesen (Norway), OGC API Features; NLOD.
+    id: 'vegvesen',
+    baseUrl: 'https://ogckart-sn1.atlas.vegvesen.no/ogc/features/v1/collections',
+    methods: ['GET'],
+    allowPaths: [/^\/ogc\/features\/v1\/collections\/datex_3_1:CctvSimple\/items$/],
+    headers: UA,
+    cache: { ttlMs: 15 * MINUTE, staleMs: 24 * HOUR },
+  },
+  {
+    id: 'vegvesen-img',
+    baseUrl: 'https://kamera.atlas.vegvesen.no/api/images',
+    methods: ['GET'],
+    allowPaths: [/^\/api\/images\/[A-Za-z0-9_-]{1,40}$/],
+    headers: UA,
+    governor: { ratePerMinute: 120 },
+  },
+  // Bikeshare stations (GBFS station_information + station_status), keyless
+  // and attribution-only per system; core/layers/bikeshare/systems.js holds the
+  // registry. One feed per host, reaching only those two files.
+  ...[
+    ['gbfs-lyft', 'https://gbfs.lyft.com/gbfs/2.3', '/(bkn|chi|dca-cabi|bay)/en'],
+    ['gbfs-bluebikes', 'https://gbfs.bluebikes.com/gbfs/en', ''],
+    ['gbfs-biketown', 'https://gbfs.biketownpdx.com/gbfs/2.3/en', ''],
+    ['gbfs-cogo', 'https://gbfs.cogobikeshare.com/gbfs/2.3/en', ''],
+    ['gbfs-austin', 'https://austin.publicbikesystem.net/customer/gbfs/v2/en', ''],
+    ['gbfs-honolulu', 'https://hon.publicbikesystem.net/customer/gbfs/v2/en', ''],
+    ['gbfs-bcycle', 'https://gbfs.bcycle.com', '/bcycle_[a-z]+'],
+  ].map(([id, baseUrl, sub]) => ({
+    id,
+    baseUrl,
+    methods: ['GET'],
+    allowPaths: [
+      new RegExp(
+        `^${new URL(baseUrl).pathname.replace(/\/$/, '').replace(/\./g, '\\.')}${sub}/station_(information|status)\\.json$`,
+      ),
+    ],
+    headers: UA,
+    governor: { ratePerMinute: 20 },
+    cache: { ttlMs: 30_000, staleMs: 10 * MINUTE },
+  })),
   // Live transit vehicles (GTFS-Realtime VehiclePositions, protobuf). One feed
   // per agency, all keyless; core/layers/transit/agencies.js holds their
   // coverage areas. Polled at most every 15 s per agency, shared via the cache.

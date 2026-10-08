@@ -54,7 +54,19 @@ test('the real feed registry validates and pins the keyless flights fallback', a
 test('every ported feed is keyless or optional-keyed and path-pinned', async () => {
   const { feeds } = await import('../feeds.js');
   const { buildUpstreamUrl } = await import('../lib/relay.js');
-  const ids = ['radiobrowser', 'll2', 'nhc', 'nowcoast', 'cables'];
+  const ids = [
+    'radiobrowser',
+    'll2',
+    'nhc',
+    'nowcoast',
+    'cables',
+    'caltrans',
+    'caltrans-img',
+    'tfl',
+    'tfl-img',
+    'vegvesen',
+    'vegvesen-img',
+  ];
   const gtfs = feeds.filter((f) => f.id.startsWith('gtfsrt-'));
   assert.equal(gtfs.length, 7);
   for (const f of [...feeds.filter((x) => ids.includes(x.id)), ...gtfs]) {
@@ -76,6 +88,12 @@ test('every ported feed is keyless or optional-keyed and path-pinned', async () 
   const nc = feeds.find((f) => f.id === 'nowcoast').allowPaths[0];
   assert.ok(nc.test('/geoserver/observations/satellite/ows'));
   assert.equal(nc.test('/geoserver/observations/satellite/wfs'), false);
+  // Camera image feeds reach stills only, never the catalogues or anything else.
+  const img = (id) => feeds.find((f) => f.id === id).allowPaths[0];
+  assert.ok(img('tfl-img').test('/jamcams.tfl.gov.uk/00001.06514.jpg'));
+  assert.equal(img('tfl-img').test('/jamcams.tfl.gov.uk/../secret'), false);
+  assert.equal(img('caltrans-img').test('/data/d4/cctv/cctvStatusD04.json'), false);
+  assert.equal(img('vegvesen-img').test('/api/images/../x'), false);
   // Overpass can be re-pointed by the operator, and still only reaches /interpreter.
   const ovp = feeds.find((f) => f.id === 'overpass');
   assert.equal(ovp.baseUrlEnv, 'OVERPASS_URL');

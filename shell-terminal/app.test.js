@@ -127,7 +127,7 @@ test('presets apply the shared layer sets and skip globe-only layers', async () 
     await app.runCommand('preset surveillance');
     await settle();
     const on = app.layers.filter((l) => l.running).map((l) => l.key);
-    assert.deepEqual(on.sort(), ['installations', 'landmarks', 'surveillance']);
+    assert.deepEqual(on.sort(), ['installations', 'surveillance', 'trafficcams']);
     assert.match(logText(app), /globe-only layers skipped: cctv/);
   } finally {
     app.stop();
@@ -219,6 +219,8 @@ test('every layer ported from the reference runs on demo data', async () => {
     'datacenters',
     'installations',
     'landings',
+    'trafficcams',
+    'bikeshare',
   ];
   const { app } = await demoApp({ layers: keys });
   try {

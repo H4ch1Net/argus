@@ -285,6 +285,27 @@ async function setupScene(app) {
           : Promise.resolve(null),
     },
     {
+      key: 'bikeshare',
+      group: 'Ground & sea',
+      label: 'Bikeshare',
+      loadDef: () =>
+        import('./core/layers/bikeshare/definition.js').then(
+          (m) => m.bikeshareDefinition,
+        ),
+      // GBFS stations for the covered systems in view (keyless).
+      proxy: async (c) => {
+        const { createBikeshareSource } =
+          await import('./core/layers/bikeshare/systems.js');
+        return createBikeshareSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/bikeshare/mockSource.js').then((m) =>
+              m.createBikeshareMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'ships',
       group: 'Ground & sea',
       label: 'Ships',
@@ -436,6 +457,27 @@ async function setupScene(app) {
         import.meta.env.DEV
           ? import('./core/layers/cctv/mockSource.js').then((m) =>
               m.createCctvMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'trafficcams',
+      group: 'Infrastructure',
+      label: 'Traffic cams',
+      loadDef: () =>
+        import('./core/layers/trafficcams/definition.js').then(
+          (m) => m.trafficCamsDefinition,
+        ),
+      // Public DOT cameras (Caltrans, TfL, Statens vegvesen) in view; stills on demand.
+      proxy: async (c) => {
+        const { createTrafficCamSource } =
+          await import('./core/layers/trafficcams/sources.js');
+        return createTrafficCamSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/trafficcams/mockSource.js').then((m) =>
+              m.createTrafficCamMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
