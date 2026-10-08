@@ -239,21 +239,41 @@ copies those into the browser bundle). Restart Argus after editing.
 
 ### Works with no key
 
-| Layer / feature                   | Source                                   |
-| --------------------------------- | ---------------------------------------- |
-| Flights (when OpenSky has no key) | adsb.lol community ADS-B API (see note)  |
-| Earthquakes                       | USGS                                     |
-| Satellites                        | CelesTrak                                |
-| Landmarks + surveillance cameras  | OpenStreetMap Overpass                   |
-| Search / fly-to                   | OSM Nominatim                            |
-| OSINT lookups + BGP activity      | RIPEstat / RIPE RIS Live                 |
-| 3D terrain + imagery              | Esri World Elevation / Imagery, OSM      |
-| Terminal coastlines               | Natural Earth via world-atlas (jsDelivr) |
+| Layer / feature                                              | Source                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Flights (when OpenSky has no key)                            | adsb.lol community ADS-B API (see note)                                    |
+| Military aircraft                                            | adsb.lol military list                                                     |
+| Earthquakes                                                  | USGS                                                                       |
+| Satellites, navigation + GEO satellites                      | CelesTrak                                                                  |
+| Launches                                                     | Launch Library 2 (15 calls/hour; the proxy caches)                         |
+| Transit                                                      | GTFS-Realtime: MBTA, CapMetro, Metro Transit, HSL, OVapi, Entur, TransLink |
+| Bikeshare                                                    | GBFS from 16 systems (Lyft cities, Bluebikes, BCycle, ...)                 |
+| Cyclones                                                     | NOAA National Hurricane Center                                             |
+| IR clouds, US radar, lightning density                       | NOAA nowCOAST                                                              |
+| Traffic cameras                                              | Caltrans, TfL JamCams, Statens vegvesen                                    |
+| Radio                                                        | Radio Browser                                                              |
+| Landmarks, surveillance cameras, data centres, installations | OpenStreetMap Overpass (see note)                                          |
+| Submarine cables                                             | TeleGeography (CC BY-NC-SA 3.0, non-commercial)                            |
+| Search / fly-to                                              | OSM Nominatim                                                              |
+| OSINT lookups + BGP activity                                 | RIPEstat / RIPE RIS Live                                                   |
+| 3D terrain + imagery                                         | Esri World Elevation / Imagery, OSM                                        |
+| Terminal coastlines                                          | Natural Earth via world-atlas (jsDelivr)                                   |
 
 Note: adsb.lol's public API was keyless when this was built, with a key (issued
 to people who feed data to adsb.lol) announced for the future. Its terms could
 not be re-checked from the build environment; if it starts requiring a key, use
 OpenSky.
+
+Note: the layers ported from the reference project (military, transit,
+bikeshare, launches, cyclones, weather, traffic cameras, radio, cables, data
+centres, installations) use the endpoints that project uses live, but none could
+be reached from the build environment. If one shows an error, `argus health`
+and the readout's hover text say why; [docs/COMPARISON.md](docs/COMPARISON.md)
+lists each source.
+
+Note: public Overpass servers rate-limit hard and refuse clients that do not
+identify themselves (Argus sends a descriptive User-Agent). If OSM layers keep
+failing, point `OVERPASS_URL` at another instance, ideally one you run.
 
 ### Free key required
 
@@ -265,16 +285,44 @@ OpenSky.
 
 ### Optional / conditional
 
-| Layer                  | Variable              | Notes                                                                                                                                                   |
-| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shodan**             | `SHODAN_API_KEY`      | Awareness only (credit-free count and host queries). Free with a student `.edu` email via the GitHub Student Pack; otherwise a paid account.            |
-| **Photoreal 3D Tiles** | `GOOGLE_MAPS_API_KEY` | Google Maps Platform key. Free monthly tier but requires billing on a Google Cloud project. Without it the "Photoreal" toggle falls back to 3D terrain. |
-| **CT firehose**        | `CT_STREAM_URL`       | A CertStream-compatible websocket. The public server is often silent; a self-hosted certstream-server works.                                            |
+| Layer                  | Variable                            | Notes                                                                                                                                                   |
+| ---------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shodan**             | `SHODAN_API_KEY`                    | Awareness only (credit-free count and host queries). Free with a student `.edu` email via the GitHub Student Pack; otherwise a paid account.            |
+| **Photoreal 3D Tiles** | `GOOGLE_MAPS_API_KEY`               | Google Maps Platform key. Free monthly tier but requires billing on a Google Cloud project. Without it the "Photoreal" toggle falls back to 3D terrain. |
+| **CT firehose**        | `CT_STREAM_URL`                     | A CertStream-compatible websocket. The public server is often silent; a self-hosted certstream-server works.                                            |
+| **My receiver**        | `LOCAL_ADSB_URL`                    | Your own ADS-B decoder's data folder, e.g. `http://localhost:8080/data` (see below). Must be this machine or the LAN.                                   |
+| **Launches**           | `LL2_API_TOKEN`                     | Optional; raises Launch Library 2's keyless 15 calls/hour.                                                                                              |
+| **Traffic cams (TfL)** | `TFL_APP_KEY`                       | Optional; raises TfL's anonymous limit for the JamCam catalogue.                                                                                        |
+| **Overpass / Radio**   | `OVERPASS_URL`, `RADIO_BROWSER_URL` | Optional: another Overpass instance; one fixed Radio Browser mirror.                                                                                    |
+
+### Your own ADS-B receiver (RTL-SDR on Kali)
+
+With an RTL-SDR dongle and a 1090 MHz decoder, the "My receiver" layer shows
+the aircraft your own antenna hears, polled every 2 seconds, alongside (or
+instead of) the internet feeds. Any decoder that serves `aircraft.json` works
+(dump1090-fa, dump1090-mutability, readsb, tar1090). On Kali, for example:
+
+```bash
+sudo apt install -y dump1090-mutability lighttpd   # one option; readsb or dump1090-fa work too
+# Where aircraft.json lives depends on the decoder, typically:
+#   dump1090-mutability + lighttpd   http://localhost/dump1090/data/
+#   dump1090-fa (SkyAware)           http://localhost/skyaware/data/
+#   readsb + tar1090                 http://localhost/tar1090/data/
+echo 'LOCAL_ADSB_URL=http://localhost/dump1090/data' >> ~/.config/argus/.env
+argus health                                       # local-adsb: ready
+```
+
+The value is the folder that holds `aircraft.json` (open it in a browser with
+`aircraft.json` appended to check). The proxy only accepts a
+host on this machine or the LAN (loopback, 10/8, 172.16/12, 192.168/16,
+169.254/16, `.local`), so the setting can never be used to reach a third-party
+server. Receiving ADS-B is passive.
 
 ### Always simulated
 
-CCTV and threat arcs have no verified public feed, so they are always synthetic
-and stay labelled `DEMO` in the UI.
+The CCTV projection layer (the pose gizmo) and threat arcs have no verified
+public feed, so they are always synthetic and stay labelled `DEMO` in the UI.
+Real public camera stills are in the separate "Traffic cams" layer.
 
 ### Minimal live `.env`
 
@@ -294,9 +342,21 @@ Check what the proxy sees with `argus health`.
 - **Zoom**: the on-screen **+ / -** buttons are the dependable option on a laptop
   trackpad. Mouse wheel and two-finger scroll also zoom; left-drag rotates;
   right-drag (or middle-drag) tilts. On the phone: pinch to zoom, two fingers to tilt.
-- **Cameras and landmarks load only when you zoom in.** They come from Overpass,
-  which is only queried once the view covers a city-sized area (under about 3
-  degrees). Zoom into a city, then toggle **SURVEILLANCE** or **LANDMARKS**.
+  Below the zoom buttons: **N** turns north up, **⟂** switches between straight
+  down and an oblique view, **⌂** returns to the whole Earth.
+- **Layers are grouped** (Air & space, Ground & sea, Earth & weather,
+  Infrastructure, Signals). Presets switch a sensible set at once.
+- **OSM layers load only when you zoom in.** Surveillance cameras, landmarks and
+  installations come from Overpass, which is only queried once the view covers a
+  city-sized area (under about 3 degrees; data centres up to 6). The readout says
+  "zoom in to load" until then.
+- **City feeds**: transit, bikeshare and traffic cameras cover specific cities and
+  regions (listed in `docs/COMPARISON.md`); elsewhere the readout says none is in
+  view. Transit is on by default and fills in when you reach a covered city.
+- **Weather**: IR clouds are global, radar covers the contiguous US, lightning the
+  Americas and Pacific. They are the latest frame, refreshed every 5 to 10 minutes.
+- **Cards** carry links to the source (an NHC advisory, a radio stream, a camera's
+  still). Opening a radio stream connects your device directly to the broadcaster.
 - **Earthquakes** are real, sparse events: you may see none over your town.
 - **Live vs demo**: if the app cannot reach a proxy, an amber `DEMO DATA` banner
   says every layer is simulated. A layer whose key is missing shows an error in
@@ -398,6 +458,9 @@ Force a shell regardless of device with `?shell=mobile` or `?shell=desktop`.
 | Phone: no location, compass, or install | Use the `https://` address (`npm run start:https`); install also needs a trusted cert (section 2).      |
 | Phone cannot reach the PC               | Same Wi-Fi? Firewall port 8787 open? Use the printed LAN address, not `localhost`.                      |
 | Termux: `npm install` fails             | `pkg upgrade`, then re-run `bash scripts/install-termux.sh` (needs Node 20.19+ or 22.12+).              |
+| OSM layers fail (429, 406, timeouts)    | Public Overpass is busy or refusing: wait, zoom in further, or set `OVERPASS_URL` to another instance.  |
+| No "My receiver" toggle                 | Set `LOCAL_ADSB_URL` to your decoder's data folder (section 3), restart, check `argus health`.          |
+| Transit / bikeshare / cameras empty     | They cover specific cities; the readout says "zoom to a covered city" or "none in view".                |
 | Termux: server stops with screen off    | `termux-wake-lock`, and exempt Termux from battery optimization in Android's app settings.              |
 | `EADDRINUSE :8787`                      | Something already uses the port: `argus web --port 8790`.                                               |
 | Terminal map shows boxes or `?`         | Use a UTF-8 locale and a font with braille, or `argus tui --ascii`.                                     |

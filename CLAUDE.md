@@ -64,7 +64,7 @@ Rules:
 - **Sensors (geolocation, orientation) are shell inputs, not core.** Core exposes "set camera to X" and "track entity Y". The mobile shell translates GPS/compass into those calls. Desktop shell never imports sensor code.
 - **Capability is runtime state, not a build target.** Detect GPU limits, memory, touch-vs-pointer, network type, and screen size at load, then branch on a capability tier. Do not branch on "is mobile".
 - **The terminal shell never imports Cesium.** It may use only Cesium-free core modules (each layer's `parse.js`/`format.js`, the SDK's pure helpers, `osint/`, `search/`, `net/`, `presets.js`, push sources) and must never import a layer's `definition.js`. So keep normalize/describe logic in `parse.js`/`format.js`, where every shell shares it, and keep `definition.js` to rendering config.
-- **Every shell reaches feeds through the proxy.** The browser finds it at its own origin (or `VITE_PROXY_BASE_URL`); the terminal shell embeds one on loopback (or takes `--proxy`).
+- **Every shell reaches feeds through the proxy.** The browser finds it at its own origin (or `VITE_PROXY_BASE_URL`); the terminal shell embeds one on loopback (or takes `--proxy`). A new upstream is a new entry in `proxy/feeds.js`, pinned to its paths; images (camera stills) get their own image-only feed. Equipment you own (an SDR receiver) uses a `localOnly` feed, which refuses any non-LAN host.
 
 ---
 
@@ -144,6 +144,8 @@ Verified as of the planning session (still re-check before relying on them): Ope
 
 Not yet verified: GreyNoise, AbuseIPDB, CISA KEV, CT logs, RIPE RIS/BGP, honeypot feeds, GTFS-RT specifics, and the remaining free feeds. Verify each at build time.
 
+The layers ported from the reference project use the endpoints it uses live, but were built without network access: they are marked "per the reference implementation, not live-tested here" in `proxy/feeds.js` until someone runs them.
+
 ---
 
 ## Build order (each phase ships something visible)
@@ -166,7 +168,7 @@ Not yet verified: GreyNoise, AbuseIPDB, CISA KEV, CT logs, RIPE RIS/BGP, honeypo
 16. OSINT/cyber console: threat-map arcs -> query console -> asset correlation -> CT/BGP -> terminal
 17. Time scrubber UI
 
-Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves the app same-origin), keyless flights fallback, thermal ladder, tile-cache caps, PWA. Status of everything lives in `docs/AUDIT.md`.
+Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves the app same-origin), keyless flights fallback, thermal ladder, tile-cache caps, PWA, Android standalone (Termux), and parity with the reference's keyless layers (military, transit, bikeshare, launches, cyclones, weather rasters, traffic cams, radio, cables, data centres, installations, nav sats, your own ADS-B receiver). Status of everything lives in `docs/AUDIT.md`; the feature-by-feature comparison with the reference (and what is out or deferred) in `docs/COMPARISON.md`.
 
 ---
 
@@ -176,6 +178,7 @@ Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves
 npm install          # install everything (app, proxy, terminal shell)
 ./scripts/install-linux.sh   # Kali/Linux: deps + `argus` command + keys file
                              # + menu launchers + GPU check (idempotent)
+bash scripts/install-termux.sh  # Android (Termux): the whole stack on the phone
 
 npm start            # build if stale, serve app + proxy on one origin (:8787)
 npm run start:https  # same over HTTPS: open the printed LAN URL on the phone
@@ -204,6 +207,7 @@ The `argus` launcher (`bin/argus.js`, on PATH after the install script or `npm l
 ```
 argus web [--https] [--open]     argus proxy [--https]     argus tui [--demo]
 argus query|correlate <ip|domain|asn>    argus quakes|flights|sats|fires|geocode
+argus military|storms|launches
 argus bgp|ct (streams)    argus health    (all take --json and --proxy URL)
 ```
 

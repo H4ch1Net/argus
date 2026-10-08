@@ -560,3 +560,83 @@ the earlier code:
 - **PWA install**: needs trusted HTTPS on the phone (SETUP.md, mkcert).
 - Unchanged from Phase B: keyed feeds without keys here, photoreal tiles,
   CertStream upstream silence, `raster` renderType, CCTV/threats demo-only.
+
+## Phase D: parity with the reference project, Android standalone
+
+Goal of this pass: compare Argus with the reference project
+(`bilawalsidhu/gods-eye-view`), port what was missing and fits the guardrails,
+make Android work without a PC, and merge to `main`. The full feature-by-feature
+comparison, including what was left out on purpose and why, is in
+[COMPARISON.md](COMPARISON.md).
+
+### Environment limits of this pass (read first)
+
+Same as Phase C: the npm registry answered 403 and every data host was blocked,
+so the web app was **not built or run in a browser**, and **no new upstream was
+reached live**. Endpoints, parameters and field names for the ported layers come
+from the reference project's working source; they are marked "per the reference
+implementation, not live-tested here" in `proxy/feeds.js`. Globe-side code was
+exercised against a Cesium stub (a scratch loader, not shipped).
+
+### Broken before, fixed now
+
+| #   | Problem                                                                           | Cause                                                                                                            | Fix / evidence                                                                                                                          |
+| --- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Surveillance and landmarks stayed empty on the globe with a live proxy            | `mode: 'viewport'` layers never received a bounding box (only `viewportBounded` polls did); the dev mocks hid it | `createLayer` always bounds viewport-mode queries. Stub harness shows the bbox now reaches the source                                   |
+| 2   | Turning off one moving layer froze the others (e.g. flights off while ships move) | Each mover saved and restored `requestRenderMode` on its own                                                     | Reference-counted per scene. Stub harness: two movers on, one off, still continuous; both off, on-demand again                          |
+| 3   | OSM layers and CelesTrak bulk groups likely refused by public servers             | Requests carried Node's default User-Agent (the reference project hit 406s from Overpass)                        | Every feed sends a descriptive User-Agent with a contact URL; `OVERPASS_URL` points Overpass elsewhere                                  |
+| 4   | An Overpass timeout was cached as "nothing here" for 10 minutes                   | Overpass reports runtime errors as HTTP 200 with a `remark`                                                      | Treated as an error and never cached. Tested                                                                                            |
+| 5   | `argus web` crashed in Termux                                                     | `os.networkInterfaces()` throws EACCES under Android's sandbox                                                   | Tolerated (no LAN list on Android). Tested                                                                                              |
+| 6   | Keyless flights used `/v2/point/...`, a path the reference does not use           | Guessed from docs at build time                                                                                  | Switched to the reference's live-used `/v2/lat/../lon/../dist/..`, anchor snapped to 0.25 degrees so pans share the proxy cache. Tested |
+
+### New
+
+- **Layers** (each config against the Layer SDK; pure parse/format shared by the
+  globe and the terminal; demo sources; tests): military air, my receiver
+  (`LOCAL_ADSB_URL`), navigation and GEO satellites, launches, transit (7
+  GTFS-RT operators, default-on), bikeshare (16 GBFS systems), cyclones, IR
+  clouds, US radar, lightning density, traffic cameras (Caltrans, TfL, Statens
+  vegvesen), radio, data centres, installations, submarine cables (cable landing
+  points in the terminal).
+- **SDK**: `raster` render type (imagery overlays through the same interface),
+  `polyline` render type, `positionCacheMs` for large compute-position sets,
+  `statusNote` (why a layer is empty) shown in the readout and the terminal.
+- **Proxy**: response cache with stale-on-error for rate-limited feeds;
+  `baseUrlEnv` overrides; `localOnly` feeds that refuse any non-LAN upstream;
+  image-only feeds pinned to official camera hosts; `getBytes` in the client for
+  protobuf.
+- **UI**: grouped layer toggles, cards with source links and images, north-up /
+  tilt / whole-Earth buttons, an Internet preset; transit joins the default-on set.
+- **Terminal**: the new layers, tap or click a side-panel row to toggle, a
+  compact list when space is short; `argus military | storms | launches`.
+- **Android**: `scripts/install-termux.sh` runs the proxy, the globe (Chrome on
+  `http://localhost:8787`, a secure context) and the terminal on the phone itself.
+
+### Verified in this pass
+
+- `npm test`: 237 pass; the 2 failing suites need `satellite.js` / `cesium`,
+  which could not be installed. Proxy: 64 of 64 with Playwright's bundled `ws`.
+- ESLint with a scratch approximation of the repo's config (the core recommended
+  rules; `@eslint/js` could not be installed) and Prettier: clean.
+- Every new globe layer run through the real `createLayer` against a Cesium
+  stub with its demo source: entity counts, cards, links, viewport bbox, mover
+  reference counting, the raster spec reaching an imagery layer.
+- Every `import()` path and export name in `main.js` resolved (except modules
+  needing `satellite.js`, and CSS imports that only Vite handles).
+- Terminal: every new layer on demo data in tests; frames rendered headless.
+- Proxy allowlists: each GTFS-RT, GBFS, camera and catalogue path resolves and
+  is allowed; neighbouring paths on the same hosts are refused. Tested.
+
+### Still unverified or incomplete (and why)
+
+- **Every new upstream, live** (egress blocked). Specific assumptions to check
+  first: `all.api.radio-browser.info` serves the search API (else set
+  `RADIO_BROWSER_URL`); nowCOAST ignores the `_` refresh parameter; LL2
+  `mode=normal` includes pad coordinates; NHC `movementSpeed` is in knots (as
+  the reference reads it).
+- **Web UI in a browser**: card images, grouped toggles, raster overlays,
+  cable polylines at 300 m, the view buttons.
+- **Nav & GEO sats** on the globe: needs `satellite.js` (not installable here).
+- **Termux installer** on a real phone (checked for syntax and its refusal off
+  Termux only).
+- Deferred features are listed in [COMPARISON.md](COMPARISON.md).

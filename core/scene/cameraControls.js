@@ -5,6 +5,30 @@ import * as Cesium from 'cesium';
 // mobile shell reads GPS and calls flyTo; core never imports sensor code.
 
 export function createCameraControls(viewer) {
+  // Re-aim the camera about the ground point at the centre of the screen,
+  // keeping its distance; zoomed out past the globe's edge, go home instead.
+  function orbitCentre({ heading, pitch }, duration) {
+    const camera = viewer.camera;
+    const canvas = viewer.scene.canvas;
+    const centre = camera.pickEllipsoid(
+      new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2),
+      viewer.scene.globe.ellipsoid,
+    );
+    if (!centre) {
+      camera.flyHome(duration);
+    } else {
+      camera.flyToBoundingSphere(new Cesium.BoundingSphere(centre, 0), {
+        offset: new Cesium.HeadingPitchRange(
+          heading ?? camera.heading,
+          pitch ?? camera.pitch,
+          Cesium.Cartesian3.distance(camera.positionWC, centre),
+        ),
+        duration,
+      });
+    }
+    viewer.scene.requestRender();
+  }
+
   return {
     /** Fly to a geographic point. altitude in metres (eye height above the point). */
     flyTo({ longitude, latitude, altitude = 250_000, duration = 1.5 }) {
@@ -40,6 +64,20 @@ export function createCameraControls(viewer) {
         longitude: Cesium.Math.toDegrees(c.longitude),
         latitude: Cesium.Math.toDegrees(c.latitude),
       };
+    },
+
+    /**
+     * Turn the view so north is up, keeping whatever is at the centre of the
+     * screen in place (it orbits that point rather than spinning the eye).
+     */
+    northUp(duration = 0.8) {
+      orbitCentre({ heading: 0 }, duration);
+    },
+
+    /** Toggle straight-down and a 35 degree oblique view about the screen centre. */
+    toggleTilt(duration = 0.8) {
+      const steep = viewer.camera.pitch < Cesium.Math.toRadians(-70);
+      orbitCentre({ pitch: Cesium.Math.toRadians(steep ? -35 : -90) }, duration);
     },
 
     /**

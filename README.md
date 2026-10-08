@@ -17,14 +17,14 @@ identifies or acts on people or hosts are deliberately left out (see
 
 ## Run it
 
-| Where                             | Command                                  | What you get                                                                            |
-| --------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| PC or Kali, in a browser          | `npm start`                              | Builds once, then serves the globe and its proxy at `http://localhost:8787`             |
-| Phone on the same Wi-Fi           | `npm run start:https`                    | Open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once   |
-| Android phone, no PC (Termux)     | `bash scripts/install-termux.sh`         | Proxy, globe and terminal version all on the phone; open `http://localhost:8787`        |
-| Any terminal (Kali, SSH, Windows) | `npm run tui`                            | Full-screen braille world map with the same layers, cards, and commands; no GPU needed  |
-| Scripts and pipes                 | `argus query 8.8.8.8 --json`             | Passive lookups, quakes, flights, satellites, fires, BGP and CT streams as text or JSON |
-| No network at all                 | `npm run dev` or `npm run tui -- --demo` | Every layer on simulated data, clearly labelled DEMO                                    |
+| Where                             | Command                                  | What you get                                                                                                |
+| --------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| PC or Kali, in a browser          | `npm start`                              | Builds once, then serves the globe and its proxy at `http://localhost:8787`                                 |
+| Phone on the same Wi-Fi           | `npm run start:https`                    | Open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once                       |
+| Android phone, no PC (Termux)     | `bash scripts/install-termux.sh`         | Proxy, globe and terminal version all on the phone; open `http://localhost:8787`                            |
+| Any terminal (Kali, SSH, Windows) | `npm run tui`                            | Full-screen braille world map with the same layers, cards, and commands; no GPU needed                      |
+| Scripts and pipes                 | `argus query 8.8.8.8 --json`             | Passive lookups, quakes, flights, military, storms, launches, satellites, fires, BGP and CT as text or JSON |
+| No network at all                 | `npm run dev` or `npm run tui -- --demo` | Every layer except the weather imagery on simulated data, clearly labelled DEMO                             |
 
 First run:
 
@@ -41,33 +41,52 @@ terminal version, and a GPU check. On Android, `scripts/install-termux.sh` does 
 inside Termux (see SETUP.md, Android standalone). Full instructions, the phone setup, and
 troubleshooting are in **[SETUP.md](SETUP.md)**.
 
-**Keys are optional.** With none, you get flights (via adsb.lol), earthquakes,
-satellites, OSM landmarks and surveillance-camera locations, place search, BGP
-activity, and the RIPEstat OSINT console. Free keys add OpenSky flights, NASA
-FIRMS fires, and AIS ships. Keys live in `.env` or `~/.config/argus/.env` and are
-read only by the proxy, never by the browser.
+**Keys are optional.** With none, you get flights and military aircraft (via
+adsb.lol), live transit and bikeshare, satellites and navigation constellations,
+rocket launches, earthquakes, cyclones, weather imagery, public traffic cameras,
+radio stations, OSM camera, data-centre and installation locations, submarine
+cables, place search, BGP activity, and the RIPEstat OSINT console. Free keys add
+OpenSky flights, NASA FIRMS fires, and AIS ships; an RTL-SDR running dump1090
+adds the aircraft your own receiver hears. Keys live in `.env` or
+`~/.config/argus/.env` and are read only by the proxy, never by the browser.
 
 ## Layers and features
 
-| Layer / feature         | Source                                              | Key             | Notes                                                                         |
-| ----------------------- | --------------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| Flights                 | OpenSky, or adsb.lol when OpenSky is not configured | optional (free) | Viewport-bounded, interpolated between fixes, click to track, cockpit mode    |
-| Earthquakes             | USGS                                                | none            | Sized and coloured by magnitude                                               |
-| Satellites              | CelesTrak TLE + SGP4                                | none            | Positions computed locally, orbit rings                                       |
-| Fires                   | NASA FIRMS VIIRS                                    | free MAP_KEY    | Viewport-bounded                                                              |
-| Ships                   | AISStream via the proxy websocket                   | free key        | The proxy holds one upstream socket and fans out per viewport                 |
-| Surveillance, landmarks | OpenStreetMap Overpass                              | none            | Camera and ALPR reader LOCATIONS only; loads once zoomed to a city            |
-| Shodan density          | Shodan facet counts                                 | Shodan key      | Credit-free snapshot, budget governor in the proxy                            |
-| BGP activity            | RIPE RIS Live via the proxy websocket               | none            | Pulses at the route collector that saw each update                            |
-| CT firehose             | CertStream-compatible aggregator                    | none            | Issuance ticker; set `CT_STREAM_URL` if the public server is silent           |
-| OSINT console           | RIPEstat (+ Shodan host data when keyed)            | none            | `query` / `correlate` an IP, domain, or ASN: routing, registry, geo, exposure |
-| CCTV, threat arcs       | none verified                                       | n/a             | Simulated, labelled DEMO in the UI                                            |
-| Globe                   | Esri imagery + elevation, OSM streets               | none            | Google Photorealistic 3D Tiles optional (`GOOGLE_MAPS_API_KEY`)               |
+| Layer / feature              | Source                                              | Key             | Notes                                                                         |
+| ---------------------------- | --------------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
+| Flights                      | OpenSky, or adsb.lol when OpenSky is not configured | optional (free) | Viewport-bounded, interpolated between fixes, click to track, cockpit mode    |
+| Military air                 | adsb.lol military list                              | none            | Global; the card names the operating service                                  |
+| My receiver                  | your dump1090 / readsb (`LOCAL_ADSB_URL`)           | none            | Aircraft your own SDR hears; LAN or this machine only                         |
+| Satellites, Nav & GEO        | CelesTrak TLE + SGP4                                | none            | Stations with orbit rings; GPS, Galileo, GLONASS and geostationary            |
+| Launches                     | Launch Library 2                                    | none            | Pads with launches a week back to six weeks ahead                             |
+| Transit                      | GTFS-Realtime from 7 operators (Boston to Brisbane) | none            | Default-on; loads when the view is over a covered city                        |
+| Bikeshare                    | GBFS from 16 systems                                | none            | Stations coloured by bikes available                                          |
+| Ships                        | AISStream via the proxy websocket                   | free key        | The proxy holds one upstream socket and fans out per viewport                 |
+| Earthquakes                  | USGS                                                | none            | Sized and coloured by magnitude                                               |
+| Fires                        | NASA FIRMS VIIRS                                    | free MAP_KEY    | Viewport-bounded                                                              |
+| Cyclones                     | NOAA National Hurricane Center                      | none            | Atlantic and eastern/central Pacific, with the advisory link                  |
+| IR clouds, radar, lightning  | NOAA nowCOAST imagery                               | none            | Raster overlays, latest frame, refreshed on a schedule                        |
+| Surveillance, landmarks      | OpenStreetMap Overpass                              | none            | Camera and ALPR reader LOCATIONS only; loads once zoomed to a city            |
+| Traffic cams                 | Caltrans, TfL JamCams, Statens vegvesen             | none            | Public stills, shown in the card on request; nothing analyses them            |
+| Data centres, installations  | OpenStreetMap Overpass                              | none            | Facility locations as mapped by contributors                                  |
+| Sea cables                   | TeleGeography submarine cable map                   | none            | Drawn on the globe; landing points in the terminal (CC BY-NC-SA 3.0)          |
+| Radio                        | Radio Browser                                       | none            | Located stations; the card links the stream                                   |
+| Shodan density               | Shodan facet counts                                 | Shodan key      | Credit-free snapshot, budget governor in the proxy                            |
+| BGP activity                 | RIPE RIS Live via the proxy websocket               | none            | Pulses at the route collector that saw each update                            |
+| CT firehose                  | CertStream-compatible aggregator                    | none            | Issuance ticker; set `CT_STREAM_URL` if the public server is silent           |
+| OSINT console                | RIPEstat (+ Shodan host data when keyed)            | none            | `query` / `correlate` an IP, domain, or ASN: routing, registry, geo, exposure |
+| CCTV projection, threat arcs | none verified                                       | n/a             | Simulated, labelled DEMO in the UI                                            |
+| Globe                        | Esri imagery + elevation, OSM streets               | none            | Google Photorealistic 3D Tiles optional (`GOOGLE_MAPS_API_KEY`)               |
 
-Cross-cutting: presets (Around Me, Sky, Disaster, Environment, Surveillance),
-global search and fly-to, click or tap to track with trails and metadata cards,
-an in-app command terminal, NVG/FLIR/CRT sensor shaders, a time scrubber over the
-in-memory history, and mobile-only point-at-sky (compass) mode.
+How this compares with the reference project, layer by layer, and what was left
+out on purpose: **[docs/COMPARISON.md](docs/COMPARISON.md)**.
+
+Cross-cutting: presets (Around Me, Sky, Disaster, Environment, Surveillance,
+Internet), layer toggles grouped by category, global search and fly-to, click or
+tap to track with trails and metadata cards (with source links), north-up, tilt
+and whole-Earth buttons, an in-app command terminal, NVG/FLIR/CRT sensor shaders,
+a time scrubber over the in-memory history, and mobile-only point-at-sky
+(compass) mode.
 
 The phone build is reduced by design: explicit resolution scale, 30 fps ambient
 cap, on-demand rendering, WebGL context-loss recovery, capped tile caches, and a
@@ -83,25 +102,29 @@ It embeds a loopback-only proxy, so it reads the same `.env` and needs nothing
 else running.
 
 ```
- ◉ ARGUS  GLOBAL SIGNALS TERMINAL                             DEMO DATA  2,657 km across  23:44:08Z
-   ⡁         130W      125W      120W      115W      110W    │ LAYERS
-   ⠄         ⠄         ⠄ ⢸       ⠠         ⠠         ⠠       │ 1 ● Flights       40
-45N⠂⠁ ⠁ ⠁ ⠁ ⠁⠂⠁ ⠁ ⠁ ⠁ ⠁⠂⠁⢸⠁ ⠁ ⠁ ⠁⠐⠁ ⠁ ⠁ ⠁ ⠁⠐⠁ ⠁ ⠁ ⠁ ⠁⠐⠁ ⠁ ⠁ ⠁│ 2 ● Earthquakes   8
-   ⡁         ⡁         ⡁ ⡎       ⢈         ⢈         ⢈       │ 3 ○ Satellites
-   ⠄         ⠄         ⠄⢰⠁       ⠠         ⠠         ⠠       │ 4 ○ Fires
-   ⠂ ◈       ⠂         ⠂⠸⡀       ⠐         ⠐         ⠐       │ 5 ○ Ships
-   ⡁         ⡁         ⡁ ⡇       ⢈         ⢈         ⢈       │ 6 ● Surveillance  30
-   ⠄         ⠄         ⠄⢰⠁       ⠠         ⠠         ⠠       │ 7 ○ Landmarks
-40N⠂⠂ ⠂ ⠂ ⠂ ⠂⠂⠂ ⠂ ⠂ ⠂ ⠂⠂⠚⡄⠂ ⠂ ⠂ ⠂⠐⠂ ⠂ ⠂ ⠂ ⠂⠐⠂ ⠂ ⠂ ⠂ ⠂⠐⠂ ⠂ ⠂ ⠂│ 8 ○ Shodan
-   ⡁         ⡁         ⡁ ⠘⡄O     ⢈         ⢈         ⢈       │ 9 ○ BGP
-   ⠄         ⠄         ⠄  ⠘⡄     ⠠         ⠠         ⠠       │
-   ⠂         ⠂         ⠂   ⠈∙San Francisco ⠐         ⠐       │ LEGEND
+ ◉ ARGUS  GLOBAL SIGNALS TERMINAL                              DEMO DATA  2,226 km across  06:12:06Z
+⡁           130W       ◉125W   o    120W         115W        ⡁│ LAYERS
+⠄      ↖ ◉  ⠄           ⠠  ⡇ ◈◈     ⠠      ↙     ⠄           ⠄│ 1 ● Flights       40
+←           ⠂           ⠐  ⡇   ◉    ⠐ ←          ⠂           ⠂│ 2 ● Earthquakes   14
+⡁           ⡁        →  ⢈  ⡇        ⢈ ↘          ⡁  ↙   ↘◈   ⡁│ 3 ○ Satellites
+45N ⠂ ⠂ ⠂ ⠂◈⠆ ⠂ ⠂ ⠂ ⠂ ⠂ ⠢ ◉⡇⠂ ⠂ ⠂ ⠂ o ⠂ ⠂ ⠂ ⠂ ⠂ ⠂⠄⠂ ⠂ ⠂ ⠂ ⠂ ⠂⠄│ 4 ○ Fires
+⠂           ⠂           ⠐ ⢀⠇        ⠐            ⠂           ⠂│ 5 ○ Ships
+⡁           ⡁           ⢈ ⢸         ⢈            ⡁           ⡁│ 6 ● Transit       no covered agency~
+⠄           ⠄           ⠠ ⡎    ← ◉  ⠠            ↑→          ⠄│ 7 ● Surveillance  30
+↗           ⠂←          ⠐ ⢇         ⠐            ⠂        ↗  ⠂│ 8 ○ Military air
+⡁       ◈   ⡁           ⢈ ⢸   ↓  ↑  ⢈            ⡁           ⡁│ 9 ○ BGP
+⠄           ⠄           ⠠ ⡜         ⠠            ⠄◉          ⠄│   ○ My receiver
+⠂           ⠂O ◈o    ↘  ⠐◉⡇         ⠐            ⠂ ◉ ↓ ↖     ⠂│   ○ Landmarks
+40N ⠁ ⠁ ⠁ ⠁ ◉ ⠁◉⠁ ⠁ ⠁ ⠁ ⢉ ⠙⡄⠁ ⠁ ⠁ ⠁ ⢉↓⠁ ⠁ ⠁↘⠁ ⠁ ⠁⡁⠁ ⠁ ⠁ ⠁ ⠁ ⠁⡁│   ○ Shodan
+⠄           ⠄   ◉ ↘     ⠠  ⠘⡄ O   ◉ ⠠   ◈        ⠄           ⠄│   ○ Cyclones
+↙           ⠂           ⠐   ⠱⡀      ⠐            ⠂          @⠂│   ○ Launches
 ```
 
 (A real frame from `argus tui --demo`, cropped to the top rows; in a terminal it is in colour.)
 
 Keys: arrows or `hjkl` pan, `+`/`-` or the mouse wheel zoom, `1`-`9` toggle
-layers, `Tab` cycles through what is in view, `Enter` tracks it, `:` opens the
+the first nine layers (click or tap any row in the side panel, or `:layer NAME`,
+for the rest), `Tab` cycles through what is in view, `Enter` tracks it, `:` opens the
 command line (`goto`, `track`, `query`, `correlate`, `layer`, `preset`, `find`,
 `export`, `status`), `c` the CT ticker, `?` help, `q` quit. Set `ARGUS_HOME=lat,lon`
 (or `--at`) for "Around Me", since a terminal has no GPS.
@@ -129,6 +152,9 @@ Argus visualizes data that is already public. It never generates new
 surveillance of people and never acts against a target:
 
 - Surveillance layers map where cameras and ALPR readers are, never what they see.
+  Public traffic-camera stills are displayed as published, on request; nothing
+  analyses them.
+- Aircraft owners, vehicle plates and other person-level fields are never shown.
 - OSINT inputs are assets (IP, domain, ASN), never people. Anything else is refused.
 - Lookups read published indexes (RIPEstat, Shodan's existing scans, CT logs, RIS);
   nothing scans or sends traffic at a host.
