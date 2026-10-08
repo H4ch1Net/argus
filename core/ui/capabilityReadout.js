@@ -38,7 +38,7 @@ export function createCapabilityReadout({ capabilities, tier, reasons, profile }
   el.innerHTML = `
     <div class="argus-readout__title">
       <span class="argus-readout__badge argus-readout__badge--${tier}">${tier.toUpperCase()}</span>
-      <span>capability tier</span>
+      <span>CAPABILITY TIER</span>
     </div>
     <div class="argus-readout__body">
       ${row('why', reasons.join(', '))}
@@ -52,47 +52,20 @@ export function createCapabilityReadout({ capabilities, tier, reasons, profile }
       ${row('targetFrameRate', `${profile.targetFrameRate} fps`)}
       ${row('renderMode', profile.requestRenderMode ? 'on-change' : 'continuous')}
       <div class="argus-readout__row"><span>thermal</span><span data-role="thermal">full quality</span></div>
-      <div class="argus-readout__layers" data-role="layers"></div>
     </div>
     <div class="argus-readout__status" data-role="status"></div>
   `;
 
   const statusEl = el.querySelector('[data-role="status"]');
-  const layersEl = el.querySelector('[data-role="layers"]');
 
   const setContextLost = (lost) => {
-    statusEl.textContent = lost ? 'WebGL context lost, recovering...' : '';
+    statusEl.textContent = lost ? 'WEBGL CONTEXT LOST // RECOVERING...' : '';
     statusEl.classList.toggle('argus-readout__status--warn', lost);
   };
 
-  // One row per active layer, keyed by label, showing its live count or error.
-  // A disabled layer (state 'off') removes its row so stale counts do not linger.
-  const setLayerStatus = (label, status) => {
-    let rowEl = layersEl.querySelector(`[data-layer="${label}"]`);
-    if (status.state === 'off') {
-      rowEl?.remove();
-      return;
-    }
-    if (!rowEl) {
-      rowEl = document.createElement('div');
-      rowEl.className = 'argus-readout__row';
-      rowEl.dataset.layer = label;
-      rowEl.innerHTML = `<span>${label}</span><span data-role="v"></span>`;
-      layersEl.appendChild(rowEl);
-    }
-    const value =
-      status.state === 'ok'
-        ? status.note
-          ? `${status.count} · ${status.note}`
-          : String(status.count)
-        : status.state === 'error'
-          ? `error ${status.status ?? ''}`.trim()
-          : (status.reason ?? status.state);
-    const v = rowEl.querySelector('[data-role="v"]');
-    v.textContent = value;
-    // The proxy's reason (e.g. which key is missing) on hover.
-    v.title = status.state === 'error' ? String(status.message ?? '') : '';
-  };
+  // Per-layer counts and errors live in the layer menu now; kept as a no-op so
+  // callers that still report here need no change.
+  const setLayerStatus = () => {};
 
   // The thermal ladder's current rung (full quality, or what it has given up).
   const thermalEl = el.querySelector('[data-role="thermal"]');

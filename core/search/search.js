@@ -1,4 +1,6 @@
 import { classifyAsset } from '../osint/asset.js';
+import { searchPlaces } from './places.js';
+import { searchPois } from './pois.js';
 
 // Global search: query active layers (via their per-layer search adapters) and,
 // for longer queries, place names (via the geocoder). It also seeds the OSINT
@@ -63,9 +65,17 @@ export function createSearch({
         }
       }
 
-      if (q.length >= 3 && geocode) {
+      // Places: the geocoder chain (offline list, then Photon, then Nominatim)
+      // for 3+ characters; with no geocoder, or for a 2-letter alias like
+      // "LA", the bundled offline list alone answers.
+      if (q.length >= 2) {
         try {
-          const places = await geocode(q);
+          const places =
+            q.length < 3
+              ? searchPlaces(q, { limit: 4 }).filter((p) => p.exact)
+              : geocode
+                ? await geocode(q)
+                : searchPlaces(q, { limit: 4 });
           for (const p of places.slice(0, 4)) {
             results.push({
               kind: 'place',
@@ -78,6 +88,18 @@ export function createSearch({
         } catch {
           // geocoding failed (offline / rate-limited): other results still stand
         }
+        // City landmarks (bundled, offline), each with its hand-tuned view;
+        // 3+ characters, so a 2-letter alias stays a city.
+        for (const p of q.length >= 3 ? searchPois(q, { limit: 3 }) : []) {
+          results.push({
+            kind: 'place',
+            label: p.label ?? `${p.name}, ${p.city}`,
+            sub: 'landmark',
+            longitude: p.lon,
+            latitude: p.lat,
+            view: p,
+          });
+        }
       }
 
       return results.slice(0, 10);
@@ -86,6 +108,16 @@ export function createSearch({
     async select(result) {
       if (result.kind === 'entity') {
         onSelectEntity(result.entity);
+      } else if (result.kind === 'place' && result.view && camera.flyAround) {
+        const v = result.view;
+        camera.flyAround({
+          longitude: v.lon,
+          latitude: v.lat,
+          height: v.targetM ?? 0,
+          range: v.alt,
+          heading: v.heading,
+          pitch: v.pitch,
+        });
       } else if (result.kind === 'place') {
         camera.flyTo({
           longitude: result.longitude,

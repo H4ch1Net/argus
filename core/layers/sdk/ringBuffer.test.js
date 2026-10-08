@@ -34,3 +34,29 @@ test('sampleAt brackets and interpolates across the window, clamping at ends', (
   assert.equal(rb.sampleAt(999, interp).v, 200); // clamp to newest
   assert.equal(createRingBuffer(3).sampleAt(1, interp), undefined); // empty
 });
+
+test('prepend backfills older fixes and grows the buffer to keep them', () => {
+  const rb = createRingBuffer(3);
+  rb.push({ t: 10 }).push({ t: 20 }).push({ t: 30 });
+  const added = rb.prepend([{ t: 5 }, { t: 1 }, { t: 25 }, { t: Number.NaN }], 10);
+  assert.equal(added, 2, 'only fixes older than the oldest retained one');
+  assert.deepEqual(
+    rb.toArray().map((f) => f.t),
+    [1, 5, 10, 20, 30],
+  );
+  rb.push({ t: 40 });
+  assert.equal(
+    rb.size,
+    5,
+    'the grown capacity holds: the next fix drops only the oldest',
+  );
+  assert.equal(rb.toArray()[0].t, 5);
+  const capped = createRingBuffer(2);
+  capped.push({ t: 10 });
+  capped.prepend([{ t: 1 }, { t: 2 }, { t: 3 }], 3);
+  assert.deepEqual(
+    capped.toArray().map((f) => f.t),
+    [2, 3, 10],
+    'never beyond the limit',
+  );
+});

@@ -23,10 +23,11 @@ export function createCtTicker({ onToggle } = {}) {
   const el = document.createElement('div');
   el.className = 'argus-ct';
   el.innerHTML = `
-    <div class="argus-ct__head">
-      <button class="argus-ct__toggle" type="button" aria-pressed="false">CT firehose</button>
-      <span class="argus-ct__rate" data-role="rate">off</span>
-    </div>
+    <button class="ct-switch argus-ct__toggle" type="button" aria-pressed="false">
+      <span class="ct-switch__label">CT firehose</span>
+      <span class="argus-ct__rate" data-role="rate">OFF</span>
+      <span class="ct-switch__box"></span>
+    </button>
     <div class="argus-ct__list" data-role="list"></div>
   `;
   const toggleBtn = el.querySelector('.argus-ct__toggle');
@@ -54,9 +55,9 @@ export function createCtTicker({ onToggle } = {}) {
     toggleBtn.setAttribute('aria-pressed', String(on));
     el.classList.toggle('argus-ct--on', on);
     if (on) {
-      rateEl.textContent = '0/s';
+      rateEl.textContent = '000/S';
       rateTimer = setInterval(() => {
-        rateEl.textContent = `${windowCount}/s`;
+        rateEl.textContent = `${String(windowCount).padStart(3, '0')}/S`;
         windowCount = 0;
       }, 1000);
     } else {
@@ -64,7 +65,7 @@ export function createCtTicker({ onToggle } = {}) {
       rateTimer = null;
       rows = [];
       windowCount = 0;
-      rateEl.textContent = 'off';
+      rateEl.textContent = 'OFF';
       renderList();
     }
     if (fromUser) onToggle?.(on);

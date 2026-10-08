@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { DEFAULT_POSE, frustumCornersEnu } from './pose.js';
+import { ink } from '../sdk/colors.js';
 
 // CCTV projection: display already-public camera snapshots projected into 3D.
 // Each camera is a marker, a view frustum (where it looks), and its image at the
@@ -9,25 +10,13 @@ import { DEFAULT_POSE, frustumCornersEnu } from './pose.js';
 // GUARDRAIL: this shows the public stream/snapshot only. It performs no computer
 // vision on the footage (no plate reading, no tracking).
 
-let cameraIconCache = null;
-function cameraIcon() {
-  if (cameraIconCache) return cameraIconCache;
-  const c = document.createElement('canvas');
-  c.width = 28;
-  c.height = 28;
-  const g = c.getContext('2d');
-  g.fillStyle = '#5fe3ff';
-  g.fillRect(6, 10, 12, 9); // body
-  g.beginPath();
-  g.moveTo(18, 12);
-  g.lineTo(23, 9);
-  g.lineTo(23, 20);
-  g.lineTo(18, 17);
-  g.closePath();
-  g.fill(); // lens
-  cameraIconCache = c;
-  return c;
-}
+// Frustum and image entities per viewer, so hiding the layer hides them too.
+const extras = new WeakMap(); // viewer -> Set<Entity>
+const extrasFor = (viewer) => {
+  let set = extras.get(viewer);
+  if (!set) extras.set(viewer, (set = new Set()));
+  return set;
+};
 
 function toNormalized(cam) {
   return {
@@ -54,12 +43,8 @@ export const cctvDefinition = {
   searchText: (n) => n.meta.name || '',
   normalize: (cams) => (Array.isArray(cams) ? cams.map(toNormalized) : []),
   render: {
-    renderType: 'billboard',
-    style: () => ({
-      image: cameraIcon(),
-      scale: 0.8,
-      color: Cesium.Color.WHITE,
-    }),
+    renderType: 'point',
+    style: () => ({ glyph: 'bracket', pixelSize: 15, color: ink('white') }),
   },
   describe: (n) => ({
     id: n.id,
@@ -78,9 +63,9 @@ export const cctvDefinition = {
   }),
 
   // Frustum + image screen, both recomputed from the (editable) pose each frame.
-  onEntityCreate: (entity, n, { viewer }) => {
+  onEntityCreate: (target, n, { viewer }) => {
     const cornersEcef = () => {
-      const origin = entity.position.getValue(viewer.clock.currentTime);
+      const origin = target.position.getValue(viewer.clock.currentTime);
       if (!origin) return null;
       const enuToFixed = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
       const { center, corners } = frustumCornersEnu(n.meta.pose);
@@ -104,7 +89,7 @@ export const cctvDefinition = {
         }, false),
         width: 1.4,
         arcType: Cesium.ArcType.NONE,
-        material: Cesium.Color.fromCssColorString('#5fe3ff').withAlpha(0.5),
+        material: ink('gray', 0.45),
       },
     });
 
@@ -119,9 +104,23 @@ export const cctvDefinition = {
       },
     });
 
+    const mine = extrasFor(viewer);
+    mine.add(frustum);
+    mine.add(screen);
     return () => {
+      mine.delete(frustum);
+      mine.delete(screen);
       viewer.entities.remove(frustum);
       viewer.entities.remove(screen);
     };
+  },
+
+  // The horizon culler (core/scene/occlusion.js) owns entity.show for point
+  // features, so the image screen hides through its billboard instead.
+  onShow: (on, { viewer }) => {
+    for (const e of extrasFor(viewer)) {
+      if (e.billboard) e.billboard.show = on;
+      else e.show = on;
+    }
   },
 };

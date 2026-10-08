@@ -1,61 +1,70 @@
-/* Time scrubber. Shared look; shells own placement. */
+/* Timeline: PLAY / range / offset / LIVE, all square, grays; LIVE in success. */
 .argus-scrub {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  font:
-    12px/1 system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  color: #cfe8ff;
-  background: rgba(6, 12, 22, 0.72);
-  border: 1px solid rgba(95, 227, 255, 0.22);
-  border-radius: 10px;
+  min-width: 0;
 }
-.argus-scrub--scrubbing {
-  border-color: rgba(255, 204, 85, 0.5);
-}
-
 .argus-scrub__btn {
-  flex: 0 0 auto;
-  min-width: 28px;
-  height: 26px;
-  border: 1px solid rgba(95, 227, 255, 0.3);
-  border-radius: 7px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--textSecondary);
   background: transparent;
-  color: #9fb6d6;
-  font: inherit;
+  color: var(--textPrimaryDim);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
   cursor: pointer;
 }
 .argus-scrub__btn:hover {
-  background: rgba(95, 227, 255, 0.14);
-  color: #e8f1ff;
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
 }
-.argus-scrub__live {
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
 .argus-scrub__range {
-  flex: 1 1 auto;
-  min-width: 90px;
-  accent-color: #5fe3ff;
+  flex: 1;
+  min-width: 60px;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
 }
-.argus-scrub--scrubbing .argus-scrub__range {
-  accent-color: #ffcc55;
+.argus-scrub__range::-webkit-slider-runnable-track {
+  height: 3px;
+  background: var(--backgroundBright);
 }
-
+.argus-scrub__range::-moz-range-track {
+  height: 3px;
+  background: var(--backgroundBright);
+}
+.argus-scrub__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 15px;
+  margin-top: -6px;
+  background: var(--ctosGray);
+  border: 0;
+}
+.argus-scrub__range::-moz-range-thumb {
+  width: 9px;
+  height: 15px;
+  background: var(--ctosGray);
+  border: 0;
+  border-radius: 0;
+}
 .argus-scrub__label {
-  flex: 0 0 auto;
-  min-width: 44px;
-  text-align: right;
-  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  width: 5ch;
+  color: var(--success);
   font-size: 11px;
-  color: #7f97b8;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .argus-scrub--scrubbing .argus-scrub__label {
-  color: #ffcc55;
+  color: var(--textPrimary);
+}
+.argus-scrub__live {
+  display: none;
+}
+.argus-scrub--scrubbing .argus-scrub__live {
+  display: inline-block;
 }

@@ -25,14 +25,24 @@ const stateOperator = (v) => {
  */
 export function parseMilitary(payload) {
   const operators = new Map();
+  // The address as adsb.lol spells it ('~' marks a non-ICAO address), which is
+  // what its trace files are named by (trace.js tracePath).
+  const hexes = new Map();
   for (const a of Array.isArray(payload?.ac) ? payload.ac : []) {
     if (a && typeof a.hex === 'string') {
-      operators.set(a.hex.replace(/^~/, '').toLowerCase(), stateOperator(a.ownOp));
+      const id = a.hex.replace(/^~/, '').toLowerCase();
+      operators.set(id, stateOperator(a.ownOp));
+      hexes.set(id, a.hex.trim().toLowerCase());
     }
   }
   const source = payload?.demo ? 'demo (simulated)' : 'adsb.lol (military)';
   return parseAdsb(payload).aircraft.map((a) => ({
-    ...aircraftToNormalized({ ...a, operator: operators.get(a.id) ?? null, source }),
+    ...aircraftToNormalized({
+      ...a,
+      operator: operators.get(a.id) ?? null,
+      hex: hexes.get(a.id) ?? a.id,
+      source,
+    }),
     type: 'military',
   }));
 }

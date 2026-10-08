@@ -1,76 +1,50 @@
-/* Capability + live-feed readout. Rendered inside the SYSTEM STATUS module, so it
-   carries no frame of its own: just a compact monospace data table. */
+/* The capability readout as ctOS label / value rows. */
 .argus-readout {
-  font:
-    11px/1.5 ui-monospace,
-    'SF Mono',
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
-  color: #b6ccc5;
-  pointer-events: auto;
-  user-select: none;
+  font-size: 11px;
 }
-
 .argus-readout__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #5f8f87;
+  margin-bottom: 6px;
+  color: var(--textSecondary);
+  letter-spacing: 0.06em;
 }
-
 .argus-readout__badge {
+  padding: 0 5px;
+  background: var(--ctosGray);
+  color: var(--background);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 2px 7px;
-  border-radius: 1px;
-  color: #04140f;
+  line-height: 16px;
 }
-.argus-readout__badge--full {
-  background: #35e0b0;
-}
-.argus-readout__badge--balanced {
-  background: #57b6e3;
-}
-.argus-readout__badge--minimal {
-  background: #e3a857;
-}
-
-.argus-readout__row {
+.argus-readout__body {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 3px;
+}
+.argus-readout__row {
+  display: grid;
+  grid-template-columns: 0.8fr 1.4fr;
+  gap: 10px;
 }
 .argus-readout__row > span:first-child {
-  color: #5f8f87;
+  color: var(--textSecondary);
+  text-transform: uppercase;
 }
 .argus-readout__row > span:last-child {
-  color: #d3ece5;
-  text-align: right;
-  max-width: 60%;
+  color: var(--textPrimaryDim);
+  text-transform: uppercase;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* Live feed rows sit under a hairline divider so they read apart from the static
-   capability block. */
-.argus-readout__layers:not(:empty) {
-  margin-top: 7px;
-  padding-top: 7px;
-  border-top: 1px solid rgba(64, 122, 138, 0.28);
+.argus-readout__status:empty {
+  display: none;
 }
-
 .argus-readout__status {
-  min-height: 0;
-  color: #e3a857;
-  font-size: 10px;
+  margin-top: 6px;
+  color: var(--error);
 }
 .argus-readout__status--warn {
-  margin-top: 8px;
+  color: var(--error) !important;
 }

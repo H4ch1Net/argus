@@ -23,7 +23,7 @@ export function createTimeScrubber({ clock }) {
   const el = document.createElement('div');
   el.className = 'argus-scrub';
   el.innerHTML = `
-    <button class="argus-scrub__btn" data-role="play" type="button" aria-label="Play">▶</button>
+    <button class="argus-scrub__btn" data-role="play" type="button" aria-label="Play">PLAY</button>
     <input class="argus-scrub__range" data-role="range" type="range"
       min="0" max="1000" value="1000" step="1" aria-label="Time scrubber" />
     <span class="argus-scrub__label" data-role="label">LIVE</span>
@@ -43,7 +43,7 @@ export function createTimeScrubber({ clock }) {
 
   function stopPlay() {
     playing = false;
-    playBtn.textContent = '▶';
+    playBtn.textContent = 'PLAY';
     playBtn.setAttribute('aria-label', 'Play');
     if (timer) {
       clearInterval(timer);
@@ -86,7 +86,7 @@ export function createTimeScrubber({ clock }) {
     }
     if (clock.isLive()) return; // nothing to play from
     playing = true;
-    playBtn.textContent = '❚❚';
+    playBtn.textContent = 'HOLD';
     playBtn.setAttribute('aria-label', 'Pause');
     timer = setInterval(() => {
       const v = Math.min(

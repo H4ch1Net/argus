@@ -1,9 +1,10 @@
 import * as Cesium from 'cesium';
 import { createRingBuffer } from './ringBuffer.js';
-import { interpolateFix } from './interpolate.js';
+import { interpolateInto } from './interpolate.js';
 import { computeViewportQuery } from './viewport.js';
-import { getRenderer } from './renderers.js';
+import { getRenderer, isPrimitiveRenderType } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
+import { createFieldLayer } from './fieldLayer.js';
 import {
   acquireContinuousRender,
   releaseContinuousRender,
@@ -11,23 +12,34 @@ import {
 
 // The Layer SDK engine. A layer is config against this interface, not bespoke
 // code (CLAUDE.md): fetch -> normalize -> render -> interpolate?, with
-// viewport-bounded fetch, clustering hooks, and load-only-in-view baked in.
+// viewport-bounded fetch and load-only-in-view baked in.
 //
 // A LayerDefinition (static, reusable) provides:
 //   id, fetch:{ mode, intervalMs, viewportBounded },
 //   normalize(raw) -> NormalizedEntity[],
 //   render:{ renderType, style(normalized)->styleProps, ...renderConfig },
 //   interpolate?:boolean, historyCapacity?, interpolateLagMs?, maxEntities?,
-//   positionAt?(normalized, timeMs), positionCacheMs?,
-//   cluster?:{ enabled, pixelRange, minimumClusterSize },
+//   positionAt?(normalized, timeMs), positionCacheMs?, animationFps?,
 //   describe?(normalized) -> cardModel   (for the interaction spine)
 //   statusNote?(query, raw) -> string     (a hint shown beside the count)
+//   onEntityCreate?(target, normalized, { viewer, scene }) -> dispose
+//   onShow?(shown, { viewer, scene })      (hide decorations with the layer)
 //
 // A NormalizedEntity is { id, position:{longitude,latitude,altitude}, type,
 // meta, velocity? } per the contract.
 //
-// Runtime bindings (source, onStatus) come in `ctx`, so the definition stays
-// free of environment concerns (proxy vs mock, status wiring).
+// Performance model. Point and billboard layers (nearly all of them) draw into
+// one BillboardCollection primitive per layer, never the Entity API: no property
+// objects, no per-entity visualizer work, one draw call per glyph atlas. Movers
+// are repositioned once per rendered frame in a single loop that reuses scratch
+// objects, so thousands of interpolated aircraft allocate nothing per frame; the
+// same loop hides what is behind the planet (a horizon test, cheaper than depth
+// testing ground-level glyphs). Animation is paced by core/scene/renderMode.js
+// (30 fps on a desktop, 20 on a phone), never continuous rendering.
+//
+// Each record exposes a `target`: a small object with an id and a Cesium-style
+// `position.getValue(time, result)`. Picking, tracking, cockpit mode, search and
+// the selection overlay all work from targets, so none of them needs an Entity.
 
 const DEFAULT_INTERVAL_MS = 15_000;
 const DEFAULT_HISTORY = 60;
@@ -36,7 +48,7 @@ const DEFAULT_MAX_ENTITIES = 2000;
 /**
  * @param {import('cesium').Viewer} viewer
  * @param {object} def LayerDefinition
- * @param {{ source: (query: object, signal: AbortSignal) => Promise<unknown>, onStatus?: (s: object) => void }} ctx
+ * @param {{ source: Function, onStatus?: Function, clock?: object, animationFps?: number }} ctx
  */
 export function createLayer(viewer, def, ctx) {
   if (typeof ctx?.source !== 'function') {
@@ -44,15 +56,16 @@ export function createLayer(viewer, def, ctx) {
   }
   // Field / overlay layers (weather) render as imagery, not entities.
   if (def.render?.renderType === 'raster') return createRasterLayer(viewer, def, ctx);
+  if (def.render?.renderType === 'field') return createFieldLayer(viewer, def, ctx);
   const scene = viewer.scene;
   const intervalMs = def.fetch?.intervalMs ?? DEFAULT_INTERVAL_MS;
   // A layer is a mover if it interpolates between fixes OR computes its position
-  // from time (def.positionAt, e.g. SGP4 satellites). Both force continuous render.
+  // from time (def.positionAt, e.g. SGP4 satellites).
   const isMover = Boolean(def.interpolate || def.positionAt);
   const lagMs = isMover ? (def.interpolateLagMs ?? intervalMs) : 0;
   const historyCap = def.historyCapacity ?? DEFAULT_HISTORY;
   const maxEntities = def.maxEntities ?? DEFAULT_MAX_ENTITIES;
-  const renderer = getRenderer(def.render.renderType);
+  const fps = def.animationFps ?? ctx.animationFps ?? 30;
   // 'poll' fetches the full set each interval (removal by absence); 'push'
   // receives incremental updates over a stream (removal by staleness).
   const mode = def.fetch?.mode ?? 'poll';
@@ -60,80 +73,139 @@ export function createLayer(viewer, def, ctx) {
   // Scene time for positioning: the shared clock (so the time scrubber rewinds all
   // movers at once) or real time. Feed ingest/staleness always use real time.
   const sceneNow = () => (ctx.clock ? ctx.clock.now() : Date.now());
-
-  const ds = new Cesium.CustomDataSource(def.id);
-  viewer.dataSources.add(ds);
-  configureClustering(ds, def.cluster);
-
-  /** @type {Map<string, { entity: Cesium.Entity, history: object, normalized: object }>} */
-  const records = new Map();
-  let running = false;
-  let timer = null;
-  let aborter = null;
-  let holdsRender = false;
-
-  // Compute-position layers may reuse a computed position for a while
-  // (def.positionCacheMs), so a large set of slow movers (navigation and
-  // geostationary satellites) costs one propagation per second, not per frame.
   const positionCacheMs = def.positionCacheMs ?? 0;
 
-  function currentPosition(rec) {
-    // Compute-position layers (SGP4 satellites) evaluate position from time.
+  const primitive = isPrimitiveRenderType(def.render.renderType);
+  const renderer = getRenderer(def.render.renderType);
+  // Billboard layers: one collection. Line layers (arcs, cables): one data source.
+  const collection = primitive
+    ? scene.primitives.add(new Cesium.BillboardCollection())
+    : null;
+  const ds = primitive ? null : new Cesium.CustomDataSource(def.id);
+  if (ds) viewer.dataSources.add(ds);
+
+  /** @type {Map<string, object>} */
+  const records = new Map();
+  let running = false;
+  let shown = true;
+  let timer = null;
+  let aborter = null;
+  let holdsRender = 0; // the frame rate claimed for movers, 0 for none
+  let dirty = true; // positions or visibility must be recomputed next frame
+  // Contacts drawn by something else for now (a 3D model close to the camera):
+  // their glyph stays hidden while they keep counting as visible.
+  const suppressed = new Set();
+
+  // --- positions ------------------------------------------------------------
+
+  const fix = { longitude: 0, latitude: 0, altitude: 0 };
+
+  /** Geodetic position of a record now, into `fix`; false when unknown. */
+  function geodeticNow(rec) {
     if (def.positionAt) {
       const t = sceneNow();
       if (positionCacheMs && rec.cached && Math.abs(t - rec.cached.t) < positionCacheMs) {
-        return rec.cached.position;
+        fix.longitude = rec.cached.longitude;
+        fix.latitude = rec.cached.latitude;
+        fix.altitude = rec.cached.altitude;
+        return true;
       }
       const p = def.positionAt(rec.normalized, t);
-      if (!p) return undefined;
-      const position = Cesium.Cartesian3.fromDegrees(
-        p.longitude,
-        p.latitude,
-        Math.max(0, p.altitude ?? 0),
-      );
-      if (positionCacheMs) rec.cached = { t, position };
-      return position;
+      if (!p) return false;
+      fix.longitude = p.longitude;
+      fix.latitude = p.latitude;
+      fix.altitude = p.altitude ?? 0;
+      if (positionCacheMs) {
+        rec.cached = {
+          t,
+          longitude: p.longitude,
+          latitude: p.latitude,
+          altitude: fix.altitude,
+        };
+      }
+      return true;
     }
     const curr = rec.history.last();
-    if (!curr) return undefined;
-    let f;
+    if (!curr) return false;
     if (!def.interpolate) {
-      f = curr;
+      fix.longitude = curr.longitude;
+      fix.latitude = curr.latitude;
+      fix.altitude = curr.altitude ?? 0;
     } else if (!ctx.clock || ctx.clock.isLive()) {
-      // Live: interpolate between the last two fixes (fast, no allocation).
-      f = interpolateFix(rec.history.prev(), curr, sceneNow() - lagMs);
+      interpolateInto(rec.history.prev(), curr, sceneNow() - lagMs, fix);
     } else {
       // Scrubbing: bracket the scrub time across the whole retained window.
-      f = rec.history.sampleAt(sceneNow(), interpolateFix);
+      rec.history.sampleInto(sceneNow(), interpolateInto, fix);
     }
+    return true;
+  }
+
+  /** World position of a record now (Cartesian3 into `result`), or undefined. */
+  function positionOf(rec, result) {
+    if (!geodeticNow(rec)) return undefined;
     return Cesium.Cartesian3.fromDegrees(
-      f.longitude,
-      f.latitude,
-      Math.max(0, f.altitude ?? 0),
+      fix.longitude,
+      fix.latitude,
+      Math.max(0, fix.altitude),
+      Cesium.Ellipsoid.WGS84,
+      result ?? new Cesium.Cartesian3(),
     );
   }
+
+  function makeTarget(id) {
+    const target = {
+      id,
+      layerId: def.id,
+      argusTarget: true,
+      position: {
+        // Cesium-style: getValue(time, result). Time comes from the scene clock.
+        getValue: (_time, result) => {
+          const rec = records.get(id);
+          return rec ? positionOf(rec, result) : undefined;
+        },
+      },
+    };
+    return target;
+  }
+
+  // --- records --------------------------------------------------------------
 
   function upsert(normalized, batchTimeMs) {
     let rec = records.get(normalized.id);
     if (!rec) {
-      const history = createRingBuffer(historyCap);
-      const entity = ds.entities.add({
+      rec = {
         id: normalized.id,
-        position: new Cesium.CallbackProperty(() => currentPosition(rec), false),
-      });
-      rec = { entity, history, normalized, dispose: null };
+        normalized,
+        history: createRingBuffer(historyCap),
+        target: makeTarget(normalized.id),
+        world: new Cesium.Cartesian3(),
+        visible: true,
+        dispose: null,
+        cached: null,
+      };
       records.set(normalized.id, rec);
-      renderer.create(entity, normalized, def.render);
-      // Optional per-entity decoration (e.g. a satellite's orbit ring). Returns a
-      // dispose fn, cleaned up when the entity is removed or the layer destroyed.
+      if (primitive) {
+        rec.billboard = renderer.create(collection, rec.target, normalized, def.render);
+      } else {
+        rec.entity = ds.entities.add({ id: normalized.id });
+        // A tap on the drawn line picks the Entity; the picker maps it back to
+        // the layer target, which is what getRecord() and the tracker know.
+        rec.entity._argusTarget = rec.target;
+        rec.entity.position = new Cesium.CallbackProperty(
+          (time, result) => positionOf(rec, result),
+          false,
+        );
+        renderer.create(rec.entity, normalized, def.render);
+      }
       if (def.onEntityCreate) {
-        rec.dispose = def.onEntityCreate(entity, normalized, { viewer, scene });
+        rec.dispose = def.onEntityCreate(rec.target, normalized, { viewer, scene });
       }
     }
     rec.normalized = normalized;
     rec.cached = null; // new elements: recompute the position
     rec.lastSeen = batchTimeMs; // for push-mode staleness removal
-    renderer.update(rec.entity, normalized, def.render);
+    if (primitive) renderer.update(rec.billboard, normalized, def.render);
+    else renderer.update(rec.entity, normalized, def.render);
     // Compute-position layers keep no fix history (position is a function of time).
     if (!def.positionAt) {
       rec.history.push({
@@ -143,6 +215,18 @@ export function createLayer(viewer, def, ctx) {
         altitude: normalized.position.altitude,
       });
     }
+    dirty = true;
+  }
+
+  function removeRecord(id) {
+    const rec = records.get(id);
+    if (!rec) return;
+    rec.dispose?.();
+    if (primitive) collection.remove(rec.billboard);
+    else ds.entities.remove(rec.entity);
+    records.delete(id);
+    suppressed.delete(id);
+    dirty = true;
   }
 
   function ingest(list, batchTimeMs = Date.now()) {
@@ -152,15 +236,73 @@ export function createLayer(viewer, def, ctx) {
       seen.add(n.id);
       upsert(n, batchTimeMs);
     }
-    for (const [id, rec] of records) {
-      if (!seen.has(id)) {
-        rec.dispose?.();
-        ds.entities.remove(rec.entity);
-        records.delete(id);
-      }
-    }
+    for (const id of [...records.keys()]) if (!seen.has(id)) removeRecord(id);
+    if (holdsRender) moversActive(true); // the fleet size sets the pace
     scene.requestRender();
   }
+
+  // --- the per-frame update (billboard layers) --------------------------------
+
+  const occluder = new Cesium.EllipsoidalOccluder(
+    Cesium.Ellipsoid.WGS84,
+    Cesium.Cartesian3.ZERO,
+  );
+  const lastCamera = new Cesium.Cartesian3();
+
+  // Movers re-interpolate on a fleet tick, not every frame: camera moves
+  // render at full rate but leave world positions unchanged, so those frames
+  // only redo the horizon cull. The tick matches the paced frame rate, except
+  // for a big fleet (thousands of contacts), which ticks and paces at 15 Hz so
+  // no paced frame is spent on unchanged positions. A billboard's position is
+  // written only when it moved more than a metre, since every write
+  // re-uploads the vertex data of the whole collection. (Techniques from
+  // gods-eye-view's fleet tick.)
+  const BIG_FLEET = 3000;
+  const bigFleet = () => records.size > BIG_FLEET;
+  const paceFps = () => (bigFleet() ? Math.min(fps, 15) : fps);
+  const tickMs = () => Math.max(12, 1000 / paceFps() - 4);
+  let lastTick = 0;
+  function onPreRender() {
+    if (!running || !shown || !primitive) return;
+    const cam = scene.camera.positionWC;
+    const cameraMoved = !Cesium.Cartesian3.equalsEpsilon(cam, lastCamera, 0, 1);
+    const now = performance.now();
+    const tick = dirty || (isMover && now - lastTick >= tickMs());
+    if (!tick && !cameraMoved) return;
+    if (tick) lastTick = now;
+    Cesium.Cartesian3.clone(cam, lastCamera);
+    occluder.cameraPosition = cam;
+    for (const rec of records.values()) {
+      if (tick) {
+        if (!positionOf(rec, rec.world)) {
+          if (rec.billboard.show) rec.billboard.show = false;
+          rec.visible = false;
+          // Forget the old write, or camera-move frames would show it again.
+          rec.written = undefined;
+          continue;
+        }
+        if (
+          !rec.written ||
+          Cesium.Cartesian3.distanceSquared(rec.written, rec.world) > 1
+        ) {
+          rec.billboard.position = rec.world;
+          rec.written = Cesium.Cartesian3.clone(rec.world, rec.written);
+        }
+      } else if (!rec.written) {
+        continue; // never positioned yet: wait for the next tick
+      }
+      const visible = occluder.isPointVisible(rec.world);
+      rec.visible = visible;
+      const show = visible && !suppressed.has(rec.id);
+      if (rec.billboard.show !== show) rec.billboard.show = show;
+    }
+    dirty = false;
+  }
+  const removePreRender = primitive
+    ? scene.preRender.addEventListener(onPreRender)
+    : null;
+
+  // --- fetching -------------------------------------------------------------
 
   let lastPollAt = 0;
   async function poll() {
@@ -196,8 +338,6 @@ export function createLayer(viewer, def, ctx) {
   // upserted as they report and removed when they go stale, not by absence.
   let unsubscribe = null;
   let staleTimer = null;
-  // Viewport mode: fetch once per region on camera settle, not on a timer (for
-  // slow, rate-limited, mostly-static feeds like Overpass).
   let moveEndRemove = null;
   let moveTimer = null;
 
@@ -212,22 +352,19 @@ export function createLayer(viewer, def, ctx) {
 
   function sweepStale() {
     const cutoff = Date.now() - staleMs;
-    for (const [id, rec] of records) {
-      if (rec.lastSeen < cutoff) {
-        rec.dispose?.();
-        ds.entities.remove(rec.entity);
-        records.delete(id);
-      }
-    }
+    for (const [id, rec] of records) if (rec.lastSeen < cutoff) removeRecord(id);
+    if (holdsRender) moversActive(true);
     scene.requestRender();
   }
 
   function moversActive(on) {
-    // Movers force continuous rendering, reference-counted across layers.
-    if (!isMover || on === holdsRender) return;
-    holdsRender = on;
-    if (on) acquireContinuousRender(scene);
-    else releaseContinuousRender(scene);
+    // Movers request frames at their pace, shared across layers (renderMode.js).
+    if (!isMover) return;
+    const rate = on ? paceFps() : 0;
+    if (rate === holdsRender) return;
+    if (holdsRender) releaseContinuousRender(scene, holdsRender);
+    holdsRender = rate;
+    if (rate) acquireContinuousRender(scene, rate);
   }
 
   function pausePolling() {
@@ -276,12 +413,21 @@ export function createLayer(viewer, def, ctx) {
     }
   }
 
+  function setShown(on) {
+    shown = on;
+    if (collection) collection.show = on;
+    if (ds) ds.show = on;
+    // Decorations a definition draws itself (orbit rings, camera frustums).
+    def.onShow?.(on, { viewer, scene });
+    dirty = true;
+  }
+
   return {
     id: def.id,
     start() {
       if (running) return;
       running = true;
-      ds.show = true;
+      setShown(true);
       moversActive(true);
       if (mode === 'push') {
         unsubscribe = document.hidden ? null : ctx.source(pushIngest);
@@ -302,6 +448,7 @@ export function createLayer(viewer, def, ctx) {
         timer = setInterval(poll, intervalMs);
         if (def.fetch?.viewportBounded) watchCamera();
       }
+      scene.requestRender();
     },
     stop() {
       running = false;
@@ -323,18 +470,24 @@ export function createLayer(viewer, def, ctx) {
       moversActive(false);
     },
     setEnabled(on) {
-      ds.show = on;
+      setShown(on);
       if (on) this.start();
       else this.stop();
+      scene.requestRender();
     },
     destroy() {
       this.stop();
+      removePreRender?.();
       for (const rec of records.values()) rec.dispose?.();
-      viewer.dataSources.remove(ds, true);
       records.clear();
+      if (collection) scene.primitives.remove(collection);
+      if (ds) viewer.dataSources.remove(ds, true);
     },
     get size() {
       return records.size;
+    },
+    get isMover() {
+      return isMover;
     },
     // Per-layer search adapter (global search). Matches a query against each
     // entity's def.searchText; returns { id, entity, label }.
@@ -347,38 +500,62 @@ export function createLayer(viewer, def, ctx) {
         const text = String(def.searchText(rec.normalized) || '').toLowerCase();
         if (text.includes(q)) {
           out.push({
-            id: rec.entity.id,
-            entity: rec.entity,
-            label: def.describe
-              ? def.describe(rec.normalized).title
-              : String(rec.entity.id),
+            id: rec.id,
+            entity: rec.target,
+            label: def.describe ? def.describe(rec.normalized).title : String(rec.id),
           });
           if (out.length >= limit) break;
         }
       }
       return out;
     },
-    // What the interaction spine needs to resolve a picked entity.
+    // What the interaction spine needs to resolve a picked target.
+    /**
+     * Prepend older fixes to one contact's history (a track fetched on
+     * demand when it is selected), so its trail and the time scrubber reach
+     * further back. fixes: [{ t, longitude, latitude, altitude }].
+     */
+    backfill(id, fixes, limit = 460) {
+      const rec = records.get(id);
+      return rec && Array.isArray(fixes) ? rec.history.prepend(fixes, limit) : 0;
+    },
     getRecord(id) {
       const rec = records.get(id);
       if (!rec) return null;
       return {
-        entity: rec.entity,
+        entity: rec.target,
         normalized: rec.normalized,
-        mover: isMover, // movers can be ridden in cockpit mode
+        mover: isMover,
+        layerId: def.id,
         cardModel: def.describe ? def.describe(rec.normalized) : null,
         getHistoryFixes: () => rec.history.toArray(),
       };
     },
+    /** Hide (or restore) one contact's glyph while something else draws it. */
+    suppress(id, on) {
+      if (on) suppressed.add(id);
+      else suppressed.delete(id);
+      dirty = true;
+      scene.requestRender();
+    },
+    /** Visit every contact the layer holds (in view or not). */
+    forEachRecord(fn) {
+      for (const rec of records.values()) fn(rec.target, rec.normalized);
+    },
+    /**
+     * Visit the targets drawn right now (in front of the planet), with their
+     * world position as of the last rendered frame. The selection overlay and the
+     * contacts roster use this; it allocates nothing.
+     */
+    forEachVisible(fn) {
+      if (!running || !shown) return;
+      for (const rec of records.values()) {
+        if (!rec.visible) continue;
+        if (!primitive && !positionOf(rec, rec.world)) continue;
+        fn(rec.target, rec.world, rec.normalized);
+      }
+    },
     // Dev-only: feed a normalized list straight in for verification.
     _ingest: import.meta.env.DEV ? (list) => ingest(list) : undefined,
   };
-}
-
-function configureClustering(ds, cfg) {
-  if (!cfg?.enabled) return;
-  const c = ds.clustering;
-  c.enabled = true;
-  c.pixelRange = cfg.pixelRange ?? 40;
-  c.minimumClusterSize = cfg.minimumClusterSize ?? 3;
 }

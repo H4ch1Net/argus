@@ -240,3 +240,146 @@ test('upstream text cannot reach the terminal as escape sequences', async () => 
   scr.text(0, 0, 'A\u001b[2JB');
   assert.equal(scr.toPlain()[0], 'A?[2JB    ');
 });
+
+test('measure works offline for bundled names and coordinates', async () => {
+  const { twoPlaces, resolveOffline } = await import('./cli.js');
+  assert.deepEqual(twoPlaces(['New', 'York', 'to', 'Boston']), ['New York', 'Boston']);
+  assert.deepEqual(twoPlaces(['London', 'Paris']), ['London', 'Paris']);
+  assert.equal(twoPlaces(['New', 'York', 'Boston']), null);
+  assert.equal(resolveOffline('Atlantis'), null);
+  // No backend at all: neither place needs the network.
+  const c = capture();
+  assert.equal(
+    await runCli('measure', ['London', 'Paris', '--json'], { ...c.io, backend: null }),
+    0,
+  );
+  const m = JSON.parse(c.out[0]);
+  assert.equal(m.from.name, 'London, United Kingdom');
+  assert.ok(Math.abs(m.distanceKm - 343.5) < 1);
+  assert.ok(Math.abs(m.bearingDeg - 148) < 1);
+  const t = capture();
+  assert.equal(await runCli('measure', ['0,0', '0,1'], { ...t.io, backend: null }), 0);
+  assert.match(t.out[1], /111\.2 km/);
+  const bad = capture();
+  assert.equal(await runCli('measure', ['London'], { ...bad.io, backend: {} }), 2);
+});
+
+test('measure falls back to the geocoder for names it does not bundle', async () => {
+  const backend = {
+    geocode: async () => [
+      { name: 'Oxford, England', latitude: 51.752, longitude: -1.2577 },
+    ],
+    close: async () => {},
+  };
+  const c = capture();
+  assert.equal(
+    await runCli('measure', ['London', 'Oxford', '--json'], { ...c.io, backend }),
+    0,
+  );
+  assert.equal(JSON.parse(c.out[0]).to.name, 'Oxford, England');
+});
+
+test('route asks the osrm feed and prints turn-by-turn steps with attribution', async () => {
+  const calls = [];
+  const backend = {
+    geocode: async () => [],
+    client: {
+      getJson: async (feed, p, opts) => {
+        calls.push([feed, p, opts?.params]);
+        return {
+          code: 'Ok',
+          routes: [
+            {
+              distance: 5200,
+              duration: 3700,
+              geometry: {
+                coordinates: [
+                  [-0.13, 51.51],
+                  [-0.1, 51.52],
+                ],
+              },
+              legs: [
+                {
+                  steps: [
+                    {
+                      maneuver: { type: 'depart', location: [-0.13, 51.51] },
+                      name: 'Strand',
+                      distance: 5200,
+                    },
+                    {
+                      maneuver: { type: 'arrive', location: [-0.1, 51.52] },
+                      distance: 0,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+      },
+    },
+    close: async () => {},
+  };
+  const c = capture();
+  assert.equal(
+    await runCli('route', ['London', '51.52,-0.1', '--mode', 'walk'], {
+      ...c.io,
+      backend,
+    }),
+    0,
+  );
+  assert.equal(calls[0][0], 'osrm');
+  assert.equal(calls[0][1], '/routed-foot/route/v1/foot/-0.13,51.51;-0.1,51.52');
+  assert.equal(calls[0][2].geometries, 'geojson');
+  assert.match(
+    c.out[0],
+    /^WALK London, United Kingdom -> 51\.52, -0\.1: 5\.2 km, 1 h 2 min$/,
+  );
+  assert.match(c.out[1], /instruction/);
+  assert.match(c.out.join('\n'), /Head out on Strand/);
+  assert.match(c.out.at(-1), /OpenStreetMap contributors.*fixthemap/);
+  const j = capture();
+  await runCli('route', ['London', 'to', '51.52,-0.1', '--json'], { ...j.io, backend });
+  const r = JSON.parse(j.out[0]);
+  assert.equal(r.mode, 'car');
+  assert.equal(r.steps.length, 2);
+  assert.equal(r.geometry.length, 2);
+});
+
+test('route refuses bad modes, long legs, no route and demo mode', async () => {
+  let c = capture();
+  assert.equal(
+    await runCli('route', ['A', 'B', '--mode', 'boat'], { ...c.io, backend: {} }),
+    2,
+  );
+  c = capture();
+  const client = { getJson: async () => ({ code: 'NoRoute', routes: [] }) };
+  assert.equal(
+    await runCli('route', ['London', 'Madrid'], { ...c.io, backend: { client } }),
+    1,
+  );
+  assert.match(c.err[0], /leg too long/);
+  c = capture();
+  assert.equal(
+    await runCli('route', ['London', 'Paris'], { ...c.io, backend: { client } }),
+    1,
+  );
+  assert.match(c.err[0], /no route found/);
+  c = capture();
+  const refused = {
+    getJson: async () => {
+      throw Object.assign(new Error('proxy osrm responded 400'), { status: 400 });
+    },
+  };
+  assert.equal(
+    await runCli('route', ['London', 'Paris'], { ...c.io, backend: { client: refused } }),
+    1,
+  );
+  assert.match(c.err[0], /too far from any road/);
+  c = capture();
+  assert.equal(
+    await runCli('route', ['London', 'Paris'], { ...c.io, backend: { client: null } }),
+    1,
+  );
+  assert.match(c.err[0], /online only/);
+});

@@ -1,4 +1,5 @@
-/* Global base. Dark, full-viewport, no scroll. */
+/* Global base. The ctOS ground, full viewport, no scroll; component styles
+   live with their components (core/ui/theme.css and friends). */
 * {
   box-sizing: border-box;
 }
@@ -7,14 +8,11 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: #05070c;
-  color: #e8f1ff;
+  background: #0e0e0e;
+  color: #cacaca;
   font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+    'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, 'SFMono-Regular',
+    'DejaVu Sans Mono', monospace;
   overflow: hidden;
 }
 
@@ -22,41 +20,43 @@ body {
   height: 100%;
 }
 
-/* Boot / fatal-error overlay, used when the scene cannot start (for example,
-   no WebGL or software-only rendering: see the Cesium hard-fail note). */
+[hidden] {
+  display: none !important;
+}
+
+/* Fatal overlay, used when the scene cannot start (no WebGL, or software-only
+   rendering: see the Cesium hard-fail note). A critical notice: error border. */
 .argus-fatal {
   position: fixed;
   inset: 0;
   display: grid;
   place-content: center;
-  gap: 12px;
   padding: 24px;
-  text-align: center;
-  background: #05070c;
-  z-index: 10;
+  background: #0e0e0e;
+  z-index: 200;
+}
+.argus-fatal > div {
+  max-width: 52ch;
+  padding: 16px 18px;
+  border: 1px solid #fc3e38;
+  background: #0e0e0eee;
 }
 .argus-fatal h1 {
-  margin: 0;
-  font-size: 18px;
-  color: #ff9d7a;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fc3e38;
 }
 .argus-fatal p {
   margin: 0;
-  max-width: 46ch;
-  color: #a9bbd6;
-  font-size: 14px;
+  color: #cacaca;
+  font-size: 13px;
   line-height: 1.55;
 }
 .argus-fatal code {
-  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
-  color: #cfe3ff;
-  background: rgba(90, 140, 210, 0.16);
-  padding: 1px 6px;
-  border-radius: 5px;
-}
-
-/* Demo-data notice element. Its visual treatment now comes from `.argus-alert`
-   (added by the control-panel builder); this class is kept only as a hook. */
-.argus-demo-banner {
-  display: block;
+  color: #ffffff;
+  background: #202020;
+  padding: 0 5px;
 }

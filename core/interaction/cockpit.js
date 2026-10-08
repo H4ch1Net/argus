@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import './cockpit.css';
+import { acquireContinuousRender, releaseContinuousRender } from '../scene/renderMode.js';
 
 // Cockpit mode: the camera rides a tracked entity (master plan 8). A chase cam
 // sits behind and above the entity, looking along its direction of travel, and
@@ -15,7 +16,7 @@ const CHASE_HEIGHT = 1200; // metres above
 const LOOK_AHEAD = 1500; // aim point ahead of the entity
 const MIN_HEIGHT = 150; // camera floor above the ellipsoid
 
-export function createCockpit(viewer, { onExit } = {}) {
+export function createCockpit(viewer, { onExit, onEnter } = {}) {
   const scene = viewer.scene;
   let entity = null;
   let active = false;
@@ -104,6 +105,7 @@ export function createCockpit(viewer, { onExit } = {}) {
     if (active || !target) return;
     entity = target;
     active = true;
+    onEnter?.(target);
     lastPos = null;
     forward = null;
     viewer.trackedEntity = undefined; // we drive the camera directly
@@ -111,6 +113,7 @@ export function createCockpit(viewer, { onExit } = {}) {
     savedFrameRate = viewer.targetFrameRate;
     viewer.targetFrameRate = 60;
     removePreRender = scene.preRender.addEventListener(updateCamera);
+    acquireContinuousRender(scene, 60); // the chase camera moves every frame
     acquireWakeLock();
     showExitButton();
     scene.requestRender();
@@ -121,6 +124,7 @@ export function createCockpit(viewer, { onExit } = {}) {
     active = false;
     removePreRender?.();
     removePreRender = null;
+    releaseContinuousRender(scene, 60);
     scene.screenSpaceCameraController.enableInputs = true;
     if (savedFrameRate != null) viewer.targetFrameRate = savedFrameRate;
     releaseWakeLock();
@@ -135,7 +139,7 @@ export function createCockpit(viewer, { onExit } = {}) {
       exitBtn = document.createElement('button');
       exitBtn.type = 'button';
       exitBtn.className = 'argus-cockpit-exit';
-      exitBtn.textContent = 'Exit cockpit';
+      exitBtn.textContent = 'EXIT COCKPIT  ESC';
       exitBtn.addEventListener('click', exit);
       document.body.appendChild(exitBtn);
     }

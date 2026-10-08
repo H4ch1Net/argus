@@ -1,6 +1,6 @@
-import * as Cesium from 'cesium';
 import { arcPeakHeight, arcPointAt } from '../sdk/greatCircle.js';
-import { describeThreat, severityColorHex } from './format.js';
+import { describeThreat } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Threat-map arcs (Pillar 3): animated great-circle arcs source-geo -> target-geo
 // over the globe, the ethical-hacker analogue of the earthquakes layer. A PUSH
@@ -53,9 +53,12 @@ export const threatsDefinition = {
   render: {
     renderType: 'arc',
     width: 2,
+    // Attack arcs: high severity in the error red (the state), the rest in
+    // ctOS grays, so a hostile spike stands out from background noise.
     style: (n) => {
-      const c = Cesium.Color.fromCssColorString(severityColorHex(n.meta.severity));
-      return { color: c.withAlpha(0.85), pulseColor: c, pulseSize: 7 };
+      const sev = n.meta.severity;
+      const c = sev >= 3 ? ink('error') : sev === 2 ? ink('white') : ink('muted');
+      return { color: c.withAlpha(0.75), pulseColor: c, pulseSize: 6 };
     },
   },
   describe: (n) => describeThreat(n),

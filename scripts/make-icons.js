@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Generate the PWA icons (public/icons/*) from code, so they are reproducible
-// and need no image tooling: the Argus eye (the favicon's design) rasterized with
-// 4x4 supersampling and written as PNG with node:zlib. Run: node scripts/make-icons.js
+// and need no image tooling: the ctOS mark (the favicon's design: a square
+// ground tile, white corner brackets, the diamond with its filled core)
+// rasterized with 4x4 supersampling and written as PNG with node:zlib.
+// Run: node scripts/make-icons.js
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,9 +17,9 @@ const out = path.resolve(
   'icons',
 );
 
-const BG = [5, 7, 12];
-const RIM = [87, 182, 227];
-const PUPIL = [87, 227, 154];
+const BG = [14, 14, 14]; // ctOS background
+const INK = [255, 255, 255]; // textPrimary (brackets, core)
+const GRAY = [217, 217, 217]; // ctosGray (diamond outline)
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -57,34 +59,29 @@ function encodePng(size, rgba) {
 }
 
 /**
- * Colour of one sample point (normalized 0..1 coordinates).
- * @param {boolean} maskable  full-bleed background, artwork inside the safe zone
+ * Colour of one sample point (normalized 0..1 coordinates). Square, like
+ * everything in ctOS.
+ * @param {boolean} maskable  artwork kept inside the maskable safe zone
  */
 function shade(u, v, maskable) {
-  const scale = maskable ? 0.72 : 1; // keep the eye inside the maskable safe zone
+  const scale = maskable ? 0.72 : 1;
   const x = (u - 0.5) / scale;
   const y = (v - 0.5) / scale;
 
-  // Background: rounded square (or full bleed when maskable).
-  if (!maskable) {
-    const r = 0.22;
-    const qx = Math.max(Math.abs(u - 0.5) - (0.5 - r), 0);
-    const qy = Math.max(Math.abs(v - 0.5) - (0.5 - r), 0);
-    if (Math.hypot(qx, qy) > r) return null; // transparent corner
-  }
+  // Corner brackets: L shapes 0.08 in from the edge.
+  const e = 0.42;
+  const arm = 0.15;
+  const t = 0.022;
+  const ax = Math.abs(x);
+  const ay = Math.abs(y);
+  if (ax <= e && ay <= e && ax >= e - arm && ay >= e - t) return INK;
+  if (ax <= e && ay <= e && ay >= e - arm && ax >= e - t) return INK;
 
-  // Pupil.
-  if (Math.hypot(x, y) < 0.135) return PUPIL;
-
-  // Eye outline: a lens made of two circular arcs, stroked.
-  const W = 0.78;
-  const H = 0.46;
-  const R = ((W / 2) ** 2 + (H / 2) ** 2) / H;
-  const k = R - H / 2;
-  const dA = Math.hypot(x, y - k) - R; // upper arc's circle (centre below)
-  const dB = Math.hypot(x, y + k) - R; // lower arc's circle (centre above)
-  const lens = Math.max(dA, dB); // signed distance to the lens boundary (approx.)
-  if (Math.abs(lens) < 0.032) return RIM;
+  // The diamond: an outline, a filled core, and the centre line from the top.
+  const d = ax + ay;
+  if (d <= 0.1) return INK;
+  if (Math.abs(d - 0.28) < 0.022) return GRAY;
+  if (ax < 0.011 && y < -0.1 && y > -0.28) return GRAY;
   return BG;
 }
 

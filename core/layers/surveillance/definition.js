@@ -1,12 +1,7 @@
-import * as Cesium from 'cesium';
 import { parseOverpass } from '../overpass/parse.js';
 import { areaTooLarge } from '../overpass/client.js';
-import {
-  surveillanceKind,
-  surveillanceColorHex,
-  surveillancePixelSize,
-  describeSurveillance,
-} from './format.js';
+import { surveillanceKind, describeSurveillance } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // The "eyes": surveillance-infrastructure locations from OSM (man_made=surveillance),
 // including ALPR/Flock readers. A viewport-fetched, static point layer. GUARDRAIL:
@@ -23,13 +18,14 @@ export const surveillanceDefinition = {
   maxEntities: 4000,
   normalize: (json) => parseOverpass(json),
   render: {
+    // Corner brackets: something that watches. ALPR readers slightly larger.
     renderType: 'point',
     style: (n) => {
       const kind = surveillanceKind(n.meta.tags);
       return {
-        pixelSize: surveillancePixelSize(kind),
-        color: Cesium.Color.fromCssColorString(surveillanceColorHex(kind)).withAlpha(0.9),
-        outlineColor: Cesium.Color.BLACK.withAlpha(0.5),
+        glyph: 'bracket',
+        pixelSize: kind === 'ALPR' ? 14 : 11,
+        color: kind === 'ALPR' ? ink('white') : ink('gray', 0.9),
       };
     },
   },

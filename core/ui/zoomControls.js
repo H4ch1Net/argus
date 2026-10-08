@@ -1,29 +1,34 @@
 import './zoomControls.css';
+import { h } from './dom.js';
 
-// On-screen zoom stepper (+ / -), a reliable alternative to wheel/pinch zoom on
-// trackpads and touch where those gestures are inconsistent, plus north-up,
-// tilt and whole-Earth buttons. Floats over the globe; the shell decides where.
-// Holding a zoom button repeats the step.
+// The view stack: a column of 37px framed cells (the bar's workspace cells,
+// stood on end) floating over the globe. + / − zoom (hold to repeat), N for
+// north up, TLT straight down / oblique, ⌂ the whole Earth, and GEO to centre
+// on the device position where the shell can read it. A reliable alternative
+// to wheel and pinch on trackpads and touch.
 
 /**
  * @param {{ camera: { zoomStep: (dir: number) => void, northUp?: Function,
- *   toggleTilt?: Function, flyHome?: Function } }} opts
+ *   toggleTilt?: Function, flyHome?: Function },
+ *   onLocate?: (report: (status: 'ok'|'denied'|'unavailable') => void) => void,
+ *   onNotify?: (msg: { title: string, body?: string, level?: string }) => void }} opts
  */
-export function createZoomControls({ camera }) {
-  const el = document.createElement('div');
-  el.className = 'argus-zoom';
+export function createZoomControls({ camera, onLocate, onNotify }) {
+  const el = h('div.ct-viewstack', { role: 'group', 'aria-label': 'View controls' });
 
-  const make = (dir, label, aria) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'argus-zoom__btn';
-    b.textContent = label;
-    b.setAttribute('aria-label', aria);
+  const cell = (label, aria, extra = {}) =>
+    h(
+      'button.ct-viewstack__cell.ct-frame',
+      { type: 'button', title: aria, 'aria-label': aria, ...extra },
+      label,
+    );
+
+  const repeat = (dir, label, aria) => {
+    const b = cell(label, aria);
     let held = null;
     const start = (e) => {
       e.preventDefault();
       camera.zoomStep(dir);
-      // Repeat while held, accelerating slightly.
       let delay = 320;
       const tick = () => {
         camera.zoomStep(dir);
@@ -43,21 +48,41 @@ export function createZoomControls({ camera }) {
     return b;
   };
 
-  // One-tap view resets: north up, straight-down vs oblique, the whole Earth.
-  const tap = (label, aria, fn) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'argus-zoom__btn argus-zoom__btn--small';
-    b.textContent = label;
-    b.title = aria;
-    b.setAttribute('aria-label', aria);
-    b.addEventListener('click', fn);
-    return b;
-  };
-  el.append(make(1, '+', 'Zoom in'), make(-1, '−', 'Zoom out'));
-  if (camera.northUp) el.append(tap('N', 'North up', () => camera.northUp()));
+  el.append(repeat(1, '+', 'Zoom in'), repeat(-1, '−', 'Zoom out'));
+  if (camera.northUp)
+    el.append(cell('N', 'North up', { onclick: () => camera.northUp() }));
   if (camera.toggleTilt)
-    el.append(tap('⟂', 'Straight down / oblique', () => camera.toggleTilt()));
-  if (camera.flyHome) el.append(tap('⌂', 'Whole Earth', () => camera.flyHome()));
+    el.append(
+      cell('TLT', 'Straight down / oblique', { onclick: () => camera.toggleTilt() }),
+    );
+  if (camera.flyHome)
+    el.append(cell('⌂', 'Whole Earth', { onclick: () => camera.flyHome() }));
+  if (onLocate) {
+    let pending = false;
+    const geo = cell('GEO', 'Centre on my location');
+    geo.addEventListener('click', () => {
+      if (pending) return;
+      pending = true;
+      geo.classList.add('is-pending');
+      onLocate((status) => {
+        pending = false;
+        geo.classList.remove('is-pending');
+        geo.classList.toggle('is-error', status !== 'ok');
+        if (status !== 'ok') {
+          onNotify?.({
+            title: status === 'denied' ? 'LOCATION DENIED' : 'LOCATION UNAVAILABLE',
+            body:
+              status === 'denied'
+                ? 'The browser refused location access for this page.'
+                : 'This device could not report a position (it needs HTTPS on a phone).',
+            level: 'low',
+            key: 'geo',
+          });
+          setTimeout(() => geo.classList.remove('is-error'), 2500);
+        }
+      });
+    });
+    el.append(geo);
+  }
   return { el };
 }

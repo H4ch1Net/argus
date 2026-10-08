@@ -1,5 +1,5 @@
-/* Mobile shell v1 (S25-tuned): full-bleed globe with a draggable bottom sheet
-   (master plan 6.7: snap points within thumb reach on a 6.9" panel). */
+/* Mobile shell (S25-tuned), ctOS layout: full-bleed globe, a compact bar at
+   the top, the view stack at the right edge, the tabbed bottom sheet. */
 
 .argus-shell-mobile {
   position: fixed;
@@ -8,40 +8,106 @@
   /* Kill browser gesture interception so Cesium gets the pointer stream. */
   touch-action: none;
   overscroll-behavior: none;
-  background: #05070c;
+  background: var(--background);
 }
-
 .argus-shell-mobile .argus-globe {
   position: absolute;
   inset: 0;
 }
+.argus-shell-mobile .cesium-widget-credits {
+  left: auto !important;
+  right: 6px;
+  top: calc(env(safe-area-inset-top) + 52px);
+  bottom: auto !important;
+  opacity: 0.45;
+  font-size: 9px;
+}
 
-/* The sheet slides along translateY; it snaps between open (0) and peek. */
+.argus-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.argus-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+.argus-hud > * {
+  pointer-events: auto;
+}
+
+.argus-shell-mobile .ct-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 8px;
+  right: 8px;
+}
+.argus-shell-mobile .ct-lockup__bar {
+  width: 70px;
+}
+.argus-shell-mobile .ct-lockup__os {
+  font-size: 26px;
+}
+
+.argus-shell-mobile .argus-stack {
+  position: absolute;
+  right: 8px;
+  top: calc(env(safe-area-inset-top) + 8px + var(--bar-height) + 10px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.argus-shell-mobile .argus-notify {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px + var(--bar-height) + 8px);
+  left: 8px;
+  right: 60px;
+  pointer-events: none;
+}
+.argus-shell-mobile .argus-notify .ct-notify {
+  width: 100%;
+}
+
+.argus-shell-mobile .argus-float {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: calc(env(safe-area-inset-top) + 8px + var(--bar-height) + 8px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.argus-shell-mobile .argus-float > * {
+  pointer-events: auto;
+}
+
+/* The sheet slides along translateY between peek, half and full. */
 .argus-sheet {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  max-height: 72vh;
   display: flex;
   flex-direction: column;
-  background: rgba(6, 10, 18, 0.92);
-  border-top: 1px solid rgba(90, 140, 210, 0.28);
-  border-radius: 18px 18px 0 0;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  background: var(--panel-translucent);
+  border-top: 1px solid var(--ctosGray);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   padding-bottom: env(safe-area-inset-bottom);
   will-change: transform;
+  touch-action: none;
 }
 .argus-sheet.is-animating {
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.26s var(--ease-out-cubic);
 }
-
-/* The drag handle: a wide touch target with a centered grip. */
 .argus-sheet__handle {
   flex: 0 0 auto;
-  height: 34px;
+  height: 20px;
   border: 0;
   background: transparent;
   display: flex;
@@ -51,49 +117,38 @@
   touch-action: none;
 }
 .argus-sheet__grip {
-  width: 44px;
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(150, 175, 210, 0.5);
+  width: 36px;
+  height: 3px;
+  background: var(--textSecondary);
 }
-
+.argus-sheet__head {
+  flex: none;
+  padding: 0 8px 6px;
+  touch-action: none;
+}
+.argus-sheet__head .ct-tabs > button {
+  height: 30px;
+}
 .argus-sheet__content {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  touch-action: pan-y;
 }
-.argus-sheet__controls {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.argus-shell-mobile .argus-pane {
+  padding-bottom: 16px;
+}
+.argus-compass-row {
+  padding: 8px var(--panel-padding) 0;
 }
 
-/* In the mobile sheet the readout is a plain block (the sheet is the chrome). */
-.argus-shell-mobile .argus-readout {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding: 0;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+/* Touch: bigger rows. */
+.argus-shell-mobile .ct-row {
+  min-height: 40px;
 }
-
-/* Floating zoom stepper: right side, above the collapsed sheet peek. */
-.argus-shell-mobile .argus-zoom {
-  position: absolute;
-  right: 14px;
-  bottom: calc(140px + env(safe-area-inset-bottom));
-  z-index: 5;
+.argus-shell-mobile .ct-btn {
+  min-height: 34px;
 }
-
-/* Tuck the Cesium attribution credit up out of the sheet's way. */
-.argus-shell-mobile .cesium-viewer-bottom {
-  bottom: auto;
-  top: calc(8px + env(safe-area-inset-top));
-  right: 8px;
-  left: auto;
+.argus-shell-mobile .ct-switch {
+  padding-top: 10px;
+  padding-bottom: 10px;
 }

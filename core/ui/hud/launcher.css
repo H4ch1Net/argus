@@ -1,0 +1,43 @@
+.ct-launcher {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  background: #0000004d;
+}
+.ct-launcher[hidden] {
+  display: none;
+}
+.ct-launcher__panel {
+  width: min(560px, calc(100vw - 24px));
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+}
+.ct-launcher__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(8 * 38px, 50vh);
+}
+.ct-launcher__list[hidden] {
+  display: none;
+}
+.ct-launcher__hint {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+}
+@media (max-width: 720px) {
+  .ct-launcher {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 56px);
+  }
+  .ct-launcher__hint {
+    display: none;
+  }
+}

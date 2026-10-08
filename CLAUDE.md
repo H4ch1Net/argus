@@ -168,7 +168,7 @@ The layers ported from the reference project use the endpoints it uses live, but
 16. OSINT/cyber console: threat-map arcs -> query console -> asset correlation -> CT/BGP -> terminal
 17. Time scrubber UI
 
-Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves the app same-origin), keyless flights fallback, thermal ladder, tile-cache caps, PWA, Android standalone (Termux), and parity with the reference's keyless layers (military, transit, bikeshare, launches, cyclones, weather rasters, traffic cams, radio, cables, data centres, installations, nav sats, your own ADS-B receiver). Status of everything lives in `docs/AUDIT.md`; the feature-by-feature comparison with the reference (and what is out or deferred) in `docs/COMPARISON.md`.
+Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves the app same-origin), keyless flights fallback, thermal ladder, tile-cache caps, PWA, Android standalone (Termux), and parity with the reference's keyless layers (military, transit, bikeshare, launches, cyclones, weather rasters, traffic cams, radio, cables, data centres, installations, nav sats, your own ADS-B receiver). Then the ctOS round: the owner's ctOS design system in every web shell (`core/ui/theme.css`; bar, LAYERS / VIEW / TOOLS menus, target panel, launcher, notifications, terminal, splash), one BillboardCollection per point or billboard layer with a fleet tick at the paced frame rate and a shared frame pacer (`core/scene/renderMode.js`), per-class aircraft silhouettes (3D models up close) and ctOS glyphs in one palette (`core/ui/palette.js`), selection that never moves the camera plus the blob-tracking overlay (`core/scene/trackingOverlay.js`), label overlays and the DARK basemap, and the reference's remaining guardrail-compatible features (storm cones and tracks, fire perimeters, dams, wind (Open-Meteo grid, not GRIB), GOES IR and the weather timeline, Noir / Snow / sharpen / bloom, satellite classes, Starlink dense, next pass, launch replay, 978 MHz UAT, 24 h traces, adsbdb enrichment, OSRM routing, draw and measure, share links, offline places + Photon, radio tuner, nine more camera networks, recent imagery, TomTom flow, cockpit briefing, data credits). Then parity round 2: keyboard shortcuts, the Intel HUD, clean view, orbit, contact cycling, presets that give the view back, local scenes, city landmarks, PROJECT for traffic cameras, cockpit weather, and the fixes from an independent review. Those rounds had no network: nothing in them ran on real Cesium or a live feed. Status of everything lives in `docs/AUDIT.md`; the feature-by-feature comparison with the reference (and what is out or deferred) in `docs/COMPARISON.md`.
 
 ---
 
@@ -177,7 +177,7 @@ Post-plan (done): terminal shell + scriptable CLI, one-command run (proxy serves
 ```
 npm install          # install everything (app, proxy, terminal shell)
 ./scripts/install-linux.sh   # Kali/Linux: deps + `argus` command + keys file
-                             # + menu launchers + GPU check (idempotent)
+                             # + menu launchers + GPU and font checks (idempotent)
 bash scripts/install-termux.sh  # Android (Termux): the whole stack on the phone
 
 npm start            # build if stale, serve app + proxy on one origin (:8787)
@@ -193,7 +193,8 @@ npm run build        # production build to dist/ (Cesium assets copied in)
 npm run preview      # serve the production build locally
 
 npm test             # core + mobile + terminal shell tests (node --test)
-npm run test:proxy   # proxy tests (relay, cors, config, oauth, ws, static, env)
+npm run test:proxy   # proxy tests (relay, cors, config, oauth, ws, static, env,
+                     # feed allowlists)
 
 npm run lint         # eslint
 npm run format       # prettier --write
@@ -208,6 +209,7 @@ The `argus` launcher (`bin/argus.js`, on PATH after the install script or `npm l
 argus web [--https] [--open]     argus proxy [--https]     argus tui [--demo]
 argus query|correlate <ip|domain|asn>    argus quakes|flights|sats|fires|geocode
 argus military|storms|launches
+argus route <A> <B> [--mode car|foot|bike]    argus measure <A> <B>
 argus bgp|ct (streams)    argus health    (all take --json and --proxy URL)
 ```
 

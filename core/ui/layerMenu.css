@@ -1,0 +1,53 @@
+.ct-layers {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ct-layers__presets {
+  padding: 2px var(--panel-padding) 4px;
+}
+.ct-layers__presets .ct-btn {
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 10.5px;
+}
+.ct-layers__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+}
+.ct-layers__group {
+  padding: 10px 10px 4px;
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ct-layers__row {
+  min-height: 32px;
+  font-size: 12px;
+}
+.ct-layers__row .ct-row__meta.is-err {
+  color: var(--error);
+}
+.ct-layers__row .ct-row__meta.is-load {
+  color: var(--textPrimaryDimmer);
+  animation: ct-blink 900ms steps(2) infinite;
+}
+.ct-layers__row .ct-row__meta.is-demo {
+  color: var(--textSecondary);
+}
+.ct-layers__row[aria-pressed='false'] .ct-tile canvas {
+  opacity: 0.55;
+}
+.ct-layers__foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px var(--panel-padding) 12px;
+}
+@keyframes ct-blink {
+  50% {
+    opacity: 0.35;
+  }
+}

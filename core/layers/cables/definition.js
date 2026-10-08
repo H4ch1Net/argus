@@ -1,19 +1,11 @@
-import * as Cesium from 'cesium';
 import { parseCables } from './parse.js';
 import { describeCable, cableSearchText } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Submarine cables as polylines (TeleGeography's public map data, fetched once
 // a day through the proxy). Drawn slightly above sea level rather than clamped
 // to the ground, which keeps ~2,000 long segments cheap on a phone. Each cable
 // keeps the colour TeleGeography gives it.
-
-const colors = new Map();
-const cableColor = (hex) => {
-  const key = hex || '#4fc3f7';
-  if (!colors.has(key))
-    colors.set(key, Cesium.Color.fromCssColorString(key).withAlpha(0.85));
-  return colors.get(key);
-};
 
 export const cablesDefinition = {
   id: 'cables',
@@ -25,7 +17,8 @@ export const cablesDefinition = {
     renderType: 'polyline',
     height: 300,
     width: 1.5,
-    style: (n) => ({ color: cableColor(n.meta.color) }),
+    // Sea cables in slate: infrastructure context, not the foreground.
+    style: () => ({ color: ink('slate', 0.7) }),
   },
   describe: (n) => describeCable(n),
   searchText: cableSearchText,

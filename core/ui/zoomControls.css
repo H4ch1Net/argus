@@ -1,44 +1,46 @@
-/* Floating zoom stepper. Terminal-styled to match the control modules. */
-.argus-zoom {
+.ct-viewstack {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  border: 1px solid rgba(64, 122, 138, 0.5);
-  border-radius: 3px;
-  overflow: hidden;
-  background: rgba(64, 122, 138, 0.5);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
+  width: 37px;
+  border: 1px solid var(--ctosGray);
+  background: var(--background);
+}
+.ct-viewstack__cell {
+  display: grid;
+  place-items: center;
+  height: 31px;
+  margin: 3px;
+  border: 0;
+  background-color: transparent;
+  color: var(--textPrimaryDim);
+  font-size: 13px;
+  cursor: pointer;
+  touch-action: manipulation;
   user-select: none;
 }
-.argus-zoom__btn {
-  width: 38px;
-  height: 38px;
-  border: 0;
-  background: linear-gradient(180deg, rgba(12, 22, 28, 0.96), rgba(7, 14, 19, 0.96));
-  color: #7fdfc8;
-  font:
-    600 20px/1 ui-monospace,
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
-  cursor: pointer;
-  touch-action: none;
-  transition:
-    background 0.12s,
-    color 0.12s;
+.ct-viewstack__cell + .ct-viewstack__cell {
+  margin-top: 0;
 }
-.argus-zoom__btn:hover {
-  background: rgba(53, 224, 176, 0.18);
-  color: #dbfff3;
+.ct-viewstack__cell:nth-child(n + 3) {
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
 }
-.argus-zoom__btn:active {
-  background: rgba(53, 224, 176, 0.32);
-  color: #04140f;
+.ct-viewstack__cell:hover {
+  color: var(--textPrimary);
+  background-color: #ffffff0d;
 }
-.argus-zoom__btn--small {
-  height: 32px;
-  font-size: 14px;
-  touch-action: manipulation;
+.ct-viewstack__cell.is-pending {
+  animation: ct-blink 900ms steps(2) infinite;
+}
+.ct-viewstack__cell.is-error {
+  color: var(--error);
+  --c: var(--error);
+}
+@media (pointer: coarse) {
+  .ct-viewstack {
+    width: 42px;
+  }
+  .ct-viewstack__cell {
+    height: 36px;
+  }
 }

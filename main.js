@@ -29,7 +29,7 @@ function showFatal(root, title, message) {
   root.innerHTML = '';
   const el = document.createElement('div');
   el.className = 'argus-fatal';
-  el.innerHTML = `<h1>${title}</h1><p>${message}</p>`;
+  el.innerHTML = `<div><h1>${title}</h1><p>${message}</p></div>`;
   root.appendChild(el);
 }
 
@@ -57,6 +57,10 @@ async function main() {
   }
 
   const shellName = pickShell(caps);
+  const { createSplash } = await import('./core/ui/splash.js');
+  const splash = createSplash();
+  document.body.appendChild(splash.el);
+  splash.step(`ARGUS_BOOT : SHELL_${shellName.toUpperCase()}`, 10);
 
   try {
     const { mountShell } =
@@ -74,8 +78,11 @@ async function main() {
       );
     }
 
-    await setupScene(app);
+    splash.step(`GLOBE_ONLINE : TIER_${String(app.tier).toUpperCase()}`, 30);
+    await setupScene(app, splash);
+    splash.done();
   } catch (err) {
+    splash.el.remove();
     console.error('[argus] boot failed', err);
     showFatal(
       root,
@@ -90,21 +97,30 @@ async function main() {
 // (VITE_PROXY_BASE_URL, or the app's own origin when the proxy serves it or the
 // dev server forwards to it), otherwise from dev mocks; with neither (a
 // production build that cannot reach a proxy) no layers register.
-async function setupScene(app) {
+async function setupScene(app, splash) {
   const dev = import.meta.env.DEV;
   const { discoverProxy, feedConfigured } = await import('./core/net/discoverProxy.js');
   const { base: proxyBase, health } = await discoverProxy({
     explicit: import.meta.env.VITE_PROXY_BASE_URL || null,
     origin: location.origin,
   });
+  splash?.step(
+    proxyBase ? 'LOG_STREAM_CONNECTED : PROXY' : 'LOG_STREAM_MISSING : DEMO',
+    45,
+  );
+
+  const { createNotifier } = await import('./core/ui/hud/notify.js');
+  const notifier = createNotifier();
+  app.mount('notify', notifier.el);
+
   // A production build with no proxy has no data source (mocks are dev-only), so
   // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
   if (!proxyBase && !dev) {
-    const notice = document.createElement('div');
-    notice.className = 'argus-demo-banner';
-    notice.textContent =
-      'No proxy reachable. Run "npm start" (it serves this app and its proxy together) or set VITE_PROXY_BASE_URL.';
-    app.mountControls?.({ notice });
+    notifier.push({
+      title: 'NO PROXY REACHABLE',
+      body: 'Run "npm start" (it serves this app and its proxy together) or set VITE_PROXY_BASE_URL.',
+      level: 'critical',
+    });
     return;
   }
 
@@ -112,11 +128,8 @@ async function setupScene(app) {
     { createLayerManager },
     { createCameraControls },
     { PRESETS, DEFAULT_LAYERS, applyPreset },
-    { createPresetBar },
-    { createLayerToggles },
     { createGeocoder },
     { createSearch },
-    { createSearchBox },
     { createLookup },
     { createCorrelator },
     { createOsintPlotter },
@@ -125,11 +138,8 @@ async function setupScene(app) {
     import('./core/scene/layerManager.js'),
     import('./core/scene/cameraControls.js'),
     import('./core/presets.js'),
-    import('./core/ui/presetBar.js'),
-    import('./core/ui/layerToggles.js'),
     import('./core/search/geocoder.js'),
     import('./core/search/search.js'),
-    import('./core/ui/searchBox.js'),
     import('./core/osint/lookup.js'),
     import('./core/osint/correlate.js'),
     import('./core/osint/plotter.js'),
@@ -152,17 +162,51 @@ async function setupScene(app) {
   const clock = createSceneClock();
   clock.subscribe(() => app.viewer.scene.requestRender());
 
-  const manager = createLayerManager(app.viewer, { readout: app.readout, clock });
+  const manager = createLayerManager(app.viewer, {
+    readout: app.readout,
+    clock,
+    animationFps: app.profile?.animationFps,
+  });
   const camera = createCameraControls(app.viewer);
-
-  // On-screen zoom stepper: a dependable zoom on trackpads and touch, where
-  // wheel/pinch gestures are unreliable. Floats over the globe via the shell.
-  const { createZoomControls } = await import('./core/ui/zoomControls.js');
-  app.mountOverlay?.(createZoomControls({ camera }).el);
+  const desktop = app.shell === 'desktop';
 
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
   // chunk entirely; only the proxy source ships.
+  // Shared by the timed weather overlays: one observation clock, so radar,
+  // clouds and lightning step through history together (the VIEW strip).
+  const { createWeatherTimeline } = await import('./core/layers/weather/timeline.js');
+  const weatherTimeline = createWeatherTimeline();
+  const timedWeather = (productId) => async (c) => {
+    const { createTimedWeatherSource } =
+      await import('./core/layers/weather/timedSource.js');
+    return createTimedWeatherSource({
+      productId,
+      proxyClient: c,
+      timeline: weatherTimeline,
+      maximumLevel: app.tier === 'full' ? undefined : 5,
+    });
+  };
+  // Starlink dense mode (VIEW > SATELLITES), read by the constellation source.
+  let starlinkDense = false;
+  // Recent imagery (NASA HLS / VIIRS): the catalogue the VIEW tool searches and
+  // the layer shows from.
+  const { createImageryCatalogue } = await import('./core/layers/imagery/catalog.js');
+  const imageryCatalogue = proxyClient
+    ? createImageryCatalogue({ buildUrl: proxyClient.buildUrl })
+    : null;
+  const cycloneForecastSource = async (c) => {
+    const { createCycloneForecastSource } =
+      await import('./core/layers/cyclonecones/source.js');
+    return createCycloneForecastSource({ proxyClient: c });
+  };
+  const cycloneForecastMock = () =>
+    import.meta.env.DEV
+      ? import('./core/layers/cyclonecones/mockSource.js').then((m) =>
+          m.createCycloneForecastMockSource(),
+        )
+      : Promise.resolve(null);
+
   const registrations = [
     {
       key: 'flights',
@@ -215,13 +259,21 @@ async function setupScene(app) {
       key: 'localadsb',
       group: 'Air & space',
       label: 'My receiver',
-      // Only offered when the proxy knows your receiver (LOCAL_ADSB_URL).
-      requires: 'local-adsb',
+      // Only offered when the proxy knows your receiver: a 1090 MHz feed
+      // (LOCAL_ADSB_URL), a 978 MHz UAT feed (LOCAL_UAT_URL), or both.
+      requires: ['local-adsb', 'local-uat'],
       loadDef: () =>
         import('./core/layers/localadsb/definition.js').then(
           (m) => m.localAdsbDefinition,
         ),
-      proxy: (c) => (_q, s) => c.getJson('local-adsb', '/aircraft.json', { signal: s }),
+      proxy: async (c) => {
+        const { createLocalReceiverSource, LOCAL_RECEIVER_FEEDS } =
+          await import('./core/layers/localadsb/source.js');
+        const feeds = health
+          ? LOCAL_RECEIVER_FEEDS.filter((f) => feedConfigured(health, f.feed))
+          : LOCAL_RECEIVER_FEEDS;
+        return createLocalReceiverSource({ proxyClient: c, feeds });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/localadsb/mockSource.js').then((m) =>
@@ -252,15 +304,20 @@ async function setupScene(app) {
     {
       key: 'constellations',
       group: 'Air & space',
-      label: 'Nav & GEO sats',
+      label: 'Nav, GEO & visual sats',
       loadDef: () =>
         import('./core/layers/constellations/definition.js').then(
           (m) => m.constellationsDefinition,
         ),
+      // Starlink "dense" (thousands of points) only on the full tier, and only
+      // when switched on in VIEW; read on every fetch.
       proxy: async (c) => {
-        const { createConstellationSource } =
+        const { createConstellationSource, denseAllowedForTier } =
           await import('./core/layers/constellations/groups.js');
-        return createConstellationSource({ proxyClient: c });
+        return createConstellationSource({
+          proxyClient: c,
+          dense: () => starlinkDense && denseAllowedForTier(app.tier),
+        });
       },
       mock: () =>
         import.meta.env.DEV
@@ -326,6 +383,22 @@ async function setupScene(app) {
               m.createBikeshareMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
+    },
+    {
+      key: 'trafficflow',
+      group: 'Ground & sea',
+      label: 'Traffic flow',
+      // Hidden until the proxy has a TomTom key (TOMTOM_API_KEY).
+      requires: 'tomtom-flow',
+      loadDef: () =>
+        import('./core/layers/trafficflow/definition.js').then(
+          (m) => m.trafficFlowDefinition,
+        ),
+      proxy: async (c) => {
+        const { trafficFlowSpec } = await import('./core/layers/trafficflow/spec.js');
+        return async () => trafficFlowSpec(c.buildUrl);
+      },
+      mock: () => Promise.resolve(null),
     },
     {
       key: 'ships',
@@ -401,11 +474,9 @@ async function setupScene(app) {
       label: 'IR clouds',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('clouds', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('clouds'),
       // Imagery needs the real service; there is no offline stand-in.
       mock: () => Promise.resolve(null),
     },
@@ -415,11 +486,9 @@ async function setupScene(app) {
       label: 'Radar (US)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.radarDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('radar', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('radar'),
       // Imagery needs the real service; there is no offline stand-in.
       mock: () => Promise.resolve(null),
     },
@@ -429,12 +498,89 @@ async function setupScene(app) {
       label: 'Lightning',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.lightningDefinition),
-      // NOAA nowCOAST imagery via the proxy; the source returns a raster spec.
-      proxy: async (c) => {
-        const { weatherSpec } = await import('./core/layers/weather/products.js');
-        return async () => weatherSpec('lightning', c.buildUrl);
-      },
+      // NOAA nowCOAST imagery via the proxy, timed: the source follows the
+      // weather timeline (latest by default, or a past observation).
+      proxy: timedWeather('lightning'),
       // Imagery needs the real service; there is no offline stand-in.
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'goes',
+      group: 'Earth & weather',
+      label: 'IR clouds (GOES)',
+      loadDef: () =>
+        import('./core/layers/weather/definition.js').then((m) => m.goesDefinition),
+      proxy: timedWeather('goes'),
+      mock: () => Promise.resolve(null),
+    },
+    {
+      key: 'wind',
+      group: 'Earth & weather',
+      label: 'Wind',
+      loadDef: () =>
+        import('./core/layers/wind/definition.js').then((m) => m.windDefinition),
+      // The current 10 m wind over a grid of the view (Open-Meteo, keyless).
+      proxy: async (c) => {
+        const { createWindSource } = await import('./core/layers/wind/source.js');
+        return createWindSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/wind/source.js').then((m) => m.createWindMockSource())
+          : Promise.resolve(null),
+    },
+    {
+      key: 'cyclonecones',
+      group: 'Earth & weather',
+      label: 'Storm cones',
+      loadDef: () =>
+        import('./core/layers/cyclonecones/definition.js').then(
+          (m) => m.cycloneConesDefinition,
+        ),
+      proxy: cycloneForecastSource,
+      mock: cycloneForecastMock,
+    },
+    {
+      key: 'cyclonetracks',
+      group: 'Earth & weather',
+      label: 'Storm tracks',
+      loadDef: () =>
+        import('./core/layers/cyclonecones/definition.js').then(
+          (m) => m.cycloneTracksDefinition,
+        ),
+      proxy: cycloneForecastSource,
+      mock: cycloneForecastMock,
+    },
+    {
+      key: 'perimeters',
+      group: 'Earth & weather',
+      label: 'Fire perimeters',
+      loadDef: () =>
+        import('./core/layers/perimeters/definition.js').then(
+          (m) => m.perimetersDefinition,
+        ),
+      proxy: async (c) => {
+        const { createPerimeterSource } =
+          await import('./core/layers/perimeters/source.js');
+        return createPerimeterSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/perimeters/mockSource.js').then((m) =>
+              m.createPerimeterMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'imagery',
+      group: 'Earth & weather',
+      label: 'Recent imagery',
+      loadDef: () =>
+        import('./core/layers/imagery/definition.js').then(
+          (m) => m.recentImageryDefinition,
+        ),
+      // Shows the day picked in VIEW > RECENT IMAGERY (NASA HLS / VIIRS).
+      proxy: async () => imageryCatalogue?.rasterSource ?? null,
       mock: () => Promise.resolve(null),
     },
     {
@@ -540,6 +686,30 @@ async function setupScene(app) {
         import.meta.env.DEV
           ? import('./core/layers/infrastructure/mockSource.js').then((m) =>
               m.createInfraMockSource({ viewer: app.viewer, kind: 'datacenters' }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'dams',
+      group: 'Infrastructure',
+      label: 'Dams',
+      loadDef: () =>
+        import('./core/layers/dams/definition.js').then((m) => m.damsDefinition),
+      proxy: async (c) => {
+        const [{ createOverpassSource }, f] = await Promise.all([
+          import('./core/layers/overpass/client.js'),
+          import('./core/layers/dams/format.js'),
+        ]);
+        return createOverpassSource({
+          proxyClient: c,
+          filters: f.DAM_FILTERS,
+          maxAreaDeg: f.DAM_MAX_DEG,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/dams/mockSource.js').then((m) =>
+              m.createDamMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
@@ -669,7 +839,11 @@ async function setupScene(app) {
     // Layers that exist only with local equipment (your own receiver) are listed
     // only when the proxy has it configured, so no one sees a dead chip.
     // (In a dev session with no proxy, the labelled mock stands in instead.)
-    if (r.requires && proxyClient && !(health && feedConfigured(health, r.requires)))
+    if (
+      r.requires &&
+      proxyClient &&
+      ![].concat(r.requires).some((id) => health && feedConfigured(health, id))
+    )
       continue;
     manager.register(r.key, {
       label: r.label,
@@ -685,16 +859,143 @@ async function setupScene(app) {
     });
   }
 
+  splash?.step('WL_OUTPUT_FOUND : LAYERS', 60);
+
+  const [
+    { createTrackingOverlay },
+    { createTargetPanel },
+    { createLayerMenu },
+    { createLauncher },
+    { createSegment, createCells },
+    readouts,
+    { section, createChoice, createSwitch },
+    { CITIES },
+    { h },
+  ] = await Promise.all([
+    import('./core/scene/trackingOverlay.js'),
+    import('./core/ui/targetPanel.js'),
+    import('./core/ui/layerMenu.js'),
+    import('./core/ui/hud/launcher.js'),
+    import('./core/ui/hud/bar.js'),
+    import('./core/ui/hud/readouts.js'),
+    import('./core/ui/controls.js'),
+    import('./core/search/places.js'),
+    import('./core/ui/dom.js'),
+  ]);
+
   // OSINT query-console outputs are plotted here (query outputs, not a toggleable
   // feed layer), and resolved by the interaction spine as an extra resolver.
   const osintPlotter = createOsintPlotter(app.viewer);
 
-  const { tracker, labelFor } = await attachTracking(app, manager, {
-    extraResolvers: [osintPlotter],
+  // The tracking overlay (blob tracking boxes, hub lock, city names) and the
+  // target panel it drives. Labels for boxes and contacts come from each
+  // contact's own card, via the same resolver the panel uses.
+  let labelFor = () => null;
+  const overlay = createTrackingOverlay(app.viewer, {
+    getLayers: () => manager.active(),
+    places: CITIES,
+    labelFor: (t) => labelFor(t),
+  });
+  app.attachOverlay?.(overlay);
+
+  let tracker = null;
+  const panel = createTargetPanel({
+    onClose: () => tracker?.deselect(),
+    onPickContact: (c) => tracker?.select(c.target),
+  });
+  app.mount('target', panel.el);
+
+  const objMeter = readouts.createObjMeter();
+  overlay.subscribe((s) => {
+    const hub = s.hub;
+    panel.setSummary(s, {
+      quality: hub?.history ? Math.min(0.99, 0.62 + hub.history() * 0.03) : 0,
+      hubPos: hub?.visible
+        ? [hub.x / window.innerWidth, hub.y / window.innerHeight]
+        : [0.5, 0.5],
+    });
+    objMeter.update(s.total);
   });
 
+  const notify = (n) => notifier.push(n);
+
+  // Map-tap mode for tools: while a tool is armed, a tap on the globe goes to
+  // it (a route point, a drawing vertex, an imagery area) instead of selecting.
+  const sketchMod = await import('./core/scene/sketch.js');
+  const sketch = sketchMod.createSketch(app.viewer);
+  let tapOwner = null; // { fn, repeat }
+  const disarm = () => {
+    tapOwner = null;
+    notifier.clear('tap');
+  };
+  const armTap = (fn, label, { repeat = false } = {}) => {
+    tapOwner = { fn, repeat };
+    notifier.push({ title: label, body: 'Esc cancels.', key: 'tap', timeoutMs: 20_000 });
+  };
+  const interceptTap = (pos) => {
+    if (!tapOwner || !pos) return false;
+    const ll = sketchMod.windowToLatLon(app.viewer, pos);
+    if (!ll) return true; // a tap on the sky: ignore, stay armed
+    const owner = tapOwner;
+    if (!owner.repeat) disarm();
+    owner.fn(ll);
+    return true;
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tapOwner) disarm();
+  });
+
+  // Per-layer extras on the target card: trace, enrichment, passes, replay,
+  // nearest camera (core/interaction/targetExtras.js).
+  const [{ createTargetExtras }, { createReplayView }] = await Promise.all([
+    import('./core/interaction/targetExtras.js'),
+    import('./core/layers/launches/replayView.js'),
+  ]);
+  const replay = createReplayView(app.viewer, {
+    proxyClient,
+    mount: (el) => app.mount('float', el),
+    notify,
+    onChange: () => tracker?.refresh(),
+  });
+  const extras = createTargetExtras({
+    proxyClient,
+    manager,
+    notify,
+    replay,
+    select: (t) => tracker?.select(t),
+    getObserver: async () => {
+      const fix = await app.observer?.();
+      if (fix) return fix;
+      // Desktop: the ground point in the middle of the view (the point under
+      // the camera when the middle is sky).
+      const cv = app.viewer.scene.canvas;
+      const mid = sketchMod.windowToLatLon(app.viewer, {
+        x: cv.clientWidth / 2,
+        y: cv.clientHeight / 2,
+      });
+      if (mid) return { latitude: mid.lat, longitude: mid.lon };
+      const c = app.viewer.camera.positionCartographic;
+      return {
+        latitude: (c.latitude * 180) / Math.PI,
+        longitude: (c.longitude * 180) / Math.PI,
+      };
+    },
+  });
+  const tracking = await attachTracking(app, manager, {
+    extraResolvers: [osintPlotter],
+    panel,
+    overlay,
+    notify,
+    extras,
+    interceptTap,
+    proxyClient,
+  });
+  extras.setRefresh(() => tracking.tracker.refresh());
+  tracker = tracking.tracker;
+  labelFor = tracking.labelFor;
+
   // Global search / fly-to (P15) + OSINT query console (P16): query active layers
-  // (entities) and place names (geocoder); a query that parses as a network asset
+  // (contacts) and place names (geocoder); a query that parses as a network asset
   // (IP/ASN/domain) is passively looked up, geolocated, enriched, and plotted.
   const geocode = proxyClient
     ? createGeocoder(proxyClient)
@@ -720,46 +1021,460 @@ async function setupScene(app) {
     correlate,
     plot: (result) => osintPlotter.plot(result),
   });
-  const searchBox = createSearchBox({
+  const launcher = createLauncher({
     onQuery: (q) => searchCtl.search(q),
     onSelect: (r) => searchCtl.select(r),
   });
+  app.mount('overlay', launcher.el);
 
-  const presetBar = createPresetBar({
-    presets: PRESETS,
-    onSelect: (preset) => {
-      applyPreset(manager, preset);
-      if (preset.geolocate) app.aroundMe?.(camera);
+  // ------------------------------------------------------------------ bar
+  let activePreset = null;
+  let before = null; // { layers: Set, view } from the free view (presets)
+  let staged = null; // the layer set the preset put on
+  let cells = null;
+  const setPreset = (id) => {
+    // No preset any more (left, or the view was replaced by a scene): nothing
+    // to give back later.
+    if (id === null) before = staged = null;
+    activePreset = id;
+    cells?.setActive(id);
+    layerMenu?.setActivePreset(id);
+  };
+  // Presets stage a picture and give the exact view back when you leave, as
+  // the reference's Global Context does: entering one from a free view keeps
+  // the camera and layers; pressing the active preset again restores them,
+  // keeping any layer you switched on or off by hand in between.
+  const enabledKeys = () => new Set(manager.active().map((a) => a.key));
+  const runPreset = async (preset, { initial = false } = {}) => {
+    // Around Me pressed again re-centres on you; any other active preset
+    // pressed again leaves it.
+    if (activePreset === preset.id && before && !preset.geolocate) return leavePreset();
+    if (!before && !initial) before = { layers: enabledKeys(), view: camera.getView() };
+    setPreset(preset.id);
+    await applyPreset(manager, preset);
+    staged = enabledKeys();
+    if (preset.geolocate) app.aroundMe?.(camera);
+  };
+  async function leavePreset() {
+    const now = enabledKeys();
+    // A second press before the preset finished applying: nothing staged yet.
+    const prev = staged ?? now;
+    const added = [...now].filter((k) => !prev.has(k));
+    const removed = new Set([...prev].filter((k) => !now.has(k)));
+    const want = new Set([...before.layers, ...added].filter((k) => !removed.has(k)));
+    const { view } = before;
+    before = null;
+    staged = null;
+    setPreset(null);
+    await applyPreset(manager, { layers: [...want] });
+    camera.flyToView(view, 1.2);
+  }
+  if (desktop) {
+    const CODES = {
+      'around-me': 'NEAR',
+      sky: 'SKY',
+      surveillance: 'WATCH',
+      disaster: 'HAZ',
+      environment: 'ENV',
+      internet: 'NET',
+    };
+    cells = createCells({
+      items: PRESETS.map((p) => ({
+        id: p.id,
+        code: CODES[p.id] ?? p.label.slice(0, 4).toUpperCase(),
+        title: p.label,
+      })),
+      onSelect: (id) => runPreset(PRESETS.find((p) => p.id === id)),
+    });
+    app.mount('bar', cells);
+    app.mount(
+      'bar',
+      readouts.createFpsMeter(app.viewer, { target: app.profile?.animationFps || 30 }),
+    );
+    app.mount('bar', objMeter);
+  }
+  app.mount(
+    'barEnd',
+    createSegment({
+      label: '»',
+      value: desktop ? 'SEARCH  /' : 'SEARCH',
+      title: 'Search contacts, places and network assets (/ or Ctrl+K)',
+      onClick: () => launcher.toggle(),
+    }),
+  );
+  app.mount(
+    'barEnd',
+    readouts.createFeedSegment({
+      live: Boolean(proxyClient),
+      onClick: () => app.showTab?.('view'),
+    }),
+  );
+  if (desktop) app.mount('barEnd', readouts.createStatusSegment());
+
+  // ------------------------------------------------------------- layer menu
+  const layerMenu = createLayerMenu({
+    manager,
+    presets: desktop ? [] : PRESETS,
+    onPreset: runPreset,
+    // A layer switched by hand: the preset stays (and its exit keeps the
+    // change); only a preset-free view clears the highlight.
+    onManualToggle: () => !before && setPreset(null),
+  });
+  app.mount('layers', layerMenu.el);
+  setPreset(activePreset);
+
+  // Feed failures surface once as a notification (the menu row turns ERR too).
+  manager.subscribeStatus((key, s) => {
+    if (s?.state !== 'error') return;
+    const label = manager.list().find((l) => l.key === key)?.label ?? key;
+    notifier.push({
+      title: `${label} FEED ERROR`,
+      body: s.message || `The ${label.toLowerCase()} feed did not answer.`,
+      key: `err:${key}`,
+    });
+  });
+
+  // ------------------------------------------------------------- view menu
+  // Base imagery, map labels, the tracking overlay, terrain and sensor modes.
+  const [
+    { createImageryController, IMAGERY_SOURCES },
+    { createLabelsController },
+    { createTerrainController, TERRAIN_SOURCES, defaultTerrainId },
+  ] = await Promise.all([
+    import('./core/scene/imagery.js'),
+    import('./core/scene/labels.js'),
+    import('./core/scene/terrain.js'),
+  ]);
+
+  const metered = Boolean(app.capabilities?.network?.metered);
+  const capable = app.tier !== 'minimal' && !metered;
+
+  // Capable, unmetered devices start on the dark canvas (the ctOS look, and
+  // light on tiles); metered or minimal devices keep the offline relief.
+  const imagery = createImageryController(app.viewer, { mono: true });
+  if (capable) imagery.set('dark');
+  const labels = createLabelsController(app.viewer, { imagery });
+
+  const terrain = createTerrainController(app.viewer, {
+    proxyBase: proxyBase || null,
+    tilesetCache: app.profile?.tilesetCache ?? null,
+    onStatus: (s) => {
+      if (!s.ok && s.message) {
+        console.warn(`[argus] terrain: ${s.message}`);
+        notifier.push({
+          title: 'TERRAIN',
+          body: s.message,
+          key: 'terrain',
+          level: 'low',
+        });
+      }
     },
   });
-  const layerToggles = createLayerToggles({
-    manager,
-    onManualToggle: () => presetBar.setActive(null),
+  const defTerrain = defaultTerrainId({ tier: app.tier, metered });
+  if (defTerrain !== 'flat') terrain.set(defTerrain);
+  const terrainChoice = createChoice({
+    label: 'Terrain',
+    options: TERRAIN_SOURCES,
+    current: defTerrain,
+    onSelect: (id) => terrain.set(id),
   });
 
-  // Sensor shaders (NVG/FLIR/CRT): desktop-favored, mobile-gated. Not on the
-  // weakest tier at all; balanced renders reduced-resolution single-pass; full
-  // gets full resolution plus the stackable CRT overlay.
-  let sensorControls = null;
-  let shaders = null;
-  let sensorUi = null;
-  if (app.tier !== 'minimal') {
-    const [{ createSensorShaders }, { createSensorControls }] = await Promise.all([
-      import('./core/shaders/sensorShaders.js'),
-      import('./core/ui/sensorControls.js'),
-    ]);
-    shaders = createSensorShaders(app.viewer, { tier: app.tier });
-    sensorUi = createSensorControls({ shaders });
-    sensorControls = sensorUi.el;
-    if (dev && window.__argus) window.__argus.shaders = shaders;
+  const view = [];
+  const imageryChoice = createChoice({
+    label: 'Base imagery',
+    options: IMAGERY_SOURCES,
+    current: imagery.current(),
+    onSelect: (id) => imagery.set(id),
+  });
+  // The label switches, kept so a share link can repaint them.
+  const labelSwitches = {
+    cities: createSwitch({
+      label: 'City names',
+      on: true,
+      title: 'Bundled city names (works offline)',
+      onToggle: (on) => overlay.setOptions({ cities: on }),
+    }),
+    places: createSwitch({
+      label: 'Places + borders',
+      title: 'Country, region and place names from map tiles',
+      onToggle: (on) => labels.set('places', on),
+    }),
+    roads: createSwitch({
+      label: 'Street names',
+      title: 'Roads and street names from map tiles',
+      onToggle: (on) => labels.set('roads', on),
+    }),
+  };
+  view.push(
+    section(
+      'BASEMAP',
+      imageryChoice.el,
+      createSwitch({
+        label: 'Mono imagery',
+        on: imagery.mono(),
+        title: 'Grayscale, dimmed imagery so the data reads first',
+        onToggle: (on) => imagery.setMono(on),
+      }).el,
+    ),
+  );
+  view.push(
+    section(
+      'LABELS',
+      labelSwitches.cities.el,
+      labelSwitches.places.el,
+      labelSwitches.roads.el,
+    ),
+  );
+  const DENSITIES = ['off', 'low', 'med', 'high'];
+  const densityChoice = createChoice({
+    label: 'Tracking boxes',
+    options: DENSITIES.map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) })),
+    current: app.tier === 'minimal' ? 'low' : 'med',
+    onSelect: (density) => overlay.setOptions({ density }),
+  });
+  view.push(
+    section(
+      'TRACKING',
+      densityChoice.el,
+      createSwitch({
+        label: 'Viewport frame',
+        on: true,
+        title: 'Corner brackets and readouts around the view',
+        onToggle: (on) => overlay.setOptions({ frame: on }),
+      }).el,
+    ),
+  );
+  if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
+
+  // 3D aircraft close to the camera (glTF models per class), desktop default.
+  const { createModelLod } = await import('./core/scene/modelLod.js');
+  const models = createModelLod(app.viewer, {
+    getLayers: () => manager.active(),
+    tier: app.tier,
+  });
+  if (!desktop) models.setEnabled(false);
+  if (models.supported) {
+    view.push(
+      section(
+        '3D MODELS',
+        createSwitch({
+          label: 'Aircraft models',
+          on: models.enabled,
+          title: 'Close aircraft as 3D models of their class (below 800 km)',
+          onToggle: (on) => models.setEnabled(on),
+        }).el,
+        h(
+          'div.ct-section__note',
+          {},
+          'Nearest aircraft within 150 km. Models: CC BY 4.0.',
+        ),
+      ),
+    );
+  }
+  view.push(section('TERRAIN', terrainChoice.el));
+
+  // Satellites: Starlink dense mode (thousands of points), full tier only.
+  const { denseAllowedForTier } = await import('./core/layers/constellations/groups.js');
+  if (denseAllowedForTier(app.tier)) {
+    view.push(
+      section(
+        'SATELLITES',
+        createSwitch({
+          label: 'Starlink dense',
+          title: 'Add the Starlink constellation to Nav, GEO & visual sats (heavy)',
+          onToggle: async (on) => {
+            starlinkDense = on;
+            // The constellation source reads the flag on its next fetch: reload.
+            if (manager.isEnabled('constellations')) {
+              manager.disable('constellations');
+              await manager.enable('constellations');
+            } else if (on) await manager.enable('constellations');
+          },
+        }).el,
+      ),
+    );
   }
 
-  // Certificate Transparency firehose ticker (P16 CT/BGP stage): a live issuance
-  // list, off by default. Toggling it connects the /ws/ct feed (dev: a synthetic
-  // stream), so the upstream socket is only held while the user is watching. The
-  // public CertStream upstream is often silent, so live data may not flow without
-  // a working aggregator configured (CT_STREAM_URL on the proxy).
-  let ctTickerEl = null;
+  // Weather history: step the timed overlays (radar, clouds, lightning) back
+  // through the last day of observations. Shown once a product reports times.
+  const { createWeatherStrip } = await import('./core/ui/weatherStrip.js');
+  const weatherStrip = createWeatherStrip({ timeline: weatherTimeline });
+  view.push(section('WEATHER HISTORY', weatherStrip.el));
+
+  // Sensor shaders (NVG/FLIR/CRT...): desktop-favored, mobile-gated. Not on the
+  // weakest tier at all; balanced renders reduced-resolution single-pass; full
+  // gets full resolution plus the stackable CRT overlay.
+  let shaders = null;
+  let sensorChoice = null;
+  let crtSwitch = null;
+  if (app.tier !== 'minimal') {
+    const { createSensorShaders } = await import('./core/shaders/sensorShaders.js');
+    shaders = createSensorShaders(app.viewer, { tier: app.tier });
+    const modes = (shaders.modes ?? ['none', 'nvg', 'flir']).map((id) => ({
+      id,
+      label: shaders.labels?.[id] ?? id.toUpperCase(),
+    }));
+    sensorChoice = createChoice({
+      label: 'Sensor mode',
+      options: modes,
+      current: shaders.sensor ?? 'none',
+      onSelect: (id) => {
+        shaders.setSensor(id);
+        return shaders.sensor;
+      },
+    });
+    const items = [sensorChoice.el];
+    if (shaders.crtSupported) {
+      crtSwitch = createSwitch({
+        label: 'CRT overlay',
+        on: Boolean(shaders.crt),
+        onToggle: (on) => shaders.setCrt(on),
+      });
+      items.push(crtSwitch.el);
+    }
+    if (shaders.sharpenSupported) {
+      items.push(
+        createSwitch({ label: 'Sharpen', onToggle: (on) => shaders.setSharpen(on) }).el,
+      );
+    }
+    if (shaders.bloomSupported) {
+      items.push(
+        createSwitch({ label: 'Bloom', onToggle: (on) => shaders.setBloom(on) }).el,
+      );
+    }
+    view.push(section('SENSOR', ...items));
+    if (dev && window.__argus) window.__argus.shaders = shaders;
+  }
+  const syncSensorUi = () => {
+    sensorChoice?.paint(shaders?.sensor ?? 'none');
+    crtSwitch?.set(Boolean(shaders?.crt));
+  };
+  // Display: clean view (the interface hides) and orbit (the camera circles
+  // the middle of the view). Both also on the keyboard: V and O.
+  const { createOrbit } = await import('./core/scene/orbit.js');
+  let cleanOn = false;
+  const setClean = (on) => {
+    cleanOn = Boolean(on);
+    app.setClean?.(cleanOn);
+    cleanSwitch.set(cleanOn);
+  };
+  const cleanSwitch = createSwitch({
+    label: 'Clean view',
+    title: 'Hide the interface, keep the globe and tracking (V)',
+    onToggle: (on) => setClean(on),
+  });
+  const cleanExit = h(
+    'button.ct-btn.ct-clean-exit',
+    { type: 'button', title: 'Show the interface (V)', onclick: () => setClean(false) },
+    'UI',
+  );
+  app.mount('overlay', cleanExit);
+  const orbitSwitch = createSwitch({
+    label: 'Orbit',
+    title: 'Circle the middle of the view; any press stops it (O)',
+    onToggle: (on) => (on ? orbit.start() : (orbit.stop(), false)),
+  });
+  const orbit = createOrbit(app.viewer, {
+    fps: app.profile?.animationFps || 30,
+    isBusy: () => Boolean(tracking?.cockpit?.isActive()),
+    onChange: (on) => orbitSwitch.set(on),
+  });
+  // Intel HUD (H): ISR-style telemetry over the globe (MGRS, GSD and NIIRS,
+  // sun elevation, off-nadir angle, the nearest place). It sits in the same
+  // free area as the tracking overlay, so it follows the overlay's insets.
+  const { createIntelHud } = await import('./core/ui/intelHud.js');
+  const intelHud = createIntelHud(app.viewer, {
+    places: CITIES,
+    tier: app.tier,
+    getMode: () =>
+      String(
+        shaders ? (shaders.labels?.[shaders.sensor] ?? shaders.sensor) : 'normal',
+      ).toUpperCase(),
+  });
+  app.viewer.container.appendChild(intelHud.el);
+  intelHud.setVisible(false);
+  const overlayInsets = overlay.setInsets;
+  overlay.setInsets = (i) => {
+    overlayInsets(i);
+    intelHud.setInsets(i);
+  };
+  intelHud.setInsets(overlay.geometry().insets);
+  const setHud = (on) => {
+    intelHud.setVisible(on);
+    hudSwitch.set(on);
+  };
+  const hudSwitch = createSwitch({
+    label: 'Intel HUD',
+    title: 'MGRS, GSD and NIIRS, sun elevation, off-nadir angle (H)',
+    onToggle: (on) => intelHud.setVisible(on),
+  });
+  camera.beforeMove(() => orbit.stop());
+  view.push(section('DISPLAY', hudSwitch.el, cleanSwitch.el, orbitSwitch.el));
+
+  // Contact cycling (N / P, and the arrows on the target panel): walk the
+  // contacts the overlay lists, from a snapshot taken when the walk starts, so
+  // stepping to a contact (which re-centres the list on it) does not just
+  // bounce back to the previous one.
+  let lastSummary = null;
+  overlay.subscribe((sum) => (lastSummary = sum));
+  let walk = { list: [], i: -1, at: 0 };
+  const alive = (t) =>
+    manager.active().some((a) => a.layer.getRecord(t.id)?.entity === t);
+  const stepContact = (d) => {
+    const now = Date.now();
+    if (!walk.list.length || now - walk.at > 15_000) {
+      const list = (lastSummary?.contacts ?? []).map((c) => c.target);
+      const hubT = lastSummary?.hub?.target;
+      // From the target (index 0) when there is one, else from before the
+      // first contact, so N starts at the first and P at the last.
+      walk = { list: hubT ? [hubT, ...list] : list, i: hubT ? 0 : -1, at: now };
+    }
+    const n = walk.list.length;
+    // Skip contacts that left their layer since the walk began.
+    for (let tries = 0; tries < n; tries += 1) {
+      walk.i = walk.i < 0 ? (d > 0 ? 0 : n - 1) : (walk.i + d + n) % n;
+      if (alive(walk.list[walk.i])) {
+        walk.at = now;
+        tracker.select(walk.list[walk.i]);
+        return;
+      }
+    }
+  };
+  panel.setStepper?.(stepContact);
+
+  // Keyboard shortcuts and the "?" list (core/ui/shortcuts.js).
+  const shortcuts = await import('./core/ui/shortcuts.js');
+  const keyHelp = shortcuts.createShortcutHelp({ desktop });
+  app.mount('overlay', keyHelp.el);
+  shortcuts.bindShortcuts({
+    help: () => keyHelp.toggle(),
+    hud: () => setHud(!intelHud.visible()),
+    clean: () => setClean(!cleanOn),
+    orbit: () => orbit.toggle(),
+    density: () => {
+      const cur = overlay.options().density;
+      const next = DENSITIES[(DENSITIES.indexOf(cur) + 1) % DENSITIES.length];
+      overlay.setOptions({ density: next });
+      densityChoice.paint(next);
+      notifier.push({
+        title: `TRACKING BOXES ${next.toUpperCase()}`,
+        key: 'density',
+        level: 'low',
+        timeoutMs: 1500,
+      });
+    },
+    next: () => stepContact(1),
+    prev: () => stepContact(-1),
+    preset: (i) => PRESETS[i] && runPreset(PRESETS[i]),
+  });
+
+  view.push(section('SYSTEM', app.readout.el));
+  for (const el of view) app.mount('view', el);
+
+  // ------------------------------------------------------------------ intel
+  // Certificate Transparency firehose (P16 CT/BGP stage): a live issuance list,
+  // off by default. Toggling it connects the /ws/ct feed (dev: a synthetic
+  // stream), so the upstream socket is only held while the user is watching.
   const makeCtSource = proxyClient
     ? () =>
         import('./core/osint/ct/ctSource.js').then((m) =>
@@ -769,27 +1484,11 @@ async function setupScene(app) {
       ? () =>
           import('./core/osint/ct/mockCtSource.js').then((m) => m.createCtMockSource())
       : null;
-  if (makeCtSource) {
-    const { createCtTicker } = await import('./core/ui/ctTicker.js');
-    let ctStop = null;
-    const ctTicker = createCtTicker({
-      onToggle: async (on) => {
-        if (on) {
-          const source = await makeCtSource();
-          ctStop = source((certs) => ctTicker.push(certs));
-        } else {
-          ctStop?.();
-          ctStop = null;
-        }
-      },
-    });
-    ctTickerEl = ctTicker.el;
-  }
 
   // In-app terminal (P16 final): a command palette that drives the app and runs
   // the passive lookups already built. It commands the app and reads public
   // indexes only, never sending traffic at a host (query/correlate reuse the same
-  // passive search path). Off by default.
+  // passive search path).
   const [{ createTerminal }, { createCommands }, { classifyAsset }] = await Promise.all([
     import('./core/ui/terminal.js'),
     import('./core/osint/terminal/commands.js'),
@@ -839,60 +1538,207 @@ async function setupScene(app) {
         (x) => x.id === id || x.label.toLowerCase() === id.toLowerCase(),
       );
       if (!p) return false;
-      applyPreset(manager, p);
-      if (p.geolocate) app.aroundMe?.(camera);
+      runPreset(p);
       return true;
     },
   });
   const terminal = createTerminal({ run: (line) => termCommands.run(line) });
+  app.mount('float', terminal.el);
+
+  const intel = [];
+  const tools = await import('./core/ui/toolsMenu.js');
+  const { alongRoute } = await import('./core/route/osrm.js');
+  intel.push(
+    tools.createRouteTool({
+      proxyClient,
+      sketch,
+      armTap,
+      notify,
+      targetPoint: () => sketchMod.targetLatLon(app.viewer, tracker.trackedEntity),
+      flyAlong: (coords) => {
+        tracker.unfollow?.();
+        sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
+      },
+    }).el,
+    tools.createDrawTool({ sketch, armTap, disarm }).el,
+    tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
+    tools.createShareTool({ encode: () => encodeView(), notify }).el,
+  );
+
+  // Scenes: views captured as shots and played back as a tour (fly, then
+  // hold), saved on this device or exported as JSON. Nothing is uploaded.
+  const [{ createScenesTool }, { createSceneCamera }, { createPoiTool }] =
+    await Promise.all([
+      import('./core/ui/scenesTool.js'),
+      import('./core/scene/sceneCamera.js'),
+      import('./core/ui/poiTool.js'),
+    ]);
+  const sceneCam = createSceneCamera(app.viewer);
+  const layerKeyOf = (t) =>
+    manager.active().find((a) => a.layer.getRecord(t.id)?.entity === t)?.key ?? null;
+  const scenes = createScenesTool({
+    capture: () => {
+      const t = tracker.trackedEntity;
+      const tk = t && layerKeyOf(t);
+      return {
+        camera: sceneCam.read(),
+        layers: manager.active().map((a) => a.key),
+        look: shaders?.sensor ?? 'none',
+        target: tk ? { layer: tk, id: String(t.id) } : undefined,
+      };
+    },
+    apply: async (shot) => {
+      orbit.stop();
+      setPreset(null);
+      await applyPreset(manager, { layers: shot.layers ?? [] });
+      if (shot.look && shaders) {
+        shaders.setSensor(shot.look);
+        syncSensorUi();
+      }
+      const rec = shot.target
+        ? manager.getLayer(shot.target.layer)?.getRecord(shot.target.id)
+        : null;
+      if (rec?.entity) tracker.select(rec.entity);
+      else tracker.deselect();
+    },
+    flyTo: (cam, ms, signal) => {
+      orbit.stop();
+      tracker.unfollow?.();
+      return sceneCam.flyTo(cam, ms, signal);
+    },
+    notify,
+    canvas: app.viewer.scene.canvas,
+  });
+  intel.push(scenes.el);
+
+  // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
+  intel.push(
+    createPoiTool({
+      flyTo: (v) => {
+        orbit.stop();
+        tracker.unfollow?.();
+        camera.flyAround({
+          longitude: v.lon,
+          latitude: v.lat,
+          height: v.targetM ?? 0,
+          groundM: v.groundM ?? 0,
+          range: v.alt,
+          heading: v.heading,
+          pitch: v.pitch,
+        });
+      },
+    }).el,
+  );
+  const { createRadioTuner } = await import('./core/ui/radioTuner.js');
+  intel.push(
+    createRadioTuner({
+      manager,
+      proxyClient,
+      notify,
+      select: (t) => tracking.selectQuiet(t),
+    }).el,
+  );
+  intel.push(
+    section(
+      'CONSOLE',
+      h(
+        'div.ct-section__note',
+        {},
+        'Passive lookups and app commands. Toggle with ` (backtick).',
+      ),
+      h(
+        'button.ct-btn',
+        { type: 'button', onclick: () => terminal.toggle() },
+        'OPEN TERMINAL',
+      ),
+    ),
+  );
+  if (makeCtSource) {
+    const { createCtTicker } = await import('./core/ui/ctTicker.js');
+    let ctStop = null;
+    const ctTicker = createCtTicker({
+      onToggle: async (on) => {
+        if (on) {
+          const source = await makeCtSource();
+          ctStop = source((certs) => ctTicker.push(certs));
+        } else {
+          ctStop?.();
+          ctStop = null;
+        }
+      },
+    });
+    intel.push(section('CERTIFICATE TRANSPARENCY', ctTicker.el));
+  }
+
+  const { formatWind: windFormat } = await import('./core/layers/wind/field.js');
 
   // Time scrubber (Phase 17): rewind the scene through the ring-buffer history.
   const { createTimeScrubber } = await import('./core/ui/timeScrubber.js');
   const scrubber = createTimeScrubber({ clock });
 
-  // Base-imagery + terrain switchers. Imagery: the offline Relief baseline, or
-  // higher-resolution Satellite / Streets so zooming in shows the roads a
-  // surveillance camera sits on. Terrain: flat, real 3D relief (keyless), or
-  // opt-in photoreal. On capable, non-metered devices both default to the richer
-  // option so the globe is street-usable out of the box; metered / minimal keep
-  // the cellular-friendly baseline.
-  const [
-    { createImageryController, IMAGERY_SOURCES },
-    { createTerrainController, TERRAIN_SOURCES, defaultTerrainId },
-    { createImagerySwitcher, createTerrainSwitcher },
-    { createLocateButton },
-  ] = await Promise.all([
-    import('./core/scene/imagery.js'),
-    import('./core/scene/terrain.js'),
-    import('./core/ui/imagerySwitcher.js'),
-    import('./core/ui/locateButton.js'),
-  ]);
+  if (desktop) {
+    for (const seg of readouts.createCameraReadout(app.viewer)) app.mount('strip', seg);
+    // The wind at the middle of the view, while the wind layer is on.
+    const windSeg = createSegment({
+      label: 'WIND',
+      value: '--',
+      title: 'Wind at the view centre',
+    });
+    windSeg.el.hidden = true;
+    app.mount('strip', windSeg);
+    let windT = 0;
+    app.viewer.scene.postRender.addEventListener(() => {
+      const now = performance.now();
+      if (now - windT < 500) return;
+      windT = now;
+      const wl = manager.isEnabled('wind') ? manager.getLayer('wind') : null;
+      windSeg.el.hidden = !wl;
+      if (!wl) return;
+      const c = app.viewer.camera.positionCartographic;
+      const sample = wl.sample?.(
+        (c.longitude * 180) / Math.PI,
+        (c.latitude * 180) / Math.PI,
+      );
+      windSeg.set(sample ? windFormat(sample) : '--');
+    });
+    const timeSeg = createSegment({ label: 'T' });
+    timeSeg.el.querySelector('.ct-seg__value').replaceWith(scrubber.el);
+    app.mount('stripEnd', timeSeg);
+    app.mount(
+      'stripEnd',
+      createSegment({
+        label: '❯',
+        value: 'TERM',
+        title: 'Terminal (`)',
+        onClick: () => terminal.toggle(),
+      }),
+    );
+  } else {
+    intel.push(section('TIMELINE', scrubber.el));
+  }
+  intel.push(
+    tools.createCreditsView({
+      manager,
+      activeKeys: () =>
+        manager
+          .list()
+          .filter((l) => l.enabled)
+          .map((l) => l.key)
+          .concat(models.enabled ? ['models'] : []),
+    }).el,
+  );
+  for (const el of intel) app.mount('intel', el);
 
-  const metered = Boolean(app.capabilities?.network?.metered);
-  const capable = app.tier !== 'minimal' && !metered;
-
-  const imagery = createImageryController(app.viewer);
-  if (capable) imagery.set('satellite');
-  const imagerySwitcher = createImagerySwitcher({
-    sources: IMAGERY_SOURCES,
-    current: imagery.current(),
-    onSelect: (id) => imagery.set(id),
-  });
-
-  const terrain = createTerrainController(app.viewer, {
-    proxyBase: proxyBase || null,
-    tilesetCache: app.profile?.tilesetCache ?? null,
-    onStatus: (s) => {
-      if (!s.ok && s.message) console.warn(`[argus] terrain: ${s.message}`);
-    },
-  });
-  const defTerrain = defaultTerrainId({ tier: app.tier, metered });
-  if (defTerrain !== 'flat') terrain.set(defTerrain);
-  const terrainSwitcher = createTerrainSwitcher({
-    sources: TERRAIN_SOURCES,
-    current: defTerrain,
-    onSelect: (id) => terrain.set(id),
-  });
+  // ------------------------------------------------------------ view stack
+  const { createZoomControls } = await import('./core/ui/zoomControls.js');
+  app.mount(
+    'stack',
+    createZoomControls({
+      camera,
+      onLocate: app.locate ? (report) => app.locate(camera, report) : undefined,
+      onNotify: notify,
+    }).el,
+  );
 
   // Thermal budget ladder (CLAUDE.md): Android has no thermal API, so a rising
   // frame-time trend is the signal. Quality is given up one rung at a time, each
@@ -913,14 +1759,14 @@ async function setupScene(app) {
           savedSensor = { sensor: shaders.sensor, crt: shaders.crt };
           shaders.setSensor('none');
           shaders.setCrt(false);
-          sensorUi?.sync();
+          syncSensorUi();
         },
         up: () => {
           if (!savedSensor) return;
           shaders.setSensor(savedSensor.sensor);
           shaders.setCrt(savedSensor.crt);
           savedSensor = null;
-          sensorUi?.sync();
+          syncSensorUi();
         },
       });
     }
@@ -938,11 +1784,10 @@ async function setupScene(app) {
         label: 'flat terrain',
         down: () => {
           savedTerrain = terrain.current();
-          if (savedTerrain !== 'flat') terrainSwitcher.setActive('flat');
+          if (savedTerrain !== 'flat') terrainChoice.set('flat');
         },
         up: () => {
-          if (savedTerrain && savedTerrain !== 'flat')
-            terrainSwitcher.setActive(savedTerrain);
+          if (savedTerrain && savedTerrain !== 'flat') terrainChoice.set(savedTerrain);
           savedTerrain = null;
         },
       },
@@ -952,42 +1797,30 @@ async function setupScene(app) {
       onChange: (level, label) => {
         app.readout.setThermal?.(label, level);
         console.info(`[argus] thermal ladder: ${label}`);
+        notifier.push({
+          title: level > 0 ? 'THERMAL BUDGET' : 'THERMAL RECOVERED',
+          body: level > 0 ? `Heat rising: ${label}.` : 'Back to full quality.',
+          key: 'thermal',
+          level: 'low',
+        });
       },
     });
   }
 
-  // "Center on my location": flies the camera to the device position. The shell
-  // owns the sensor read (both shells provide `locate`); this is just the button.
-  const locateButton = app.locate
-    ? createLocateButton({ onLocate: (report) => app.locate(camera, report) })
-    : null;
-
   // No proxy at all means every layer is simulated. Say so up front so mock data
   // is never mistaken for live feeds.
-  let demoBanner = null;
   if (!proxyClient) {
-    demoBanner = document.createElement('div');
-    demoBanner.className = 'argus-demo-banner';
-    demoBanner.textContent =
-      'DEMO DATA: no proxy reachable, every layer is simulated. Run "npm run proxy" alongside the dev server for live feeds.';
+    notifier.push({
+      title: 'DEMO DATA',
+      body: 'No proxy reachable: every layer is simulated. Run "npm run proxy" alongside the dev server for live feeds.',
+      level: 'low',
+      timeoutMs: 9000,
+      key: 'demo',
+    });
   }
 
-  app.mountControls?.({
-    demoBanner,
-    search: searchBox.el,
-    locate: locateButton?.el,
-    imagery: imagerySwitcher.el,
-    terrain: terrainSwitcher.el,
-    presetBar: presetBar.el,
-    layerToggles: layerToggles.el,
-    sensorControls,
-    ct: ctTickerEl,
-    terminal: terminal.el,
-    scrubber: scrubber.el,
-  });
-
   // Point-at-sky mode (mobile only). The shell owns the sensor + reticle; main
-  // supplies how to identify the aimed entity and how to lock onto it.
+  // supplies how to identify the aimed contact and how to lock onto it.
   if (app.enableCompass) {
     const { createCenterPicker } = await import('./core/interaction/centerPicker.js');
     const centerPicker = createCenterPicker(app.viewer);
@@ -1001,52 +1834,173 @@ async function setupScene(app) {
     });
   }
 
+  // ------------------------------------------------------------ share link
+  // The address bar always holds this view (camera, layers, looks, labels,
+  // target), so a reload or a copied link reopens it. Local only: nothing is
+  // sent anywhere. core/share/state.js fails closed on anything malformed.
+  const share = await import('./core/share/state.js');
+  const deg = (r) => (r * 180) / Math.PI;
+  const keyOf = (target) =>
+    manager.active().find((a) => a.layer.getRecord(target.id)?.entity === target)?.key ??
+    null;
+  function encodeView() {
+    const cam = app.viewer.camera;
+    const pc = cam.positionCartographic;
+    const t = tracker.trackedEntity;
+    const tk = t && keyOf(t);
+    return share.encodeShareHash({
+      camera: {
+        lat: deg(pc.latitude),
+        lon: deg(pc.longitude),
+        alt: pc.height,
+        heading: deg(cam.heading),
+        pitch: deg(cam.pitch),
+      },
+      layers: manager
+        .list()
+        .filter((l) => l.enabled)
+        .map((l) => l.key),
+      sensor: shaders?.sensor ?? 'none',
+      imagery: imagery.current(),
+      terrain: terrain.current?.(),
+      labels: {
+        cities: overlay.options().cities,
+        places: labels.get('places'),
+        roads: labels.get('roads'),
+      },
+      track: tk ? { layer: tk, id: String(t.id) } : undefined,
+    });
+  }
+  let hashTimer = null;
+  const writeHash = () => {
+    clearTimeout(hashTimer);
+    hashTimer = setTimeout(() => history.replaceState(null, '', encodeView()), 800);
+  };
+
+  const shared =
+    location.hash.length > 1
+      ? share.decodeShareHash(location.hash, {
+          layerKeys: manager.keys(),
+          imageryIds: IMAGERY_SOURCES.map((x) => x.id),
+          terrainIds: TERRAIN_SOURCES.map((x) => x.id),
+          labelKeys: ['cities', 'places', 'roads'],
+          sensorModes: shaders?.modes ?? ['none'],
+        })
+      : null;
+
   // Default state (master plan 8): flights + earthquakes + transit on. The
   // mobile shell launches into the "Around Me" preset itself (geolocation, and
-  // its layer set, so the highlighted chip matches what is on); desktop stays at
-  // the world view with the defaults.
-  const aroundMe = app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
-  if (aroundMe) {
-    await applyPreset(manager, aroundMe);
-    presetBar.setActive('around-me');
-    app.aroundMe(camera);
+  // its layer set, so the highlighted preset matches what is on); desktop starts
+  // at the world view with the defaults. A shared link wins over both.
+  splash?.step('GREETER_UI_INITIALIZING', 85);
+  const aroundMe = !desktop && app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
+  if (shared) {
+    if (shared.camera) {
+      camera.lookFrom({
+        longitude: shared.camera.lon,
+        latitude: shared.camera.lat,
+        height: shared.camera.alt,
+        heading: shared.camera.heading ?? 0,
+        pitch: shared.camera.pitch ?? -90,
+      });
+    }
+    if (shared.imagery) {
+      imagery.set(shared.imagery);
+      imageryChoice.paint(shared.imagery);
+    }
+    if (shared.terrain) terrainChoice.set(shared.terrain);
+    if (shared.sensor && shaders) {
+      shaders.setSensor(shared.sensor);
+      syncSensorUi();
+    }
+    for (const [k, on] of Object.entries(shared.labels ?? {})) {
+      if (k === 'cities') overlay.setOptions({ cities: on });
+      else labels.set(k, on);
+      labelSwitches[k]?.set(on);
+    }
+    for (const key of shared.layers ?? DEFAULT_LAYERS) await manager.enable(key);
+    // The target appears once its layer has data: wait for it (up to 30 s).
+    if (shared.track) {
+      const { layer: lk, id } = shared.track;
+      const until = Date.now() + 30_000;
+      const tryTrack = () => {
+        const rec = manager.getLayer(lk)?.getRecord(id);
+        if (rec?.entity) tracker.select(rec.entity);
+        else if (Date.now() < until) setTimeout(tryTrack, 1000);
+      };
+      tryTrack();
+    }
+  } else if (aroundMe) {
+    runPreset(aroundMe, { initial: true });
   } else {
     for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
+  app.viewer.camera.moveEnd.addEventListener(writeHash);
+  manager.subscribe(writeHash);
+  let lastHub = null;
+  overlay.subscribe((sum) => {
+    const t = sum.hub?.target ?? null;
+    if (t !== lastHub) {
+      lastHub = t;
+      writeHash();
+    }
+  });
 
-  if (dev && window.__argus) Object.assign(window.__argus, { manager, camera });
+  if (dev && window.__argus)
+    Object.assign(window.__argus, {
+      manager,
+      camera,
+      overlay,
+      panel,
+      launcher,
+      notifier,
+      imagery,
+      labels,
+    });
 }
 
-// The interaction spine: tap/click an entity to track it (camera follows, trail,
-// highlight, metadata card). Layer-agnostic: it resolves a picked entity by
-// asking each active layer (via getLayers, so toggling layers is reflected).
-async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
+// The interaction spine: tap/click a contact to make it the target (overlay
+// lock, trail, target panel; the camera stays put unless asked to FOLLOW).
+// Layer-agnostic: it resolves a picked target by asking each active layer.
+async function attachTracking(
+  app,
+  manager,
+  { extraResolvers = [], panel, overlay, notify, extras, interceptTap, proxyClient },
+) {
   const [
     { createPicker },
     { createTracker },
-    { createMetadataCard },
     { createCockpit },
     { createPoseGizmo },
+    { nudgeIntoView },
   ] = await Promise.all([
     import('./core/interaction/picker.js'),
     import('./core/interaction/tracker.js'),
-    import('./core/ui/metadataCard.js'),
     import('./core/interaction/cockpit.js'),
     import('./core/layers/cctv/gizmo.js'),
+    import('./core/scene/nudge.js'),
   ]);
 
-  const resolve = (entity) => {
+  const resolve = (target) => {
     // Active feed layers first, then extra resolvers (e.g. the OSINT plotter,
     // whose markers are query outputs rather than a toggleable layer).
-    const sources = [...manager.activeLayers(), ...extraResolvers];
-    for (const layer of sources) {
-      const rec = layer.getRecord(entity.id);
+    const sources = [
+      ...manager.active().map((a) => ({ ...a, demo: isDemo(a.key) })),
+      ...extraResolvers.map((layer) => ({ key: 'osint', label: 'OSINT', layer })),
+    ];
+    for (const { key, label, layer, demo } of sources) {
+      const rec = layer.getRecord(target.id);
       // Ids are only unique within a layer (flights, military and your own
       // receiver all key aircraft by ICAO hex), so the record must be for this
-      // very entity, not a namesake in another layer.
-      if (rec && rec.cardModel && (!rec.entity || rec.entity === entity)) {
+      // very target, not a namesake in another layer.
+      if (rec && rec.cardModel && (!rec.entity || rec.entity === target)) {
+        const metadata = decorate(rec.cardModel, rec.normalized, { label, demo });
+        const more = extras?.rows(key, rec.normalized) ?? [];
+        if (more.length) metadata.rows = [...(metadata.rows || []), ...more];
         return {
-          metadata: rec.cardModel,
+          key,
+          normalized: rec.normalized,
+          metadata,
           getHistoryFixes: rec.getHistoryFixes,
           mover: rec.mover,
         };
@@ -1054,19 +2008,77 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
     }
     return null;
   };
+  const isDemo = (key) => Boolean(manager.list().find((l) => l.key === key)?.demo);
 
   let tracker;
+  let quiet = false; // see selectQuiet below
+  // Cockpit briefing strip (desktop): live signals, regional news, local info.
+  const [{ createBriefingStrip }, { targetLatLon }] = await Promise.all([
+    import('./core/ui/briefingStrip.js'),
+    import('./core/scene/sketch.js'),
+  ]);
+  let wx = null; // cockpit weather, below
+  const briefing =
+    app.shell === 'desktop'
+      ? createBriefingStrip({
+          proxyClient,
+          getSubject: () => {
+            const p = targetLatLon(app.viewer, cockpitTarget);
+            return p && { latitude: p.lat, longitude: p.lon };
+          },
+          getContacts: () => {
+            const out = [];
+            for (const { key, layer } of manager.active()) {
+              layer.forEachVisible?.((t, _w, n) => {
+                if (t === cockpitTarget || out.length > 2000 || !n?.position) return;
+                out.push({
+                  id: t.id,
+                  layer: key,
+                  latitude: n.position.latitude,
+                  longitude: n.position.longitude,
+                  label: n.meta?.callsign || n.meta?.name || t.id,
+                  kind: key,
+                });
+              });
+            }
+            return out;
+          },
+          onBrief: (b) => wx?.setWeather(b?.weather ?? null),
+          onPickContact: (l) => {
+            const rec = manager.getLayer(l.target.layer)?.getRecord(l.target.id);
+            if (rec?.entity) tracker.select(rec.entity);
+          },
+        })
+      : null;
+  if (briefing) app.mount('float', briefing.el);
+  // Cockpit weather (desktop): the observed weather below, drawn over the view.
+  wx = briefing
+    ? (await import('./core/ui/cockpitWeather.js')).createCockpitWeather(app.viewer)
+    : null;
+  let cockpitTarget = null;
   const cockpit = createCockpit(app.viewer, {
+    onEnter: (t) => {
+      cockpitTarget = t;
+      briefing?.show();
+      wx?.show();
+    },
     onExit: () => {
-      if (tracker?.trackedEntity) app.viewer.trackedEntity = tracker.trackedEntity;
+      cockpitTarget = null;
+      briefing?.hide();
+      wx?.hide();
+      tracker?.resume();
     },
   });
   const cockpitEnabled = app.tier !== 'minimal';
 
-  // CCTV pose gizmo: shown when a camera is tracked, edits its pose live.
-  let calibrating = null; // { layer, id }
+  // CCTV pose gizmo: shown when a camera is the target, edits its pose live.
+  let calibrating = null; // { layer, id } (CCTV) or { projection: true }
   const gizmo = createPoseGizmo({
     onChange: (pose) => {
+      if (calibrating?.projection) {
+        projection.setPose(pose);
+        return;
+      }
       const rec = calibrating?.layer.getRecord(calibrating.id);
       if (rec) {
         rec.normalized.meta.pose = pose;
@@ -1074,35 +2086,171 @@ async function attachTracking(app, manager, { extraResolvers = [] } = {}) {
       }
     },
   });
+  app.mount('target', gizmo.el);
 
-  const card = createMetadataCard({ onClose: () => tracker?.deselect() });
-  app.mountUi?.(card.el);
-  app.mountUi?.(gizmo.el);
+  // PROJECT (traffic cameras): the camera's published still placed in 3D
+  // where it looks, as a frustum and a picture at its far end, its pose
+  // editable with the gizmo. Display only: nothing reads the pixels.
+  const [{ createCamProjection }, { loadStill }] = await Promise.all([
+    import('./core/layers/trafficcams/projection.js'),
+    import('./core/layers/trafficcams/still.js'),
+  ]);
+  const projection = createCamProjection(app.viewer);
+  let still = null;
+  let projecting = 0;
+  const projectedId = () => projection.active()?.id ?? null;
+  function unproject() {
+    projecting += 1;
+    projection.hide();
+    still?.revoke();
+    still = null;
+    if (calibrating?.projection) {
+      calibrating = null;
+      gizmo.hide();
+    }
+  }
+  async function project(rec) {
+    const id = String(rec.normalized.id);
+    if (projectedId() === id) {
+      unproject();
+      tracker.refresh();
+      return;
+    }
+    unproject();
+    const token = projecting;
+    let loaded = null;
+    try {
+      loaded = rec.metadata.image ? await loadStill(rec.metadata.image) : null;
+    } catch (err) {
+      notify({ title: 'NO STILL', body: String(err.message || err), level: 'low' });
+    }
+    // STOP, another PROJECT, or another selection while the still loaded.
+    if (token !== projecting || String(tracker.trackedEntity?.id ?? '') !== id)
+      return loaded?.revoke();
+    still = loaded;
+    if (!projection.show(rec.normalized, still?.url ?? null)) return;
+    tracker.unfollow();
+    projection.flyToView();
+    calibrating = { projection: true };
+    gizmo.show(projection.active().pose, rec.metadata.title);
+    tracker.refresh();
+  }
+  const projectAction = (rec) => {
+    const on = projectedId() === String(rec.normalized.id);
+    return {
+      label: on ? 'UNPROJECT' : 'PROJECT',
+      pressed: on,
+      title: 'Place the published still in 3D where the camera looks',
+      onClick: () => project(rec),
+    };
+  };
 
   tracker = createTracker(app.viewer, {
     resolve,
-    card,
-    onCockpit: cockpitEnabled ? (entity) => cockpit.enter(entity) : undefined,
-    onChange: (entity) => {
+    panel,
+    overlay,
+    notify,
+    onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
+    extraActions: (target, rec) => [
+      ...(extras?.actions(target, rec) ?? []),
+      ...(rec.key === 'trafficcams' ? [projectAction(rec)] : []),
+    ],
+    onChange: (target, rec) => {
+      if (!quiet) app.focusTarget?.(Boolean(target));
+      if (target && rec) extras?.onSelect(rec.key, rec.normalized);
+      // On the phone the card covers the lower half: glide the target into
+      // the free area above it (sideways only, never a zoom).
+      if (target && app.shell === 'mobile') {
+        setTimeout(() => {
+          const p = target.position.getValue(app.viewer.clock.currentTime);
+          nudgeIntoView(app.viewer, p, overlay.geometry().insets);
+        }, 360);
+      }
+      // A projection belongs to its camera: another selection takes it down.
+      if (projectedId() && (!target || String(target.id) !== projectedId())) unproject();
+      if (calibrating?.projection) return;
       const cctv = manager.getLayer('cctv');
-      const rec = entity && cctv ? cctv.getRecord(entity.id) : null;
-      if (rec?.normalized?.meta?.pose) {
-        calibrating = { layer: cctv, id: entity.id };
-        gizmo.show(rec.normalized.meta.pose, rec.cardModel.title);
+      const cam = target && cctv ? cctv.getRecord(target.id) : null;
+      if (cam?.normalized?.meta?.pose) {
+        calibrating = { layer: cctv, id: target.id };
+        gizmo.show(cam.normalized.meta.pose, cam.cardModel.title);
       } else {
         calibrating = null;
         gizmo.hide();
       }
     },
   });
-  createPicker(app.viewer, { onPick: (entity) => tracker.select(entity) });
+  createPicker(app.viewer, {
+    accept: (target) => Boolean(resolve(target)),
+    onPick: (target, pos) => {
+      if (interceptTap?.(pos)) return;
+      tracker.select(target);
+    },
+  });
+
+  // C rides along with the target (movers only), as in the reference.
+  document.addEventListener('keydown', (e) => {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && cockpitEnabled) {
+      const t = tracker.trackedEntity;
+      if (t && resolve(t)?.mover) cockpit.enter(t);
+    }
+  });
 
   if (import.meta.env.DEV && window.__argus)
     Object.assign(window.__argus, { tracker, cockpit });
 
-  // The label of a picked entity, for the point-at-sky HUD.
-  const labelFor = (entity) => resolve(entity)?.metadata?.title ?? null;
-  return { tracker, labelFor };
+  // The label of a contact, for tracking boxes, contacts and the sky HUD.
+  const labelFor = (target) => {
+    const t = resolve(target)?.metadata?.title;
+    return t ? String(t).toUpperCase().slice(0, 18) : null;
+  };
+  // Select without bringing the target panel forward (the phone's radio
+  // tuner lives in TOOLS: stepping the dial must not switch the sheet away).
+  const selectQuiet = (target) => {
+    quiet = true;
+    try {
+      tracker.select(target);
+    } finally {
+      quiet = false;
+    }
+  };
+  return { tracker, labelFor, selectQuiet, cockpit };
+}
+
+// The card model plus what the panel shows around it: tags for the layer and
+// for simulated data, and the one-line readout under the hub's name on the map
+// (altitude, speed, heading where the contact has them).
+function decorate(model, n, { label, demo }) {
+  const tags = [{ text: label }];
+  if (demo || /demo|simulated/i.test(String(n?.meta?.source ?? '')))
+    tags.push({ text: 'DEMO' });
+  else tags.push({ text: 'LIVE', kind: 'ok' });
+  return { ...model, tags, readout: readoutFor(n) };
+}
+
+function readoutFor(n) {
+  if (!n) return null;
+  const parts = [];
+  const alt = n.position?.altitude;
+  if (n.type === 'aircraft' && Number.isFinite(alt)) {
+    parts.push(
+      n.meta?.onGround
+        ? 'GND'
+        : `FL${String(Math.round((alt * 3.28084) / 100)).padStart(3, '0')}`,
+    );
+  } else if (Number.isFinite(alt) && alt > 10_000) {
+    parts.push(`${Math.round(alt / 1000)}KM`);
+  }
+  const v = n.velocity;
+  if (Number.isFinite(v?.speed)) {
+    const kt = n.type === 'ship' ? v.speed : v.speed * 1.94384;
+    parts.push(`${Math.round(kt)}KT`);
+  }
+  const hdg = v?.heading ?? v?.course;
+  if (Number.isFinite(hdg))
+    parts.push(`${String(Math.round(hdg) % 360).padStart(3, '0')}°`);
+  return parts.join(' ') || null;
 }
 
 // Service worker (production only): caches the app shell and Cesium's static

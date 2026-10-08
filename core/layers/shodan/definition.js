@@ -1,6 +1,6 @@
-import * as Cesium from 'cesium';
 import { parseShodanFacets } from './parse.js';
-import { shodanPixelSize, shodanColorHex, describeShodan } from './format.js';
+import { shodanPixelSize, describeShodan } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Shodan exposed-device density as a Layer SDK definition. Visualization /
 // awareness-only (locked decision): a country-facet SNAPSHOT from the credit-free
@@ -15,13 +15,12 @@ export const shodanDefinition = {
   maxEntities: 300,
   normalize: (json) => parseShodanFacets(json, 'country'),
   render: {
+    // Exposure density per country: hollow squares sized by the log count.
     renderType: 'point',
     style: (n) => ({
-      pixelSize: shodanPixelSize(n.meta.count),
-      color: Cesium.Color.fromCssColorString(shodanColorHex(n.meta.count)).withAlpha(
-        0.85,
-      ),
-      outlineColor: Cesium.Color.BLACK.withAlpha(0.4),
+      glyph: 'frame',
+      pixelSize: Math.round(shodanPixelSize(n.meta.count) * 1.1),
+      color: ink('gray', 0.85),
     }),
   },
   describe: (n) => describeShodan(n),

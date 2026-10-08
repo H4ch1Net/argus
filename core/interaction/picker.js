@@ -9,9 +9,12 @@ import { isTap, toleranceFor } from './gestures.js';
 
 /**
  * @param {import('cesium').Viewer} viewer
- * @param {{ onPick: (entity: import('cesium').Entity | null, pos: {x:number,y:number}) => void }} opts
+ * @param {{ onPick: (entity: import('cesium').Entity | null, pos: {x:number,y:number}) => void,
+ *   accept?: (target: object) => boolean }} opts  accept: skip picks that are
+ *   not contacts (the selection trail, sketch lines), so a contact further down
+ *   the pick list still wins.
  */
-export function createPicker(viewer, { onPick }) {
+export function createPicker(viewer, { onPick, accept }) {
   const scene = viewer.scene;
   const canvas = scene.canvas;
   let start = null;
@@ -40,7 +43,7 @@ export function createPicker(viewer, { onPick }) {
 
     const rect = canvas.getBoundingClientRect();
     const windowPos = new Cesium.Cartesian2(e.clientX - rect.left, e.clientY - rect.top);
-    onPick(pickEntity(scene, windowPos, toleranceFor(pointerType).pickRadiusPx), {
+    onPick(pickEntity(scene, windowPos, toleranceFor(pointerType).pickRadiusPx, accept), {
       x: windowPos.x,
       y: windowPos.y,
     });
@@ -65,12 +68,25 @@ export function createPicker(viewer, { onPick }) {
   };
 }
 
-/** Drill-pick a small box around the tap and return the nearest entity, if any. */
-function pickEntity(scene, windowPos, radiusPx) {
+/**
+ * What a pick result points at: a layer target (billboard layers set it as the
+ * billboard's id) or an Entity (line layers, query outputs). Null otherwise.
+ */
+export function pickedTarget(p) {
+  if (!p) return null;
+  if (p.id?.argusTarget) return p.id;
+  // Line layers draw Entities; the layer hands back its target for them.
+  if (p.id instanceof Cesium.Entity) return p.id._argusTarget ?? p.id;
+  return null;
+}
+
+/** Drill-pick a small box around the tap and return the nearest target, if any. */
+export function pickEntity(scene, windowPos, radiusPx, accept) {
   const size = Math.max(1, radiusPx * 2);
   const picks = scene.drillPick(windowPos, 8, size, size);
   for (const p of picks) {
-    if (p && p.id instanceof Cesium.Entity) return p.id;
+    const t = pickedTarget(p);
+    if (t && (!accept || accept(t))) return t;
   }
   return null;
 }

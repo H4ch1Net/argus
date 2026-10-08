@@ -1,0 +1,53 @@
+.ct-notify {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gaps-in);
+  width: min(360px, calc(100vw - 24px));
+  pointer-events: none;
+}
+.ct-note {
+  pointer-events: auto;
+  padding: 10px 12px;
+  background: var(--panel-translucent);
+  border: 1px solid var(--ctosGray);
+  color: var(--textPrimaryDim);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: default;
+  animation: ct-note-in 50ms var(--ease-out-cubic);
+}
+.ct-note--low {
+  border-color: var(--backgroundBright);
+}
+.ct-note--critical {
+  border-color: var(--error);
+}
+.ct-note__title {
+  color: var(--textPrimary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-note--critical .ct-note__title {
+  color: var(--error);
+}
+.ct-note__body {
+  margin-top: 2px;
+}
+.ct-note__action {
+  margin-top: 8px;
+}
+.ct-note.is-out {
+  opacity: 0;
+  transform: translateX(8px);
+  transition:
+    opacity 100ms var(--ease-in-cubic),
+    transform 100ms var(--ease-in-cubic);
+}
+@keyframes ct-note-in {
+  from {
+    opacity: 0;
+  }
+}

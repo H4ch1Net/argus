@@ -47,3 +47,14 @@ test('shortestLonDelta and normalizeLon', () => {
   assert.equal(normalizeLon(190), -170);
   assert.equal(normalizeLon(-190), 170);
 });
+
+test('interpolateInto matches interpolateFix and reuses its output object', async () => {
+  const { interpolateInto } = await import('./interpolate.js');
+  const a = { t: 0, longitude: 179, latitude: 10, altitude: 1000 };
+  const b = { t: 1000, longitude: -179, latitude: 12, altitude: 3000 };
+  const out = {};
+  for (const t of [-5, 0, 250, 500, 1000, 2000]) {
+    assert.deepEqual({ ...interpolateInto(a, b, t, out) }, interpolateFix(a, b, t));
+  }
+  assert.equal(interpolateInto(null, b, 0, out), out);
+});

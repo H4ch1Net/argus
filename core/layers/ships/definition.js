@@ -1,30 +1,10 @@
-import * as Cesium from 'cesium';
 import { describeShip, shipHeading, shipToNormalized, shipSearchText } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Ships (AIS) as a Layer SDK definition. This is the first PUSH layer: reports
 // stream in over the proxy websocket, entities are upserted as they report and
 // removed when they go stale. Ships are movers, so positions interpolate between
 // reports. AIS position reports carry SOG (knots), COG, and TrueHeading.
-
-let shipImageCache = null;
-function shipImage() {
-  if (shipImageCache) return shipImageCache;
-  const c = document.createElement('canvas');
-  c.width = 24;
-  c.height = 24;
-  const g = c.getContext('2d');
-  g.translate(12, 12);
-  g.beginPath();
-  g.moveTo(0, -10);
-  g.lineTo(5, 8);
-  g.lineTo(0, 4);
-  g.lineTo(-5, 8);
-  g.closePath();
-  g.fillStyle = '#ffffff';
-  g.fill();
-  shipImageCache = c;
-  return c;
-}
 
 export const shipsDefinition = {
   id: 'ships',
@@ -35,12 +15,13 @@ export const shipsDefinition = {
   maxEntities: 3000,
   normalize: (ships) => ships.map(shipToNormalized),
   render: {
-    renderType: 'billboard',
+    // A hull in plan view, bow on the heading, a touch larger when under way.
+    renderType: 'point',
     style: (n) => ({
-      image: shipImage(),
-      scale: 0.6,
-      rotationRadians: -Cesium.Math.toRadians(shipHeading(n)),
-      color: Cesium.Color.fromCssColorString('#7fd4ff'),
+      glyph: 'hull',
+      pixelSize: (n.meta.sog ?? 0) > 1 ? 16 : 13,
+      headingDeg: shipHeading(n),
+      color: ink('cyan'),
     }),
   },
   describe: (n) => describeShip(n),

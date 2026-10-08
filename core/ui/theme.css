@@ -1,0 +1,863 @@
+/* ctOS theme for Argus (design/ctos). Tokens from the design system's
+   tokens.css, then the shared primitives every component builds on: corner
+   frames, panels, launcher rows, fields, switches, tags, meters. Square
+   everything; grays only, with success and error reserved for state. */
+
+:root {
+  --gray50: #ffffff;
+  --gray100: #cacaca;
+  --gray200: #d9d9d9;
+  --gray300: #c3c3c3;
+  --gray500: #7a7a7a;
+  --gray700: #202020;
+  --gray800: #0e0e0e;
+  --background: var(--gray800);
+  --backgroundBright: var(--gray700);
+  --ctosGray: var(--gray200);
+  --textPrimary: var(--gray50);
+  --textPrimaryDim: var(--gray100);
+  --textPrimaryDimmer: var(--gray300);
+  --textSecondary: var(--gray500);
+  --success: #00fa9a;
+  --error: #fc3e38;
+  --panel-translucent: #0e0e0eee;
+  --surface-glass: #ffffff14;
+  --date-border: #414141;
+  --date-text: #b1b1b1;
+  --term-bg: #121212;
+  --term-fg: #cccccc;
+  --term-selection: #2a2a2a;
+  --term-tab-active: #dddddd;
+  --term-url: #708090;
+  --ansi5: #66b2b2;
+  --ansi10: #a6ffc9;
+  --ansi13: #49c4c4;
+  --window-shadow: 0 0 4px #000000ee;
+
+  --bar-height: 37px;
+  --corner-arm: 7px;
+  --corner-margin: 4px;
+  --gaps-in: 5px;
+  --gaps-out: 12px;
+  --panel-padding: 12px;
+  --row-pad-y: 8px;
+  --row-pad-x: 10px;
+  --accent-dot: 4px;
+  --ease-in-out-sine: cubic-bezier(0.37, 0, 0.63, 1);
+  --ease-in-cubic: cubic-bezier(0.32, 0, 0.67, 0);
+  --ease-out-cubic: cubic-bezier(0.33, 1, 0.68, 1);
+  --font-mono:
+    'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, 'SFMono-Regular',
+    'Cascadia Mono', 'DejaVu Sans Mono', 'Roboto Mono', monospace;
+
+  /* Argus layout */
+  --hud-gap: 10px;
+  --panel-w: 300px;
+  --target-w: 340px;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--background);
+  color: var(--textPrimaryDim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--ctosGray);
+  color: var(--background);
+}
+
+/* ---------- corner frame: four white L-corners, 7px arms, 1px ---------- */
+.ct-frame {
+  --c: var(--textPrimary);
+  --arm: var(--corner-arm);
+  position: relative;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) top right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top right / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--arm);
+  background-repeat: no-repeat;
+}
+.ct-frame--dim {
+  --c: var(--textSecondary);
+}
+.ct-frame--ok {
+  --c: var(--success);
+}
+.ct-frame--err {
+  --c: var(--error);
+}
+
+/* Accents: 4px quarter discs 18px / 10px outside an element's corners. */
+.ct-accents {
+  position: relative;
+}
+.ct-accents::before,
+.ct-accents::after {
+  content: '';
+  position: absolute;
+  inset: -10px -18px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 100% 100%, #fffffff2 3.5px, transparent 4px) top left / 4px
+      4px no-repeat,
+    radial-gradient(circle at 0 100%, #fffffff2 3.5px, transparent 4px) top right / 4px
+      4px no-repeat;
+}
+.ct-accents::after {
+  background:
+    radial-gradient(circle at 100% 0, #fffffff2 3.5px, transparent 4px) bottom left / 4px
+      4px no-repeat,
+    radial-gradient(circle at 0 0, #fffffff2 3.5px, transparent 4px) bottom right / 4px
+      4px no-repeat;
+}
+
+/* ---------- panels ---------- */
+.ct-panel {
+  background: var(--panel-translucent);
+  border: 1px solid var(--ctosGray);
+  box-shadow: var(--window-shadow);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.ct-panel--quiet {
+  border-color: var(--backgroundBright);
+}
+
+.ct-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px var(--panel-padding) 6px;
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ct-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--backgroundBright);
+}
+.ct-head__val {
+  color: var(--textPrimaryDim);
+  order: 2;
+}
+
+.ct-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--textSecondary) transparent;
+}
+.ct-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.ct-scroll::-webkit-scrollbar-thumb {
+  background: var(--textSecondary);
+}
+
+/* ---------- launcher rows (rofi): selected = raised + gray left rule ---------- */
+.ct-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px var(--row-pad-x);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--textPrimaryDim);
+  text-align: left;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+.ct-row:hover {
+  background: #ffffff0a;
+}
+.ct-row.is-sel,
+.ct-row[aria-pressed='true'] {
+  background: var(--backgroundBright);
+  border-left-color: var(--ctosGray);
+  color: var(--textPrimary);
+}
+.ct-row:focus-visible {
+  outline: 1px solid var(--ctosGray);
+  outline-offset: -1px;
+}
+.ct-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-row__meta {
+  color: var(--textSecondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ct-row.is-sel .ct-row__meta,
+.ct-row[aria-pressed='true'] .ct-row__meta {
+  color: var(--textPrimaryDim);
+}
+
+/* 26px icon tile: ground, 1px textSecondary outline, gray glyph */
+.ct-tile {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--textSecondary);
+  background: var(--background);
+}
+.ct-tile canvas,
+.ct-tile svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.ct-row[aria-pressed='true'] .ct-tile {
+  border-color: var(--ctosGray);
+}
+
+/* ---------- buttons, segmented choices, switches ---------- */
+.ct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--textSecondary);
+  background: transparent;
+  color: var(--textPrimaryDim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  touch-action: manipulation;
+}
+.ct-btn:hover {
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
+}
+.ct-btn[aria-pressed='true'],
+.ct-btn.is-on {
+  background: var(--ctosGray);
+  border-color: var(--ctosGray);
+  color: var(--background);
+  font-weight: 600;
+}
+.ct-btn--ok[aria-pressed='true'],
+.ct-btn--ok.is-on {
+  background: var(--success);
+  border-color: var(--success);
+}
+.ct-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ct-btn:focus-visible {
+  outline: 1px solid var(--textPrimary);
+  outline-offset: 2px;
+}
+
+.ct-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ct-seg > .ct-btn {
+  flex: 1 1 auto;
+}
+
+/* A switch row: LABEL ........ [■] ON */
+.ct-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px var(--row-pad-x);
+  border: 0;
+  background: transparent;
+  color: var(--textPrimaryDim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: left;
+}
+.ct-switch:hover {
+  background: #ffffff0a;
+}
+.ct-switch__label {
+  flex: 1;
+}
+.ct-switch__box {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--textSecondary);
+  box-sizing: border-box;
+}
+.ct-switch__state {
+  width: 3ch;
+  color: var(--textSecondary);
+  font-size: 11px;
+}
+.ct-switch[aria-pressed='true'] .ct-switch__box {
+  background: var(--ctosGray);
+  border-color: var(--ctosGray);
+}
+.ct-switch[aria-pressed='true'] .ct-switch__state {
+  color: var(--textPrimary);
+}
+
+/* ---------- fields: LABEL      VALUE ---------- */
+.ct-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+  column-gap: 12px;
+  row-gap: 4px;
+  font-size: 11.5px;
+}
+.ct-kv dt {
+  color: var(--textSecondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-kv dd {
+  margin: 0;
+  color: var(--textPrimary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- prompt input: » LABEL with a hairline underneath ---------- */
+.ct-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--row-pad-x);
+  border-bottom: 1px solid var(--textSecondary);
+}
+.ct-prompt__tag {
+  color: var(--success);
+  white-space: nowrap;
+}
+.ct-prompt input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--textPrimary);
+  font-size: 13px;
+  text-transform: none;
+}
+.ct-prompt input::placeholder {
+  color: var(--textSecondary);
+  text-transform: uppercase;
+}
+
+/* ---------- small things ---------- */
+.ct-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--textSecondary);
+  color: var(--textSecondary);
+  font-size: 9.5px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ct-tag--ok {
+  border-color: var(--success);
+  color: var(--success);
+}
+.ct-tag--err {
+  border-color: var(--error);
+  color: var(--error);
+}
+.ct-tag--on {
+  background: var(--ctosGray);
+  border-color: var(--ctosGray);
+  color: var(--background);
+}
+
+.ct-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--textSecondary);
+  flex: none;
+}
+.ct-dot.is-ok {
+  background: var(--success);
+}
+.ct-dot.is-err {
+  background: var(--error);
+}
+
+.ct-sq {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: var(--ctosGray);
+  flex: none;
+}
+
+.ct-meter {
+  height: 3px;
+  background: var(--backgroundBright);
+  position: relative;
+}
+.ct-meter > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ctosGray);
+  transition: width 1000ms var(--ease-in-out-sine);
+}
+
+/* The 3x3 spinner: 5px squares stepping every 100ms. */
+.ct-spin {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 3px);
+  gap: 1px;
+}
+.ct-spin > i {
+  width: 3px;
+  height: 3px;
+  background: var(--backgroundBright);
+  animation: ct-spin 900ms steps(1) infinite;
+}
+.ct-spin > i:nth-child(1) {
+  animation-delay: 0ms;
+}
+.ct-spin > i:nth-child(2) {
+  animation-delay: 100ms;
+}
+.ct-spin > i:nth-child(3) {
+  animation-delay: 200ms;
+}
+.ct-spin > i:nth-child(6) {
+  animation-delay: 300ms;
+}
+.ct-spin > i:nth-child(9) {
+  animation-delay: 400ms;
+}
+.ct-spin > i:nth-child(8) {
+  animation-delay: 500ms;
+}
+.ct-spin > i:nth-child(7) {
+  animation-delay: 600ms;
+}
+.ct-spin > i:nth-child(4) {
+  animation-delay: 700ms;
+}
+.ct-spin > i:nth-child(5) {
+  animation: none;
+}
+@keyframes ct-spin {
+  0%,
+  11% {
+    background: var(--ctosGray);
+  }
+  12%,
+  100% {
+    background: var(--backgroundBright);
+  }
+}
+
+.ct-muted {
+  color: var(--textSecondary);
+}
+.ct-ok {
+  color: var(--success);
+}
+.ct-err {
+  color: var(--error);
+}
+
+/* Kitty-style tabs: active term-tab-active with dark bold text. */
+.ct-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0;
+}
+.ct-tabs > button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  background: var(--term-selection);
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 100%, 6px 100%);
+  padding: 0 8px;
+}
+.ct-tabs > button[aria-selected='true'] {
+  background: var(--term-tab-active);
+  color: var(--background);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-spin > i {
+    animation: none;
+  }
+  .ct-meter > i {
+    transition: none;
+  }
+}
+
+/* ---------- menu sections ---------- */
+.ct-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px var(--panel-padding) 8px;
+}
+.ct-section__body > .ct-switch {
+  margin: 0 calc(-1 * var(--row-pad-x));
+  width: calc(100% + 2 * var(--row-pad-x));
+}
+.ct-section__note {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.ct-tabpanes {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.ct-tabpane {
+  min-height: 0;
+  flex: 1;
+}
+.ct-tabpane[hidden] {
+  display: none;
+}
+
+/* ---------- boot splash ---------- */
+.ct-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(#ffffff06 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, #ffffff06 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(#ffffff0c 1px, transparent 1px) 0 0 / 160px 160px,
+    linear-gradient(90deg, #ffffff0c 1px, transparent 1px) 0 0 / 160px 160px,
+    var(--background);
+  transition: opacity 350ms var(--ease-in-cubic);
+}
+.ct-splash.is-out {
+  opacity: 0;
+  pointer-events: none;
+}
+.ct-splash__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.ct-splash__bar {
+  width: 260px;
+}
+.ct-splash__label {
+  display: flex;
+  gap: 4px;
+  width: 260px;
+  color: var(--textPrimaryDim);
+  font-size: 13px;
+  font-weight: 500;
+}
+.ct-splash__label > span:last-child {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.ct-splash__log {
+  position: absolute;
+  left: 5vw;
+  bottom: 6vh;
+  color: var(--textPrimaryDimmer);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ct-splash__disc {
+  position: absolute;
+  right: 5vw;
+  bottom: 6vh;
+  max-width: 260px;
+  color: var(--textSecondary);
+  font-size: 11px;
+  text-align: right;
+}
+@media (max-width: 720px) {
+  .ct-splash__disc {
+    display: none;
+  }
+}
+
+/* Weather history strip */
+.ct-wx > .ct-btn {
+  flex: 0 0 auto;
+  min-width: 34px;
+}
+.ct-wx__time {
+  display: block;
+  margin-top: 4px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* Launch replay HUD */
+.ct-replay {
+  width: 260px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-replay__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-replay__clock {
+  color: var(--textPrimary);
+  font-size: 30px;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+}
+.ct-replay__phase {
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-replay__ctl .ct-btn {
+  flex: 1 1 auto;
+  min-height: 24px;
+  padding: 0 6px;
+}
+.ct-replay__note {
+  color: var(--textSecondary);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+/* Tools */
+.ct-tool__pt {
+  display: grid;
+  grid-template-columns: 1.2ch 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.ct-tool__pt .ct-btn {
+  min-height: 24px;
+  padding: 0 7px;
+}
+.ct-tool__val {
+  color: var(--textPrimary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-tool__summary {
+  color: var(--textPrimary);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  min-height: 0;
+}
+.ct-tool__summary:empty {
+  display: none;
+}
+.ct-tool__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+}
+.ct-tool__step {
+  display: grid;
+  grid-template-columns: 3ch 1fr auto;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--textPrimaryDim);
+}
+.ct-credits {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.ct-credits__group {
+  margin-top: 6px;
+  color: var(--textPrimaryDim);
+  letter-spacing: 0.06em;
+}
+.ct-credits a,
+.ct-section__note a {
+  color: var(--textPrimary);
+}
+
+/* Radio tuner */
+.ct-tuner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-tuner[hidden] {
+  display: none;
+}
+.ct-tuner__tape {
+  width: 100%;
+  height: 46px;
+  border: 1px solid var(--backgroundBright);
+  background: #0a0a0a;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ct-tuner__tape:focus-visible {
+  outline: 1px solid var(--ctosGray);
+}
+.ct-tuner__name {
+  color: var(--textPrimary);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-tuner__meta {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Cockpit briefing strip */
+.ct-brief {
+  width: min(420px, calc(100vw - 24px));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-brief__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.ct-brief__dots {
+  margin-left: auto;
+  color: var(--textSecondary);
+  letter-spacing: 2px;
+}
+.ct-brief__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ct-brief__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textPrimaryDim);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  text-decoration: none;
+  cursor: default;
+}
+a.ct-brief__line,
+button.ct-brief__line {
+  cursor: pointer;
+}
+a.ct-brief__line:hover,
+button.ct-brief__line:hover {
+  color: var(--textPrimary);
+}
+.ct-brief__credit {
+  color: var(--textSecondary);
+  font-size: 10px;
+}
+.ct-brief__credit a {
+  color: var(--textPrimaryDim);
+}
+
+/* Clean view (V, or VIEW > DISPLAY): the interface hides, leaving the globe,
+   the tracking overlay and notices; one small chip brings it back (a phone has
+   no V key). */
+.argus-clean .argus-hud > :not(.argus-notify):not(.argus-float) {
+  display: none !important;
+}
+
+.ct-clean-exit {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: none;
+  background: var(--panel-translucent);
+}
+
+.argus-clean .ct-clean-exit {
+  display: inline-flex;
+}

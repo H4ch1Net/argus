@@ -52,3 +52,29 @@ export function interpolateFix(prev, curr, renderTimeMs) {
     altitude: lerp(prev.altitude ?? 0, curr.altitude ?? 0, f),
   };
 }
+
+/**
+ * interpolateFix without allocating: writes { longitude, latitude, altitude }
+ * into `out` and returns it. The per-frame mover update uses this, so a layer
+ * of thousands of aircraft produces no garbage each frame.
+ */
+export function interpolateInto(prev, curr, renderTimeMs, out) {
+  const take = (fix) => {
+    out.longitude = fix.longitude;
+    out.latitude = fix.latitude;
+    out.altitude = fix.altitude ?? 0;
+    return out;
+  };
+  if (!prev) return take(curr);
+  const span = curr.t - prev.t;
+  if (span <= 0) return take(curr);
+  const f = (renderTimeMs - prev.t) / span;
+  if (f <= 0) return take(prev);
+  if (f >= 1) return take(curr);
+  out.longitude = normalizeLon(
+    prev.longitude + shortestLonDelta(prev.longitude, curr.longitude) * f,
+  );
+  out.latitude = lerp(prev.latitude, curr.latitude, f);
+  out.altitude = lerp(prev.altitude ?? 0, curr.altitude ?? 0, f);
+  return out;
+}
