@@ -46,6 +46,8 @@ export const LAYER_INK = Object.freeze({
   myplaces: INK.mint,
   cctv: INK.white,
   trafficcams: INK.teal,
+  webcams: INK.pale,
+  borderwaits: INK.gray,
   datacenters: INK.cyan,
   cables: INK.slate,
   installations: INK.mint,

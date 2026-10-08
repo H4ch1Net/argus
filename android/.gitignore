@@ -1,0 +1,19 @@
+# Gradle and IDE output
+.gradle/
+build/
+.cxx/
+.idea/
+*.iml
+local.properties
+captures/
+
+# Staged at build time, never committed:
+# the Node project (scripts/android-bundle.mjs) and nodejs-mobile's libnode
+# (android/fetch-libnode.sh).
+app/src/main/assets/nodejs-project/
+app/libnode/
+
+# Signing material stays out of git (CI decodes it from repository secrets).
+*.jks
+*.keystore
+keystore.properties

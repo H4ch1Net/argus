@@ -194,7 +194,389 @@ const SHAPES = {
     g.fillRect(m + 3.4, m - 1.8, m - 5.6, 3.6);
     g.fillRect(m - 2.3, m - 2.3, 4.6, 4.6);
   },
+  // An ALPR reader: a square camera body with its lens, over the reader's
+  // light bar. Mapped LOCATION only (the layer never reads what it sees).
+  alpr: (g, px) => {
+    const m = px / 2;
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1, px - 3, px - 2);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.5;
+    g.strokeRect(3.25, 2.75, px - 6.5, 7);
+    g.fillStyle = INK;
+    g.fillRect(m - 1.5, 4.75, 3, 3);
+    g.fillRect(2.5, 11.5, px - 5, 2.5);
+  },
+  // A cross mark: a collision.
+  xmark: (g, px) => {
+    for (const [stroke, width] of [
+      [KEYLINE, 4.5],
+      [INK, 2],
+    ]) {
+      g.strokeStyle = stroke;
+      g.lineWidth = width;
+      g.beginPath();
+      g.moveTo(3, 3);
+      g.lineTo(px - 3, px - 3);
+      g.moveTo(px - 3, 3);
+      g.lineTo(3, px - 3);
+      g.stroke();
+    }
+  },
+  // Stacked bars: a queue (traffic jam).
+  queue: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(2, 2, px - 4, px - 4);
+    g.fillStyle = INK;
+    for (const y of [3.5, 7, 10.5]) g.fillRect(3.5, y, px - 7, 2);
+  },
+  // A striped barrier board on two legs: roadworks and work zones.
+  barrier: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 4, px - 2, 8);
+    g.fillRect(2.8, 11, 2.8, 4.2);
+    g.fillRect(px - 5.6, 11, 2.8, 4.2);
+    g.fillStyle = INK;
+    g.fillRect(2.2, 5.2, px - 4.4, 5.6);
+    g.fillRect(3.6, 11, 1.2, 3.6);
+    g.fillRect(px - 4.8, 11, 1.2, 3.6);
+    g.save();
+    g.beginPath();
+    g.rect(2.2, 5.2, px - 4.4, 5.6);
+    g.clip();
+    g.strokeStyle = KEYLINE;
+    g.lineWidth = 1.6;
+    for (let x = -4; x < px + 4; x += 4) {
+      g.beginPath();
+      g.moveTo(x, 12);
+      g.lineTo(x + 6, 4);
+      g.stroke();
+    }
+    g.restore();
+  },
+  // A solid square with a bar across it: a road closed.
+  noentry: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1.5, px - 3, px - 3);
+    g.fillStyle = INK;
+    g.fillRect(2.8, 2.8, px - 5.6, px - 5.6);
+    g.fillStyle = KEYLINE;
+    g.fillRect(4.5, px / 2 - 1.4, px - 9, 2.8);
+  },
+  // Slanted strokes: weather on the road (rain, fog, ice, wind, flooding).
+  rain: (g, px) => {
+    for (const [stroke, width] of [
+      [KEYLINE, 4],
+      [INK, 1.8],
+    ]) {
+      g.strokeStyle = stroke;
+      g.lineWidth = width;
+      g.beginPath();
+      for (const x of [4, 8, 12]) {
+        g.moveTo(x + 1.5, 2.5);
+        g.lineTo(x - 1.5, px - 2.5);
+      }
+      g.stroke();
+    }
+  },
+  // A hollow square with an arrow leaving it: a Tor exit relay.
+  exit: (g, px) => {
+    g.strokeStyle = KEYLINE;
+    g.lineWidth = 3.5;
+    g.strokeRect(2.5, 4.5, px - 7, px - 7);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.5;
+    g.strokeRect(2.5, 4.5, px - 7, px - 7);
+    for (const [stroke, width] of [
+      [KEYLINE, 4],
+      [INK, 1.6],
+    ]) {
+      g.strokeStyle = stroke;
+      g.lineWidth = width;
+      g.beginPath();
+      g.moveTo(px / 2 - 1, px / 2 + 1);
+      g.lineTo(px - 2.5, 2.5);
+      g.moveTo(px - 7, 2.5);
+      g.lineTo(px - 2.5, 2.5);
+      g.lineTo(px - 2.5, 7);
+      g.stroke();
+    }
+  },
+  // A thick square ring: a Tor guard (entry) relay.
+  guard: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1.5, px - 3, px - 3);
+    g.fillStyle = INK;
+    g.fillRect(2.8, 2.8, px - 5.6, px - 5.6);
+    g.fillStyle = KEYLINE;
+    g.fillRect(6, 6, px - 12, px - 12);
+  },
+  // A page with text lines: a news report.
+  news: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(2, 1, px - 4, px - 2);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(3.2, 2.2, px - 6.4, px - 4.4);
+    g.fillStyle = INK;
+    for (const [y, w] of [
+      [5, 1],
+      [8, 1],
+      [11, 0.6],
+    ])
+      g.fillRect(5, y, (px - 10) * w, 1.5);
+  },
+  // A square half filled: day and night (the terminator).
+  half: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1.5, px - 3, px - 3);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.5;
+    g.strokeRect(2.75, 2.75, px - 5.5, px - 5.5);
+    g.fillStyle = INK;
+    g.fillRect(2.75, 2.75, (px - 5.5) / 2, px - 5.5);
+  },
+  // Two zigzag bands: an aurora curtain.
+  wave: (g, px) => {
+    for (const [stroke, width] of [
+      [KEYLINE, 4],
+      [INK, 1.6],
+    ]) {
+      g.strokeStyle = stroke;
+      g.lineWidth = width;
+      g.beginPath();
+      for (const y of [5.5, 10.5]) {
+        g.moveTo(2, y + 1.5);
+        g.lineTo(5.5, y - 1.5);
+        g.lineTo(9, y + 1.5);
+        g.lineTo(12.5, y - 1.5);
+        g.lineTo(14, y);
+      }
+      g.stroke();
+    }
+  },
+  // Four field cells of differing strength: a sampled field (air quality).
+  cells: (g, px) => {
+    const s = (px - 7) / 2;
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1.5, px - 3, px - 3);
+    g.fillStyle = INK;
+    g.fillRect(3, 3, s, s);
+    g.fillRect(4 + s, 4 + s, s, s);
+    g.globalAlpha = 0.5;
+    g.fillRect(4 + s, 3, s, s);
+    g.fillRect(3, 4 + s, s, s);
+    g.globalAlpha = 1;
+  },
 };
+
+// --- Public webcams (core/layers/webcams) and border waits ---------------------
+// A webcam is the camera brackets (something that watches, as for traffic
+// cameras) around a small pictogram of what the camera is FOR: a road, a
+// skyline, a wave, a peak. One glyph per category; the layer tints them all
+// with its own ink, so only the shape tells categories apart.
+
+/** Corner brackets plus a keyline ground in the middle for a pictogram. */
+function camBrackets(g, px) {
+  const a = px * 0.28;
+  const corners = [
+    [2, 2, 1, 1],
+    [px - 2, 2, -1, 1],
+    [2, px - 2, 1, -1],
+    [px - 2, px - 2, -1, -1],
+  ];
+  for (const [stroke, width] of [
+    [KEYLINE, 3.5],
+    [INK, 1.5],
+  ]) {
+    g.strokeStyle = stroke;
+    g.lineWidth = width;
+    for (const [x, y, sx, sy] of corners) {
+      g.beginPath();
+      g.moveTo(x + sx * a, y);
+      g.lineTo(x, y);
+      g.lineTo(x, y + sy * a);
+      g.stroke();
+    }
+  }
+  g.fillStyle = KEYLINE;
+  g.fillRect(4, 4, px - 8, px - 8);
+  g.fillStyle = INK;
+}
+const rects = (g, list) => {
+  for (const [x, y, w, h] of list) g.fillRect(x, y, w, h);
+};
+const poly = (g, pts) => {
+  g.beginPath();
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (const [x, y] of pts.slice(1)) g.lineTo(x, y);
+  g.closePath();
+  g.fill();
+};
+/** A webcam glyph: the brackets, then the pictogram drawn in ink. */
+const cam = (draw) => (g, px) => {
+  camBrackets(g, px);
+  draw(g, px);
+};
+
+const CAMERA_SHAPES = {
+  // Two lanes and a dashed centre line.
+  'wc-traffic': cam((g) =>
+    rects(g, [
+      [5.5, 4.5, 1.4, 7],
+      [9.1, 4.5, 1.4, 7],
+      [7.6, 4.8, 0.8, 2],
+      [7.6, 8.8, 0.8, 2],
+    ]),
+  ),
+  // A skyline: three towers.
+  'wc-city': cam((g) =>
+    rects(g, [
+      [5, 8, 1.8, 3.5],
+      [7.1, 5, 1.8, 6.5],
+      [9.2, 6.8, 1.8, 4.7],
+    ]),
+  ),
+  // Two waves.
+  'wc-beach': cam((g) => {
+    g.strokeStyle = INK;
+    g.lineWidth = 1.3;
+    g.beginPath();
+    for (const y of [6.6, 9.8]) {
+      g.moveTo(4.8, y);
+      g.lineTo(6.4, y - 1.4);
+      g.lineTo(8, y);
+      g.lineTo(9.6, y - 1.4);
+      g.lineTo(11.2, y);
+    }
+    g.stroke();
+  }),
+  // An anchor: shank, stock, crown and flukes.
+  'wc-harbor': cam((g) =>
+    rects(g, [
+      [7.4, 4.6, 1.2, 6.4],
+      [5.6, 6, 4.8, 1.1],
+      [5, 10.3, 6, 1.2],
+      [5, 8.8, 1.2, 1.6],
+      [9.8, 8.8, 1.2, 1.6],
+    ]),
+  ),
+  // A peak.
+  'wc-mountain': cam((g) =>
+    poly(g, [
+      [4.6, 11.5],
+      [8, 4.6],
+      [11.4, 11.5],
+    ]),
+  ),
+  // Three bars of cloud or fog.
+  'wc-weather': cam((g) =>
+    rects(g, [
+      [5.2, 5.4, 5.6, 1.2],
+      [4.6, 7.9, 6.8, 1.2],
+      [5.8, 10.4, 4.4, 1.2],
+    ]),
+  ),
+  // An aircraft in plan: fuselage, wings, tailplane.
+  'wc-airport': cam((g) =>
+    rects(g, [
+      [7.35, 4.5, 1.3, 7],
+      [4.6, 7.2, 6.8, 1.3],
+      [6, 10.3, 4, 1.1],
+    ]),
+  ),
+  // A conifer.
+  'wc-park': cam((g) => {
+    poly(g, [
+      [5.2, 9.2],
+      [8, 4.5],
+      [10.8, 9.2],
+    ]);
+    g.fillRect(7.4, 9.2, 1.2, 2.3);
+  }),
+  // A paw: a pad and three toes.
+  'wc-wildlife': cam((g) =>
+    rects(g, [
+      [6.3, 8.4, 3.4, 3],
+      [5, 5.6, 1.6, 1.8],
+      [7.2, 4.7, 1.6, 1.8],
+      [9.4, 5.6, 1.6, 1.8],
+    ]),
+  ),
+  // Two rails on three sleepers.
+  'wc-rail': cam((g) =>
+    rects(g, [
+      [5.6, 4.5, 1, 7],
+      [9.4, 4.5, 1, 7],
+      [4.8, 5.3, 6.4, 0.9],
+      [4.8, 7.6, 6.4, 0.9],
+      [4.8, 9.9, 6.4, 0.9],
+    ]),
+  ),
+  // A pediment on three columns.
+  'wc-campus': cam((g) => {
+    poly(g, [
+      [4.6, 7.2],
+      [8, 4.6],
+      [11.4, 7.2],
+    ]);
+    rects(g, [
+      [5.4, 7.8, 1.1, 2.6],
+      [7.45, 7.8, 1.1, 2.6],
+      [9.5, 7.8, 1.1, 2.6],
+      [4.8, 10.6, 6.4, 0.9],
+    ]);
+  }),
+  // A tower crane: mast, jib, hook and load.
+  'wc-construction': cam((g) =>
+    rects(g, [
+      [5.6, 4.6, 1.2, 6.9],
+      [5.6, 4.6, 5.8, 1.1],
+      [10, 5.7, 0.8, 3],
+      [9.5, 8.6, 1.8, 1.4],
+      [4.6, 10.6, 3.4, 0.9],
+    ]),
+  ),
+  // An observatory dome with its slit open.
+  'wc-observatory': cam((g) => {
+    poly(g, [
+      [4.8, 11.5],
+      [4.8, 8.2],
+      [6.2, 5.6],
+      [9.8, 5.6],
+      [11.2, 8.2],
+      [11.2, 11.5],
+    ]);
+    g.fillStyle = KEYLINE;
+    g.fillRect(7.5, 5.6, 1, 3.6);
+  }),
+  // The Earth as the ctOS hub: a solid diamond.
+  'wc-space': cam((g) =>
+    poly(g, [
+      [8, 4.6],
+      [11.4, 8],
+      [8, 11.4],
+      [4.6, 8],
+    ]),
+  ),
+  // Anything else: the plain camera dot.
+  'wc-other': cam((g) => g.fillRect(6, 6, 4, 4)),
+  // A border crossing: a striped barrier between two posts.
+  gate: (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 2, 4, 13);
+    g.fillRect(px - 5.5, 2, 4, 13);
+    g.fillRect(1.5, 5.5, px - 3, 4.5);
+    g.fillStyle = INK;
+    g.fillRect(2.5, 3, 2, 11);
+    g.fillRect(px - 4.5, 3, 2, 11);
+    g.fillRect(2.5, 6.5, px - 5, 2.5);
+    g.fillStyle = KEYLINE;
+    g.fillRect(5.6, 6.5, 1.4, 2.5);
+    g.fillRect(8.4, 6.5, 1.4, 2.5);
+  },
+};
+for (const [name, draw] of Object.entries(CAMERA_SHAPES)) SHAPES[name] ??= draw;
 
 export const GLYPH_NAMES = Object.keys(SHAPES);
 

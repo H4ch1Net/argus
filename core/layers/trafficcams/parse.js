@@ -13,12 +13,15 @@
 //
 // The Ontario 511, DriveBC, Calgary, Fintraffic, TxDOT, Austin, Tarktee,
 // Tallinn and Warendorf parsers are adapted from gods-eye-view
-// server/providers/cctv/sources.js and normalize.js (MIT).
+// server/providers/cctv/sources.js and normalize.js (MIT). The 511-platform,
+// WSDOT, NYC DOT and Singapore LTA parsers follow each provider's
+// documentation, not live-tested here.
 //
 // GUARDRAIL: stills are shown as published, on request (a card). Nothing in
 // this project analyses them: no plate reading, no tracking, no detection.
 
 import { directionToHeading, posePrior } from './pose.js';
+import { cameraKinds } from './kinds.js';
 
 const num = (v) => {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
@@ -150,11 +153,17 @@ function parseVegvesen(geojson) {
 const ONTARIO_BOX = [-95.6, 41.0, -74.0, 57.5];
 
 /** A view URL on the official still host -> its view id, or null. */
-function ontarioViewId(raw) {
+const ontarioViewId = (raw) =>
+  cctvViewId(raw, (host) => host === '511on.ca' || host.endsWith('.traveliq.co'));
+
+/**
+ * A 511-platform still URL (https://<host>/map/Cctv/<view id>) whose host
+ * passes hostOk -> the view id, or null.
+ */
+function cctvViewId(raw, hostOk) {
   const u = url(typeof raw === 'string' ? raw.trim() : '');
   if (!u) return null;
-  const host = u.hostname.toLowerCase();
-  if (host !== '511on.ca' && !host.endsWith('.traveliq.co')) return null;
+  if (!hostOk(u.hostname.toLowerCase())) return null;
   const m = /^\/map\/Cctv\/([^/]+)$/.exec(u.pathname);
   if (!m) return null;
   let id;
@@ -167,11 +176,11 @@ function ontarioViewId(raw) {
 }
 
 /** The first enabled view whose description does not say it is down. */
-function pickOntarioView(views) {
+function pickOntarioView(views, viewId = ontarioViewId) {
   const enabled = list(views)
     .filter((v) => String(v?.Status ?? v?.status ?? '').toLowerCase() === 'enabled')
     .map((v) => ({
-      id: ontarioViewId(v?.Url ?? v?.url),
+      id: viewId(v?.Url ?? v?.url),
       description: text(v?.Description ?? v?.description) || '',
     }))
     .filter((v) => v.id);
@@ -727,6 +736,204 @@ function parseWarendorf(rows) {
   return out;
 }
 
+// --- The 511 platform (511NY, AZ511, 511GA, 511WI, ...) -----------------------
+//
+// Many state 511 sites run one platform (the one Ontario 511 runs, built by
+// TravelIQ), whose developer API answers GET /api/v2/get/cameras?key=..&format=json
+// with Ontario's shape (Views per camera, stills at /map/Cctv/<view id>), and
+// on 511NY the older GET /api/getcameras?key=..&format=json with one Url per
+// camera ({ ID, Name, RoadwayName, DirectionOfTravel, Url, Disabled, Blocked,
+// Latitude, Longitude }). Each network needs its own developer key, injected by
+// the proxy. Per the providers' documentation, not live-tested here.
+
+/**
+ * One 511-platform catalogue (either shape). Stills are pinned to the
+ * network's own host (or a TravelIQ partner host) and its /map/Cctv/<id> path,
+ * then fetched from the network's image feed.
+ */
+function parseTravelIq(rows, src) {
+  const bare = String(src.host ?? '')
+    .toLowerCase()
+    .replace(/^www\./, '');
+  if (!bare) return [];
+  const hostOk = (h) => h === bare || h === `www.${bare}` || h.endsWith('.traveliq.co');
+  const viewId = (raw) => cctvViewId(raw, hostOk);
+  const [w, s, e, n] = src.bbox;
+  const box = [w - 1, s - 1, e + 1, n + 1];
+  const out = [];
+  const seen = new Set();
+  for (const row of list(rows)) {
+    const rawId = String(row?.Id ?? row?.ID ?? row?.id ?? '').trim();
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(rawId) || seen.has(rawId)) continue;
+    const lat = num(row?.Latitude ?? row?.latitude);
+    const lon = num(row?.Longitude ?? row?.longitude);
+    if (!within(lat, lon, box)) continue;
+    const views = row?.Views ?? row?.views;
+    let view = null;
+    if (Array.isArray(views)) view = pickOntarioView(views, viewId);
+    else if (row?.Disabled !== true && row?.Blocked !== true) {
+      const id = viewId(row?.Url ?? row?.url);
+      view = id ? { id, description: '' } : null;
+    }
+    if (!view) continue;
+    seen.add(rawId);
+    const location = text(row?.Location ?? row?.Name ?? row?.name, 160);
+    const roadway = text(row?.Roadway ?? row?.RoadwayName, 80);
+    const viewLabel = /\bdown\b/i.test(view.description) ? '' : view.description;
+    const direction = text(row?.Direction ?? row?.DirectionOfTravel, 30);
+    out.push({
+      id: `${src.id}-${rawId.toLowerCase()}`,
+      name: [location || roadway || `${src.provider} camera ${rawId}`, viewLabel]
+        .filter(Boolean)
+        .join(' - '),
+      lat,
+      lon,
+      direction,
+      headingDeg:
+        directionToHeading(direction, true) ?? directionToHeading(view.description, true),
+      groundM: src.groundM ?? 200,
+      image: { feedId: src.imageFeed, path: `/${encodeURIComponent(view.id)}` },
+      kindText: roadway,
+    });
+  }
+  return out;
+}
+
+// --- WSDOT (Washington State, keyed) ------------------------------------------
+
+const WASHINGTON_BOX = [-125.0, 45.4, -116.8, 49.2];
+const WSDOT_STILL =
+  /^\/[A-Za-z0-9_-]{1,24}(?:\/[A-Za-z0-9_-]{1,40})?\/[A-Za-z0-9_.-]{1,80}\.jpe?g$/i;
+
+/**
+ * WSDOT Traveler Information API, HighwayCameras GetCamerasAsJson:
+ * [{ CameraID, CameraLocation: { Description, Direction, Latitude, Longitude,
+ * RoadName }, CameraOwner, ImageURL, IsActive, Title }]. Active cameras with a
+ * still on images.wsdot.wa.gov only (partner stills elsewhere are skipped).
+ */
+function parseWsdot(rows) {
+  const out = [];
+  const seen = new Set();
+  for (const r of list(rows)) {
+    if (r?.IsActive === false) continue;
+    const id = r?.CameraID;
+    if (!Number.isSafeInteger(id) || id <= 0 || id > 9_999_999 || seen.has(id)) continue;
+    const loc = r?.CameraLocation ?? {};
+    const lat = num(loc.Latitude ?? r?.DisplayLatitude);
+    const lon = num(loc.Longitude ?? r?.DisplayLongitude);
+    if (!within(lat, lon, WASHINGTON_BOX)) continue;
+    const img = url(r?.ImageURL);
+    if (!img || img.hostname !== 'images.wsdot.wa.gov' || img.search) continue;
+    if (!WSDOT_STILL.test(img.pathname)) continue;
+    seen.add(id);
+    const facing =
+      DRIVEBC_ORIENTATION[
+        String(loc.Direction ?? '')
+          .trim()
+          .toUpperCase()
+      ];
+    const owner = text(r?.CameraOwner, 80);
+    out.push({
+      id: `wsdot-${id}`,
+      name: text(r?.Title) || text(loc.Description) || `WSDOT camera ${id}`,
+      lat,
+      lon,
+      direction: null,
+      headingDeg: facing ?? null,
+      groundM: 100,
+      credit: owner && !/^wsdot$/i.test(owner) ? `Image courtesy of ${owner}` : null,
+      image: { feedId: 'wsdot-img', path: img.pathname },
+      kindText: text(loc.RoadName, 40),
+    });
+  }
+  return out;
+}
+
+// --- NYC DOT (webcams.nyctmc.org, keyless) ------------------------------------
+
+const NYC_BOX = [-74.3, 40.45, -73.65, 40.95];
+
+/**
+ * NYC DOT traffic cameras: [{ id (uuid), name, latitude, longitude, area,
+ * isOnline, imageUrl }]. The still is /api/cameras/<id>/image on the same host:
+ * a published imageUrl must be exactly that; without one it is built from the
+ * validated id.
+ */
+function parseNycDot(rows) {
+  const out = [];
+  const seen = new Set();
+  for (const r of list(rows)) {
+    const id = String(r?.id ?? '')
+      .trim()
+      .toLowerCase();
+    if (!/^[0-9a-f][0-9a-f-]{7,63}$/.test(id) || seen.has(id)) continue;
+    if (r?.isOnline === false || String(r?.isOnline).toLowerCase() === 'false') continue;
+    const lat = num(r?.latitude);
+    const lon = num(r?.longitude);
+    if (!within(lat, lon, NYC_BOX)) continue;
+    const path = `/${id}/image`;
+    if (r?.imageUrl !== undefined && r?.imageUrl !== null) {
+      const img = url(r.imageUrl);
+      if (
+        !img ||
+        img.hostname !== 'webcams.nyctmc.org' ||
+        img.pathname.toLowerCase() !== `/api/cameras${path}`
+      )
+        continue;
+    }
+    seen.add(id);
+    out.push({
+      id: `nycdot-${id}`,
+      name: text(r?.name) || 'NYC DOT camera',
+      lat,
+      lon,
+      direction: null,
+      groundM: 10,
+      region: text(r?.area, 40),
+      image: { feedId: 'nycdot-img', path },
+    });
+  }
+  return out;
+}
+
+// --- Singapore LTA (data.gov.sg, keyless) -------------------------------------
+
+const SINGAPORE_BOX = [103.55, 1.15, 104.15, 1.5];
+
+/**
+ * data.gov.sg traffic images: { items: [{ timestamp, cameras: [{ camera_id,
+ * image, location: { latitude, longitude } }] }] }. The still's file name
+ * changes with every capture; the catalogue refresh keeps it current.
+ */
+function parseLtaSg(payload) {
+  const out = [];
+  const seen = new Set();
+  for (const c of list(payload?.items?.[0]?.cameras)) {
+    const id = String(c?.camera_id ?? '').trim();
+    if (!/^\d{1,6}$/.test(id) || seen.has(id)) continue;
+    const lat = num(c?.location?.latitude);
+    const lon = num(c?.location?.longitude);
+    if (!within(lat, lon, SINGAPORE_BOX)) continue;
+    const img = url(c?.image);
+    if (!img || img.hostname !== 'images.data.gov.sg' || img.search) continue;
+    const m = /^\/api\/traffic-images(\/\d{4}\/\d{2}\/[A-Za-z0-9_-]{8,64}\.jpg)$/.exec(
+      img.pathname,
+    );
+    if (!m) continue;
+    seen.add(id);
+    out.push({
+      id: `lta-sg-${id}`,
+      name: `LTA traffic camera ${id}`,
+      lat,
+      lon,
+      direction: null,
+      groundM: 15,
+      image: { feedId: 'lta-sg-img', path: m[1] },
+    });
+  }
+  return out;
+}
+
 const PARSERS = {
   caltrans: parseCaltrans,
   tfl: parseTfl,
@@ -740,20 +947,37 @@ const PARSERS = {
   tarktee: parseTarktee,
   tallinn: parseTallinn,
   warendorf: parseWarendorf,
+  traveliq: parseTravelIq,
+  wsdot: parseWsdot,
+  nycdot: parseNycDot,
+  ltasg: parseLtaSg,
 };
 
-/** One catalogue payload -> camera records, each tagged with its network and pose prior. */
+/**
+ * One catalogue payload -> camera records, each tagged with its network, its
+ * sub-kinds (./kinds.js: ramp, bridge, tunnel, pass, border) and pose prior.
+ */
 export function parseCameraCatalog(payload, src) {
   const parse = PARSERS[src.kind];
   if (!parse) return [];
   return parse(payload, src).map(
-    ({ headingDeg = null, confidence, curated, groundM, mountM, overrides, ...c }) => ({
+    ({
+      headingDeg = null,
+      confidence,
+      curated,
+      groundM,
+      mountM,
+      overrides,
+      kindText,
+      ...c
+    }) => ({
       ...c,
       provider: src.provider,
       region: c.region || src.region,
       license: src.license,
       licenseUrl: src.licenseUrl ?? null,
       credit: c.credit ?? null,
+      kinds: cameraKinds(c.name, c.region, kindText),
       curated: Boolean(curated),
       pose: posePrior({
         id: c.id,

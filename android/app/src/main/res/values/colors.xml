@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ctOS tokens (core/ui/theme.css) -->
+    <color name="ink">#FF0E0E0E</color>
+    <color name="panel">#FF202020</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

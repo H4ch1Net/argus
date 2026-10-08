@@ -1,6 +1,7 @@
-// Public traffic-camera networks (keyless), as the reference project reads
-// them, and the layer's source: which catalogues the view needs, how each is
-// loaded, and how many of its cameras are kept. Each catalogue is a proxy feed;
+// Public traffic-camera networks, as the reference project reads them plus
+// more DOT networks per their own documentation, and the layer's source: which
+// catalogues the view needs, how each is loaded, and how many of its cameras
+// are kept. Each catalogue is a proxy feed;
 // each camera's still is a second, image-only proxy feed, so the browser never
 // talks to a camera host directly. Two networks are curated catalogues bundled
 // here (data/), so only their stills are fetched. Parsing lives in ./parse.js.
@@ -9,6 +10,12 @@
 // adapted from gods-eye-view server/providers/cctv/constants.js and
 // sources.js (MIT). Their endpoints are per the reference implementation, not
 // live-tested here.
+//
+// Added from each provider's documentation (not live-tested here): Caltrans
+// districts 1, 2, 5, 6, 8, 9, 10 and 12; NYC DOT; Singapore LTA (data.gov.sg);
+// and the keyed networks (WSDOT and the 511-platform states: 511NY, AZ511,
+// 511GA, 511WI, Idaho 511, UDOT Traffic, Alaska 511, NVroads, 511LA, CTroads),
+// each offered only when the proxy holds its key (`keyed`, see isConfigured).
 //
 // Not ported, on purpose:
 // - Live Traffic NSW: its image host answers non-browser clients with an HTML
@@ -32,10 +39,12 @@ export { parseCameraCatalog };
  *   bbox: [number, number, number, number], feedId: string|null, path?: string,
  *   paths?: string[], params?: Record<string, string|number>,
  *   kind: 'caltrans'|'tfl'|'vegvesen'|'ontario511'|'drivebc'|'calgary'|'fintraffic'|
- *     'txdot'|'austin'|'tarktee'|'tallinn'|'warendorf',
+ *     'txdot'|'austin'|'tarktee'|'tallinn'|'warendorf'|'traveliq'|'wsdot'|'nycdot'|
+ *     'ltasg',
  *   license: string, licenseUrl?: string, network?: string, cap?: number,
  *   anchors?: Anchor[], curated?: boolean,
- *   boxes?: Array<[number, number, number, number]> }} CameraSource
+ *   boxes?: Array<[number, number, number, number]>,
+ *   keyed?: boolean, env?: string, host?: string, imageFeed?: string }} CameraSource
  * bbox: the network's whole coverage; boxes, when given, a finer cover inside
  * it for a network one rectangle fits badly (Norway's would take in Sweden,
  * Finland and Estonia). A catalogue is fetched only when a box overlaps the view.
@@ -43,6 +52,9 @@ export { parseCameraCatalog };
  * network: sources sharing it (TxDOT's districts) share one cap.
  * cap: at most this many of the network's cameras in view are kept, nearest
  * first to the view centre and the network's anchors in view.
+ * keyed: the catalogue feed needs a key on the proxy (env names it); such a
+ * network is offered only when the proxy reports its feed configured. host and
+ * imageFeed: a 511-platform network's own host and its image-only feed.
  */
 
 const caltrans = (district, region, bbox) => ({
@@ -83,12 +95,46 @@ const txdot = (code, region, bbox, boxes) => ({
   anchors: TXDOT_ANCHORS,
 });
 
+// The 511 platform (the one Ontario 511 runs): one developer key per state,
+// injected by the proxy (proxy/feeds/webcams.js). keyed: offered only when the
+// proxy reports the feed configured. Per each network's documentation, not
+// live-tested here.
+const travelIq = (id, provider, region, host, bbox, cap, anchors, env, path) => ({
+  id,
+  provider,
+  region,
+  bbox,
+  feedId: id,
+  path: path ?? '/cameras',
+  params: { format: 'json' },
+  kind: 'traveliq',
+  keyed: true,
+  env,
+  host,
+  imageFeed: `${id}-img`,
+  license: `${provider} (courtesy; developer API terms with your own key)`,
+  licenseUrl: `https://${host}/`,
+  cap,
+  anchors,
+});
+const at = (lat, lon) => ({ lat, lon });
+
 /** @type {CameraSource[]} bbox is [west, south, east, north]. */
 export const CAMERA_SOURCES = [
   caltrans(4, 'San Francisco Bay Area', [-123.6, 36.9, -121.2, 38.9]),
   caltrans(7, 'Los Angeles and Ventura', [-119.5, 33.6, -117.6, 34.9]),
   caltrans(11, 'San Diego and Imperial', [-117.7, 32.5, -114.4, 33.6]),
   caltrans(3, 'Sacramento Valley and Sierra', [-123.1, 38.0, -119.9, 40.8]),
+  // The rest of the twelve Caltrans districts: same catalogue and still shapes
+  // on the same host (the proxy's caltrans pins accept every district).
+  caltrans(1, 'North Coast', [-124.5, 38.6, -122.3, 42.05]),
+  caltrans(2, 'Northeastern California', [-123.7, 39.6, -119.9, 42.05]),
+  caltrans(5, 'Central Coast', [-122.2, 34.3, -119.4, 37.3]),
+  caltrans(6, 'Fresno and Bakersfield', [-121.0, 34.8, -117.6, 37.6]),
+  caltrans(8, 'Inland Empire', [-117.85, 33.4, -114.1, 35.85]),
+  caltrans(9, 'Eastern Sierra', [-119.7, 35.1, -115.6, 38.75]),
+  caltrans(10, 'Stockton and the Mother Lode', [-121.6, 36.7, -119.2, 38.95]),
+  caltrans(12, 'Orange County', [-118.15, 33.35, -117.4, 33.95]),
   {
     id: 'tfl',
     provider: 'Transport for London',
@@ -273,7 +319,189 @@ export const CAMERA_SOURCES = [
     licenseUrl: 'https://www.openstreetmap.org/copyright',
     cap: 1,
   },
+  // --- Keyless networks per their documentation (not live-tested here) ---
+  {
+    id: 'nycdot',
+    provider: 'NYC DOT',
+    region: 'New York City',
+    bbox: [-74.27, 40.49, -73.68, 40.92],
+    feedId: 'nycdot',
+    path: '/cameras',
+    kind: 'nycdot',
+    license: 'NYC DOT traffic cameras, webcams.nyctmc.org (courtesy)',
+    licenseUrl: 'https://webcams.nyctmc.org/',
+    cap: 900,
+    anchors: [at(40.758, -73.9855)], // Midtown
+  },
+  {
+    id: 'lta-sg',
+    provider: 'Land Transport Authority',
+    region: 'Singapore',
+    bbox: [103.6, 1.2, 104.1, 1.48],
+    feedId: 'lta-sg',
+    path: '/traffic-images',
+    kind: 'ltasg',
+    license:
+      'Contains information from Traffic Images accessed from data.gov.sg, made available under the Singapore Open Data Licence version 1.0',
+    licenseUrl: 'https://data.gov.sg/open-data-licence',
+    cap: 120,
+  },
+  // --- Keyed networks: offered only when the proxy has the key ---
+  {
+    id: 'wsdot',
+    provider: 'WSDOT',
+    region: 'Washington State',
+    bbox: [-124.85, 45.5, -116.9, 49.05],
+    feedId: 'wsdot',
+    path: '/GetCamerasAsJson',
+    kind: 'wsdot',
+    keyed: true,
+    env: 'WSDOT_ACCESS_CODE',
+    license: 'Washington State Department of Transportation (courtesy)',
+    licenseUrl: 'https://wsdot.wa.gov/',
+    cap: 500,
+    anchors: [
+      at(47.6062, -122.3321), // Seattle
+      at(47.2529, -122.4443), // Tacoma
+      at(47.6588, -117.426), // Spokane
+      at(45.6387, -122.6615), // Vancouver, WA
+      at(48.9935, -122.7543), // Blaine (the border crossings)
+    ],
+  },
+  travelIq(
+    'ny511',
+    '511NY',
+    'New York State',
+    '511ny.org',
+    [-79.8, 40.45, -71.8, 45.05],
+    600,
+    [
+      at(40.7128, -74.006), // New York City
+      at(40.79, -73.13), // Long Island
+      at(42.6526, -73.7562), // Albany
+      at(43.0481, -76.1474), // Syracuse
+      at(43.1566, -77.6088), // Rochester
+      at(42.8864, -78.8784), // Buffalo
+    ],
+    'NY511_KEY',
+    '/getcameras',
+  ),
+  travelIq(
+    'az511',
+    'AZ511',
+    'Arizona',
+    'az511.gov',
+    [-114.85, 31.3, -109.0, 37.0],
+    400,
+    [at(33.4484, -112.074), at(32.2226, -110.9747), at(35.1983, -111.6513)],
+    'AZ511_KEY',
+  ),
+  travelIq(
+    'ga511',
+    '511GA',
+    'Georgia',
+    '511ga.org',
+    [-85.65, 30.35, -80.8, 35.0],
+    600,
+    [
+      at(33.749, -84.388),
+      at(32.0809, -81.0912),
+      at(33.4735, -82.0105),
+      at(32.8407, -83.6324),
+    ],
+    'GA511_KEY',
+  ),
+  travelIq(
+    'wi511',
+    '511WI',
+    'Wisconsin',
+    '511wi.gov',
+    [-92.9, 42.45, -86.75, 47.1],
+    300,
+    [at(43.0389, -87.9065), at(43.0731, -89.4012), at(44.5133, -88.0133)],
+    'WI511_KEY',
+  ),
+  travelIq(
+    'id511',
+    'Idaho 511',
+    'Idaho',
+    '511.idaho.gov',
+    [-117.25, 41.95, -111.0, 49.0],
+    250,
+    [at(43.615, -116.2023), at(47.6777, -116.7805), at(43.4917, -112.0339)],
+    'ID511_KEY',
+  ),
+  travelIq(
+    'udot',
+    'UDOT Traffic',
+    'Utah',
+    'udottraffic.utah.gov',
+    [-114.05, 36.95, -109.0, 42.0],
+    500,
+    [
+      at(40.7608, -111.891),
+      at(40.2338, -111.6585),
+      at(41.223, -111.9738),
+      at(37.0965, -113.5684),
+    ],
+    'UDOT_TRAFFIC_KEY',
+  ),
+  travelIq(
+    'ak511',
+    'Alaska 511',
+    'Alaska',
+    '511.alaska.gov',
+    [-170.0, 51.0, -129.9, 71.5],
+    200,
+    [at(61.2181, -149.9003), at(64.8378, -147.7164), at(58.3019, -134.4197)],
+    'AK511_KEY',
+  ),
+  travelIq(
+    'nvroads',
+    'NVroads',
+    'Nevada',
+    'www.nvroads.com',
+    [-120.0, 35.0, -114.0, 42.0],
+    400,
+    [at(36.1699, -115.1398), at(39.5296, -119.8138)],
+    'NVROADS_KEY',
+  ),
+  travelIq(
+    'la511',
+    '511LA',
+    'Louisiana',
+    'www.511la.org',
+    [-94.05, 28.9, -88.8, 33.05],
+    300,
+    [
+      at(29.9511, -90.0715),
+      at(30.4515, -91.1871),
+      at(32.5252, -93.7502),
+      at(30.2241, -92.0198),
+    ],
+    'LA511_KEY',
+  ),
+  travelIq(
+    'ctroads',
+    'CTroads',
+    'Connecticut',
+    'ctroads.org',
+    [-73.75, 40.95, -71.78, 42.05],
+    300,
+    [at(41.7658, -72.6734), at(41.3083, -72.9279), at(41.0534, -73.5387)],
+    'CTROADS_KEY',
+  ),
 ];
+
+/** The networks that need a key on the proxy: [{ id, feedId, env, provider }]. */
+export const KEYED_CAMERA_SOURCES = Object.freeze(
+  CAMERA_SOURCES.filter((s) => s.keyed).map(({ id, feedId, env, provider }) => ({
+    id,
+    feedId,
+    env,
+    provider,
+  })),
+);
 
 /** Views wider than this (degrees of latitude) skip cameras. */
 export const CAMERA_MAX_SPAN_DEG = 12;
@@ -341,16 +569,42 @@ export function capCameras(cameras, cap, anchors) {
 }
 
 /**
+ * The networks a proxy can serve: keyless ones always, keyed ones only when
+ * isConfigured(feedId) says the proxy holds their key.
+ */
+export const offeredSources = (sources, isConfigured = () => false) =>
+  sources.filter((s) => !s.keyed || isConfigured(s.feedId));
+
+/**
  * The layer's source: fetch the catalogues in view, parse them, keep each
  * network's cameras around the view (within its cap), and resolve each still
  * to its proxy URL. One failing catalogue does not blank the rest.
  * @param {{ proxyClient: { getJson: Function, getText: Function, buildUrl: Function },
- *   sources?: CameraSource[] }} opts
+ *   sources?: CameraSource[], isConfigured?: (feedId: string) => boolean }} opts
+ *   isConfigured: whether the proxy holds a keyed network's key (main.js
+ *   passes feedConfigured(health, id)); keyed networks are skipped without it.
  */
-export function createTrafficCamSource({ proxyClient, sources = CAMERA_SOURCES }) {
+export function createTrafficCamSource({
+  proxyClient,
+  sources = CAMERA_SOURCES,
+  isConfigured = () => false,
+  memoMs = 60_000,
+  now = () => Date.now(),
+}) {
+  // The last answer, reused for the same view for a minute: a filter change
+  // (layer.refresh()) re-draws from it instead of asking the proxy again.
+  let last = null; // { key, at, result }
   return async (query, signal) => {
     const bbox = query?.bbox;
-    const view = sourcesInView(bbox, sources);
+    const key = bbox ? `${bbox.lamin},${bbox.lomin},${bbox.lamax},${bbox.lomax}` : '';
+    if (last && last.key === key && now() - last.at < memoMs) return last.result;
+    const result = await load(bbox, signal);
+    last = { key, at: now(), result };
+    return result;
+  };
+
+  async function load(bbox, signal) {
+    const view = sourcesInView(bbox, offeredSources(sources, isConfigured));
     const settled = await Promise.allSettled(
       view.sources.map(async (src) =>
         parseCameraCatalog(await loadCatalog(src, proxyClient, signal), src),
@@ -382,5 +636,5 @@ export function createTrafficCamSource({ proxyClient, sources = CAMERA_SOURCES }
       inView: view.sources.length,
       failed: failed.length,
     };
-  };
+  }
 }

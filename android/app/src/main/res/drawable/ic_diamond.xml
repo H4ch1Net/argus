@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ctOS diamond (core/ui/dom.js DIAMOND_SVG) for the boot screen. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="136"
+    android:viewportHeight="136">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M68 0 0 68l68 68 68-68L68 0Zm-.4 2.1V70l-23.3 23.3L1.7 68 67.6 2.1Zm.8 0L134.3 68l-42.5 25.3-23.4-23.3V2.1ZM4.2 70.5l40.7 24.1 22.7 22.6v16.7L4.2 70.5Zm127.6 0-63.4 63.4v-16.7l22.4-22.4 41-24.3Z" />
+</vector>

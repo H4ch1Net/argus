@@ -86,3 +86,18 @@ test('ranges hold everywhere, and the default date is now', () => {
   assert.ok(Number.isFinite(sunElevationDeg(10, 20)));
   assert.ok(Number.isFinite(sunAzimuthDeg(10, 20)));
 });
+
+test('the subsolar point: overhead sun, near the equator at an equinox', async () => {
+  const { subsolarPoint } = await import('./sun.js');
+  const t = new Date('2026-03-20T12:00:00Z');
+  const p = subsolarPoint(t);
+  assert.ok(Math.abs(p.lat) < 0.6, `lat ${p.lat}`);
+  assert.ok(Math.abs(p.lon) < 3, `lon ${p.lon}`);
+  assert.ok(sunElevationDeg(p.lat, p.lon, t) > 89.5);
+  // June solstice: north of the equator; six hours later, 90 degrees further west.
+  const j = subsolarPoint(new Date('2026-06-21T00:00:00Z'));
+  const j6 = subsolarPoint(new Date('2026-06-21T06:00:00Z'));
+  assert.ok(j.lat > 23 && j.lat < 23.5);
+  assert.ok(Math.abs(((j.lon - j6.lon + 540) % 360) - 180 - 90) < 0.5);
+  assert.ok(j.lon >= -180 && j.lon <= 180);
+});

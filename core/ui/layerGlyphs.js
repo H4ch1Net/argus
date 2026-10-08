@@ -31,6 +31,8 @@ const LAYER_GLYPH = {
   myplaces: 'diamond',
   cctv: 'bracket',
   trafficcams: 'bracket',
+  webcams: 'wc-mountain',
+  borderwaits: 'gate',
   trafficflow: 'vehicle',
   datacenters: 'frame',
   dams: 'square',
@@ -57,7 +59,18 @@ function source(key) {
 
 /** A canvas of a layer's marker tinted with its ink (or a given colour). */
 export function layerTile(key, color = inkFor(key)) {
-  const img = source(key);
+  return tint(source(key), color);
+}
+
+/**
+ * A canvas of any named map glyph (core/ui/glyphs.js) tinted with a colour,
+ * for chips and legends inside a layer (webcam categories).
+ */
+export function glyphTile(name, color = inkFor(null)) {
+  return tint(glyph(name).image, color);
+}
+
+function tint(img, color) {
   const c = document.createElement('canvas');
   c.width = img.width;
   c.height = img.height;
