@@ -943,3 +943,24 @@ was checked in the stub harness only).
 - All of the above on real Cesium: the orbit's `lookAt` handoff, the HUD's
   centre pick, the projection quad's orientation and texture, the landmark
   views' framing over real terrain, and scene playback timing.
+
+## Phase G: more cameras and layers, real filters, settings, saved places, Android app
+
+Same environment limits as before (no network, no real Cesium or `node_modules`; the web UI was checked in the stub-Cesium harness, every switch toggled and verified to change scene state, and every layer enabled without error).
+
+Added this phase:
+
+- **Public webcams** (`webcams`) over Windy v3, NPS, NASA EPIC and a curated observatory catalogue, 15 categories with a VIEW filter; **more traffic cameras** (all Caltrans districts, NYC DOT, Singapore LTA, WSDOT, ten 511 states) with sub-kinds and a filter; **border waits** (CBP/CBSA on a bundled 58-port table).
+- **Context layers**: aurora, air quality, day/night terminator, Tor relays, GDELT events; plus **traffic incidents** (TomTom) and **CHP incidents**.
+- **ALPR view cones** on surveillance cameras (batched ground primitive, degrades to points where ground primitives are unsupported).
+- **Real sensor filters** (NVG, FLIR with four palettes, CRT; each compiled in WebGL2), **more Earth basemaps** (Sentinel-2, Blue/Black Marble, OpenTopoMap) and globe options (lighting, atmosphere, stars, exaggeration, detail).
+- **Settings** and a **Setup tab** (keys saved to the proxy machine over a loopback-only, same-origin, header-gated endpoint, never the browser), **saved places**, **watch areas**, **situation tour**, **compare**, and **interactive tracking** with closest-approach conflict alerts.
+- An **Android app** (`android/`, WebView + nodejs-mobile proxy) and an **Android Auto** map on a new car shell (`shell-car/`), built by a GitHub Actions workflow.
+
+Tests this phase: core/mobile/terminal/car 643 of 645 pass (the two are `propagate.test.js` and `occlusion.test.js`, needing `satellite.js` / `cesium`); proxy 128 of 128; lint and `prettier --check` clean.
+
+Still unverified (and why):
+
+- **Everything on real Cesium**: the new shaders on a real GPU, the ground-primitive view cones and incident roads draping on terrain, the aurora / air-quality / terminator field textures, and the strip readouts.
+- **Every new upstream, live** (egress blocked): Windy, NPS, NASA EPIC, the 511 / WSDOT / NYC / Singapore camera networks, CBP and CBSA border waits, TomTom incidents, CHP CAD, NOAA SWPC, Open-Meteo air quality, NASA Black Marble, Onionoo, GDELT. Endpoint and coordinate uncertainties are listed in the agents' integration notes; the first online run is the real check.
+- **The Android app**: never built (no Android SDK) or run on a phone or in a car. The first CI run compiles it; `NODEJS_MOBILE_SHA256` must be pinned from that run's printed checksum, and WebGL through the car VirtualDisplay is unverified.
