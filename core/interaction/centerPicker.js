@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { pickedTarget } from './picker.js';
 
 // Pick the entity nearest the screen centre (the reticle) with a generous box.
 // Used by the mobile point-at-sky mode to "light up" whatever the phone points
@@ -7,7 +8,7 @@ import * as Cesium from 'cesium';
 export function createCenterPicker(viewer) {
   const scene = viewer.scene;
   return {
-    /** @returns {import('cesium').Entity | null} */
+    /** @returns {object | null} a layer target or Entity */
     pick() {
       const canvas = scene.canvas;
       const center = new Cesium.Cartesian2(
@@ -16,7 +17,8 @@ export function createCenterPicker(viewer) {
       );
       const picks = scene.drillPick(center, 5, 90, 90);
       for (const p of picks) {
-        if (p && p.id instanceof Cesium.Entity) return p.id;
+        const t = pickedTarget(p);
+        if (t) return t;
       }
       return null;
     },

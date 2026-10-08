@@ -1,0 +1,199 @@
+/* ctOS bar: 37px, ground colour, 1px ctosGray outline, 1px dividers. */
+.ct-bar {
+  display: flex;
+  align-items: stretch;
+  height: var(--bar-height);
+  box-sizing: border-box;
+  border: 1px solid var(--ctosGray);
+  background: var(--background);
+  color: var(--textPrimary);
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+  min-width: 0;
+}
+.ct-bar__side {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.ct-bar__side > * + *,
+.ct-bar__side--end > * {
+  border-left: 1px solid var(--textSecondary);
+}
+.ct-bar__spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+/* Lockup: gray block (diamond + "AR" in the ground colour), then thin "GUS". */
+.ct-lockup {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  text-decoration: none;
+}
+.ct-lockup__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 84px;
+  padding: 0 2px 0 8px;
+  background: var(--ctosGray);
+  color: var(--background);
+  box-sizing: border-box;
+}
+.ct-lockup__bar b {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1;
+  align-self: flex-end;
+  margin-bottom: 4px;
+}
+.ct-lockup__os {
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 2px;
+  color: var(--textPrimary);
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.ct-lockup--splash .ct-lockup__bar {
+  width: 190px;
+  height: 52px;
+  padding: 0 4px 0 12px;
+}
+.ct-lockup--splash .ct-lockup__bar b {
+  font-size: 34px;
+  margin-bottom: 4px;
+}
+.ct-lockup--splash .ct-lockup__os {
+  font-size: 64px;
+  padding-left: 4px;
+  transform: translateY(3px);
+}
+
+/* Segments: a slot 6px wider than its CornerFrame, frame 31px tall. */
+.ct-seg {
+  display: flex;
+  align-items: center;
+  padding: 0 3px;
+  min-width: 0;
+}
+.ct-seg__frame {
+  display: flex;
+  align-items: center;
+  height: calc(var(--bar-height) - 8px);
+  padding: 0 11px;
+  box-sizing: border-box;
+  border: 0;
+  color: inherit;
+  white-space: nowrap;
+  min-width: 0;
+}
+button.ct-seg__frame {
+  cursor: pointer;
+}
+button.ct-seg__frame:hover .ct-seg__label {
+  color: var(--textPrimary);
+}
+button.ct-seg__frame:focus-visible {
+  outline: 1px solid var(--textPrimary);
+  outline-offset: -1px;
+}
+.ct-seg__body {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.ct-seg__label {
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-seg__value {
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-seg__value .ct-muted {
+  color: var(--textSecondary);
+}
+.ct-seg__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 78px;
+}
+.ct-seg__stack .ct-seg__body {
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ct-seg__stack .ct-seg__label {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+.ct-seg[data-state='ok'] .ct-seg__value {
+  color: var(--success);
+}
+.ct-seg[data-state='err'] .ct-seg__value {
+  color: var(--error);
+}
+
+/* Preset cells: 37px squares with a 9px crosshair when active. */
+.ct-cells {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px;
+}
+.ct-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(var(--bar-height) - 8px);
+  min-width: 31px;
+  padding: 0 8px;
+  border: 0;
+  background-color: transparent;
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ct-cell:hover {
+  color: var(--textPrimary);
+}
+.ct-cell__cross {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  opacity: 0;
+  background:
+    linear-gradient(var(--ctosGray), var(--ctosGray)) center / 9px 1px no-repeat,
+    linear-gradient(var(--ctosGray), var(--ctosGray)) center / 1px 9px no-repeat;
+}
+.ct-cell:hover .ct-cell__cross {
+  opacity: 0.35;
+}
+.ct-cell[aria-pressed='true'] {
+  color: var(--textPrimary);
+}
+.ct-cell[aria-pressed='true'] .ct-cell__cross {
+  opacity: 1;
+}
+
+/* The status segment: ddMMyy-hhmm-TZ-HOST- */
+.ct-status .ct-seg__value {
+  color: var(--textSecondary);
+}
+.ct-status b {
+  color: var(--textPrimary);
+  font-weight: 500;
+}

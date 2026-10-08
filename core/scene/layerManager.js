@@ -10,10 +10,14 @@ import { createLayer } from '../layers/sdk/index.js';
  * @param {import('cesium').Viewer} viewer
  * @param {{ readout?: { setLayerStatus?: (label: string, s: object) => void } }} [opts]
  */
-export function createLayerManager(viewer, { readout, clock } = {}) {
+export function createLayerManager(viewer, { readout, clock, animationFps } = {}) {
   const entries = new Map(); // key -> { label, loadDef, makeSource, layer, enabled }
   const listeners = new Set();
   const emit = () => listeners.forEach((fn) => fn());
+  // Per-layer status (count, error, note) for the layer menu, separate from the
+  // on/off change stream so a 15 s poll does not rebuild the menu.
+  const statusListeners = new Set();
+  const emitStatus = (key, s) => statusListeners.forEach((fn) => fn(key, s));
 
   function register(key, { label, loadDef, makeSource, demo = false, group = null }) {
     entries.set(key, {
@@ -39,6 +43,10 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
     e.want = true;
     if (e.enabled) return;
     if (!e.layer) {
+      if (!e.pending) {
+        e.status = { state: 'loading' };
+        emitStatus(key, e.status);
+      }
       e.pending ??= (async () => {
         try {
           const source = await e.makeSource();
@@ -46,8 +54,13 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
           const def = await e.loadDef();
           return createLayer(viewer, def, {
             source,
-            onStatus: (s) => readout?.setLayerStatus?.(e.label, s),
+            onStatus: (s) => {
+              e.status = s;
+              readout?.setLayerStatus?.(e.label, s);
+              emitStatus(key, s);
+            },
             clock,
+            animationFps,
           });
         } finally {
           e.pending = null;
@@ -70,7 +83,9 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
     if (!e.enabled) return;
     e.layer.setEnabled(false);
     e.enabled = false;
-    readout?.setLayerStatus?.(e.label, { state: 'off' }); // clear the readout row
+    e.status = { state: 'off' };
+    readout?.setLayerStatus?.(e.label, e.status); // clear the readout row
+    emitStatus(key, e.status);
     emit();
   }
 
@@ -100,9 +115,20 @@ export function createLayerManager(viewer, { readout, clock } = {}) {
       })),
     activeLayers: () =>
       [...entries.values()].filter((e) => e.enabled && e.layer).map((e) => e.layer),
+    /** Enabled layers with their manager keys: [{ key, label, layer }]. */
+    active: () =>
+      [...entries.entries()]
+        .filter(([, e]) => e.enabled && e.layer)
+        .map(([key, e]) => ({ key, label: e.label, layer: e.layer })),
     subscribe(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    /** Status updates per layer: fn(key, { state, count, note, message }). */
+    subscribeStatus(fn) {
+      statusListeners.add(fn);
+      return () => statusListeners.delete(fn);
+    },
+    statusOf: (key) => entries.get(key)?.status ?? null,
   };
 }

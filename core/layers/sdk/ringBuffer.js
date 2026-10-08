@@ -11,11 +11,27 @@
 export function createRingBuffer(capacity) {
   if (!(capacity > 0)) throw new Error('ring buffer capacity must be > 0');
   const items = [];
+  let cap = capacity;
   return {
     push(x) {
       items.push(x);
-      if (items.length > capacity) items.shift();
+      if (items.length > cap) items.shift();
       return this;
+    },
+    /**
+     * Backfill: put fixes older than the oldest retained one in front (a
+     * selected aircraft's earlier track fetched on demand). The buffer grows to
+     * hold them, up to `limit`, so the next live fix does not push them out.
+     */
+    prepend(fixes, limit = capacity) {
+      const oldest = items.length ? items[0].t : Infinity;
+      const older = fixes.filter((f) => Number.isFinite(f?.t) && f.t < oldest);
+      if (!older.length) return 0;
+      older.sort((a, b) => a.t - b.t);
+      items.unshift(...older);
+      cap = Math.max(cap, Math.min(limit, items.length));
+      while (items.length > cap) items.shift();
+      return older.length;
     },
     get size() {
       return items.length;
@@ -43,6 +59,25 @@ export function createRingBuffer(capacity) {
         }
       }
       return items[n - 1];
+    },
+    /** sampleAt without allocating: interpInto(prev, curr, tMs, out). */
+    sampleInto(tMs, interpInto, out) {
+      const n = items.length;
+      if (!n) return undefined;
+      const copy = (f) => {
+        out.longitude = f.longitude;
+        out.latitude = f.latitude;
+        out.altitude = f.altitude ?? 0;
+        return out;
+      };
+      if (tMs <= items[0].t) return copy(items[0]);
+      if (tMs >= items[n - 1].t) return copy(items[n - 1]);
+      for (let i = n - 1; i > 0; i -= 1) {
+        if (items[i - 1].t <= tMs && tMs <= items[i].t) {
+          return interpInto(items[i - 1], items[i], tMs, out);
+        }
+      }
+      return copy(items[n - 1]);
     },
     clear() {
       items.length = 0;

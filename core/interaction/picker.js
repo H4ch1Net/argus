@@ -65,12 +65,24 @@ export function createPicker(viewer, { onPick }) {
   };
 }
 
-/** Drill-pick a small box around the tap and return the nearest entity, if any. */
+/**
+ * What a pick result points at: a layer target (billboard layers set it as the
+ * billboard's id) or an Entity (line layers, query outputs). Null otherwise.
+ */
+export function pickedTarget(p) {
+  if (!p) return null;
+  if (p.id?.argusTarget) return p.id;
+  if (p.id instanceof Cesium.Entity) return p.id;
+  return null;
+}
+
+/** Drill-pick a small box around the tap and return the nearest target, if any. */
 function pickEntity(scene, windowPos, radiusPx) {
   const size = Math.max(1, radiusPx * 2);
   const picks = scene.drillPick(windowPos, 8, size, size);
   for (const p of picks) {
-    if (p && p.id instanceof Cesium.Entity) return p.id;
+    const t = pickedTarget(p);
+    if (t) return t;
   }
   return null;
 }

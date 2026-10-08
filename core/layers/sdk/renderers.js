@@ -1,15 +1,20 @@
 import * as Cesium from 'cesium';
 import { arcSamples } from './greatCircle.js';
+import { glyph, imageGlyph } from '../../ui/glyphs.js';
 
-// renderType dispatch. One interface renders entity layers, and (later) raster
-// fields and threat-map arcs, so there is never a parallel subsystem per the
-// contract. Each renderer creates the entity's graphics once, then updates the
-// dynamic bits from the definition's per-entity style(normalized) on each fix.
+// renderType dispatch. One interface renders every layer, so there is never a
+// parallel subsystem per the contract.
 //
-// Entity renderers live here: point, billboard, arc (threat-map source->target),
-// polyline (fixed paths on the surface, e.g. submarine cables). raster layers
-// are imagery rather than entities, so createLayer hands them to rasterLayer.js;
-// asking this dispatch for any unknown type fails loudly.
+// Primitive renderers (point, billboard) draw into the layer's
+// BillboardCollection: create(collection, target, normalized, render) returns a
+// Billboard, update(billboard, normalized, render) restyles it on each fix.
+// Glyph canvases go into the collection's texture atlas once, under a stable id
+// (core/ui/glyphs.js), however many billboards share them.
+//
+// Entity renderers (arc, polyline) draw line features through the Entity API,
+// where Cesium batches static geometry: create(entity, normalized, render) and
+// update(entity, normalized, render). Raster layers are imagery, handled by
+// rasterLayer.js. Asking for any unknown type fails loudly.
 
 export const RenderType = {
   POINT: 'point',
@@ -18,132 +23,91 @@ export const RenderType = {
   RASTER: 'raster',
   ARC: 'arc',
   POLYLINE: 'polyline',
+  POLYGON: 'polygon',
 };
 
-// Shared "sensor contact" sprite for point markers: a tactical targeting reticle
-// (bright core, thin ring, four cardinal ticks) over a restrained phosphor bloom.
-// Drawn in white so a billboard tints it per entity, one coherent CRT/ops look
-// across every point layer. The reticle ring is sized so scale = pixelSize /
-// GLOW_CORE_PX puts the ring roughly at the definition's requested pixel size.
-const GLOW_SPRITE_PX = 128; // hi-res so the thin ring stays crisp when scaled up
-const GLOW_CORE_PX = 40; // ring diameter reference for pixelSize mapping
-let glowSpriteCache = null;
-function glowDotImage() {
-  if (glowSpriteCache) return glowSpriteCache;
-  const c = document.createElement('canvas');
-  c.width = GLOW_SPRITE_PX;
-  c.height = GLOW_SPRITE_PX;
-  const ctx = c.getContext('2d');
-  const cx = GLOW_SPRITE_PX / 2;
-  const ring = 40; // ring radius (matches GLOW_CORE_PX diameter reference)
+const PRIMITIVE_TYPES = new Set([RenderType.POINT, RenderType.BILLBOARD]);
+export const isPrimitiveRenderType = (t) => PRIMITIVE_TYPES.has(t);
 
-  const tIn = ring - 9;
-  const tOut = ring + 9;
-  const drawTicks = () => {
-    for (let i = 0; i < 4; i++) {
-      const a = (i * Math.PI) / 2;
-      const dx = Math.cos(a);
-      const dy = Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(cx + dx * tIn, cx + dy * tIn);
-      ctx.lineTo(cx + dx * tOut, cx + dy * tOut);
-      ctx.stroke();
-    }
-  };
+// Glyphs stay full size up close and shrink toward the whole-Earth view, so a
+// dense layer reads as texture from orbit and as individual contacts up close.
+const POINT_SCALE = new Cesium.NearFarScalar(1.5e5, 1.0, 1.6e7, 0.5);
+const BILLBOARD_SCALE = new Cesium.NearFarScalar(1.5e5, 1.0, 1.6e7, 0.55);
 
-  // 1. Restrained phosphor bloom behind the glyph (not a giant gradient blob).
-  const bloom = ctx.createRadialGradient(cx, cx, 0, cx, cx, ring * 1.5);
-  bloom.addColorStop(0, 'rgba(255,255,255,0.30)');
-  bloom.addColorStop(0.4, 'rgba(255,255,255,0.10)');
-  bloom.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = bloom;
-  ctx.fillRect(0, 0, GLOW_SPRITE_PX, GLOW_SPRITE_PX);
+function setGlyph(b, g) {
+  if (b._argusGlyph === g.id) return;
+  b.setImage(g.id, g.image);
+  b._argusGlyph = g.id;
+}
 
-  // 2. Dark contrast pass, drawn thicker and underneath the bright glyph. The
-  // billboard tint multiplies the sprite, and these near-black pixels stay dark
-  // under any tint, so the reticle keeps a crisp edge on bright basemaps
-  // (satellite, relief) while staying invisible against dark space.
-  ctx.lineCap = 'butt';
-  ctx.strokeStyle = 'rgba(3,6,9,0.8)';
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.arc(cx, cx, ring, 0, Math.PI * 2);
-  ctx.stroke();
-  drawTicks();
-  ctx.fillStyle = 'rgba(3,6,9,0.85)';
-  ctx.beginPath();
-  ctx.arc(cx, cx, 11, 0, Math.PI * 2);
-  ctx.fill();
+function addBillboard(collection, target, render, defaults) {
+  return collection.add({
+    position: Cesium.Cartesian3.ZERO,
+    show: false, // shown by the layer's frame loop once positioned and in view
+    id: target,
+    // Horizon culling is done by the layer, so glyphs never z-fight the ground.
+    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    scaleByDistance: render.scaleByDistance ?? defaults.scale,
+    translucencyByDistance: render.translucencyByDistance,
+    alignedAxis: Cesium.Cartesian3.ZERO, // rotation is screen space
+    verticalOrigin: Cesium.VerticalOrigin.CENTER,
+    horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+  });
+}
 
-  // 3. Bright outer ring.
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(cx, cx, ring, 0, Math.PI * 2);
-  ctx.stroke();
+// Heading-up glyphs (aircraft, vessels) align their "up" to local north at the
+// contact and rotate clockwise by the heading, so they point the right way in any
+// camera orientation, not only under a north-up view.
+const scratchNorth = new Cesium.Cartesian3();
+function northAt(lonDeg, latDeg, result) {
+  const lon = Cesium.Math.toRadians(lonDeg);
+  const lat = Cesium.Math.toRadians(latDeg);
+  result.x = -Math.sin(lat) * Math.cos(lon);
+  result.y = -Math.sin(lat) * Math.sin(lon);
+  result.z = Math.cos(lat);
+  return result;
+}
 
-  // 4. Bright cardinal targeting ticks.
-  drawTicks();
-
-  // 5. Faint inner reference ring (radar-scope feel).
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.beginPath();
-  ctx.arc(cx, cx, ring * 0.5, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // 6. Solid bright core.
-  ctx.fillStyle = 'rgba(255,255,255,1)';
-  ctx.beginPath();
-  ctx.arc(cx, cx, 7, 0, Math.PI * 2);
-  ctx.fill();
-
-  glowSpriteCache = c;
-  return c;
+function orient(b, normalized, style) {
+  const p = normalized.position;
+  if (Number.isFinite(style.headingDeg) && p) {
+    b.alignedAxis = northAt(p.longitude, p.latitude, scratchNorth);
+    b.rotation = -Cesium.Math.toRadians(style.headingDeg);
+  } else if (style.rotationRadians !== undefined) {
+    b.alignedAxis = Cesium.Cartesian3.ZERO;
+    b.rotation = style.rotationRadians;
+  }
 }
 
 const renderers = {
-  // Glowing, distance-scaled marker. Billboard tinted by the definition's color,
-  // sized from its pixelSize, shrinking and fading with distance for depth.
+  // A ctOS marker glyph (node, square, diamond, ...) tinted per entity, sized
+  // from pixelSize. style(n) -> { glyph?, color, pixelSize?, headingDeg? }.
   point: {
-    create(entity, normalized, render) {
-      entity.billboard = new Cesium.BillboardGraphics({
-        image: glowDotImage(),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        scaleByDistance:
-          render.scaleByDistance ?? new Cesium.NearFarScalar(1e6, 1.0, 2.4e7, 0.4),
-        translucencyByDistance:
-          render.translucencyByDistance ?? new Cesium.NearFarScalar(6e6, 1.0, 3e7, 0.5),
-      });
-    },
-    update(entity, normalized, render) {
+    create: (collection, target, normalized, render) =>
+      addBillboard(collection, target, render, { scale: POINT_SCALE }),
+    update(b, normalized, render) {
       const style = render.style ? render.style(normalized) : {};
-      const b = entity.billboard;
-      // The sprite is white, so the billboard colour is the marker colour; keep
-      // it fully opaque (the sprite's own alpha ramp supplies the soft edge).
-      const color = style.color ?? Cesium.Color.WHITE;
-      b.color = color.alpha < 1 ? color.withAlpha(1) : color;
-      const px = style.pixelSize ?? render.pixelSize ?? 8;
-      b.scale = px / GLOW_CORE_PX;
+      const g = glyph(style.glyph ?? render.glyph ?? 'node');
+      setGlyph(b, g);
+      b.color = style.color ?? Cesium.Color.WHITE;
+      b.scale = (style.pixelSize ?? render.pixelSize ?? 8) / g.px;
+      orient(b, normalized, style);
     },
   },
 
+  // An image glyph (aircraft silhouettes, vessel hulls). style(n) -> { image
+  // (a glyph object or a canvas), color?, pixelSize? or scale?, headingDeg? }.
   billboard: {
-    create(entity, normalized, render) {
-      entity.billboard = new Cesium.BillboardGraphics({
-        alignedAxis: Cesium.Cartesian3.ZERO,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        scaleByDistance:
-          render.scaleByDistance ?? new Cesium.NearFarScalar(1e6, 1.0, 2e7, 0.45),
-      });
-    },
-    update(entity, normalized, render) {
+    create: (collection, target, normalized, render) =>
+      addBillboard(collection, target, render, { scale: BILLBOARD_SCALE }),
+    update(b, normalized, render) {
       const style = render.style ? render.style(normalized) : {};
-      const b = entity.billboard;
-      if (style.image !== undefined) b.image = style.image;
-      b.scale = style.scale ?? render.scale ?? 0.7;
-      if (style.rotationRadians !== undefined) b.rotation = style.rotationRadians;
+      const g = style.image !== undefined ? imageGlyph(style.image) : null;
+      if (g) setGlyph(b, g);
+      const px = style.pixelSize ?? render.pixelSize;
+      b.scale = px && g ? px / g.px : (style.scale ?? render.scale ?? 0.7);
       if (style.color !== undefined) b.color = style.color;
+      orient(b, normalized, style);
     },
   },
 
@@ -202,7 +166,46 @@ const renderers = {
     },
     update: stylePolyline,
   },
+  // An area on the ground (a storm cone, a fire perimeter, a drawn region):
+  // meta.polygon = [[lon, lat], ...] is the outer ring, meta.holes an optional
+  // list of inner rings. A translucent fill plus a crisp outline, both clamped
+  // to the ground. A new ring array on update rebuilds the geometry.
+  polygon: {
+    create(entity, normalized, render) {
+      entity.polygon = new Cesium.PolygonGraphics({
+        material: Cesium.Color.WHITE.withAlpha(0.15),
+        outline: false,
+      });
+      entity.polyline = new Cesium.PolylineGraphics({
+        width: render.width ?? 1.5,
+        clampToGround: true,
+        arcType: Cesium.ArcType.GEODESIC,
+        material: Cesium.Color.WHITE,
+      });
+      stylePolygon(entity, normalized, render);
+    },
+    update: stylePolygon,
+  },
 };
+
+const ringPositions = (ring) => Cesium.Cartesian3.fromDegreesArray(ring.flat());
+
+function stylePolygon(entity, normalized, render) {
+  const { polygon: outer, holes = [] } = normalized.meta;
+  if (entity._argusRing !== outer && Array.isArray(outer) && outer.length >= 3) {
+    entity._argusRing = outer;
+    entity.polygon.hierarchy = new Cesium.PolygonHierarchy(
+      ringPositions(outer),
+      holes.map((h) => new Cesium.PolygonHierarchy(ringPositions(h))),
+    );
+    entity.polyline.positions = ringPositions([...outer, outer[0]]);
+  }
+  const style = render.style ? render.style(normalized) : {};
+  const color = style.color ?? Cesium.Color.WHITE;
+  entity.polygon.material = color.withAlpha(style.fillAlpha ?? render.fillAlpha ?? 0.15);
+  entity.polyline.material = style.outlineColor ?? color.withAlpha(0.85);
+  if (style.width != null) entity.polyline.width = style.width;
+}
 
 function stylePolyline(entity, normalized, render) {
   const style = render.style ? render.style(normalized) : {};

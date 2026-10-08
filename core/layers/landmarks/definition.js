@@ -1,7 +1,7 @@
-import * as Cesium from 'cesium';
 import { parseOverpass } from '../overpass/parse.js';
 import { areaTooLarge } from '../overpass/client.js';
 import { describeLandmark } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Landmarks: OSM tourism / historic features as a viewport-fetched, static point
 // layer. Uses the same Overpass client as the surveillance layer.
@@ -17,11 +17,7 @@ export const landmarksDefinition = {
   normalize: (json) => parseOverpass(json),
   render: {
     renderType: 'point',
-    style: () => ({
-      pixelSize: 6,
-      color: Cesium.Color.fromCssColorString('#c6a3ff').withAlpha(0.9),
-      outlineColor: Cesium.Color.BLACK.withAlpha(0.45),
-    }),
+    style: () => ({ glyph: 'frame', pixelSize: 10, color: ink('dimmer', 0.9) }),
   },
   describe: (n) => describeLandmark(n),
   searchText: (n) => n.meta.tags.name || '',

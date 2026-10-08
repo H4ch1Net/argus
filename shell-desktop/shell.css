@@ -1,106 +1,127 @@
-/* Desktop shell (Linux priority 2, Windows priority 3): full-bleed globe with a
-   docked operations console holding the control modules, system status, and the
-   metadata card. The console reads as a single instrument, not a floating card. */
+/* Desktop shell, ctOS layout: full-bleed globe, the bar on top, a tabbed menu
+   on the left, the target panel on the right, the view stack at the right
+   edge, the status strip along the bottom. HUD chrome floats over the globe
+   and passes pointer events through wherever it has no panel. */
 
 .argus-shell-desktop {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #05070c;
+  background: var(--background);
 }
-
 .argus-shell-desktop .argus-globe {
   position: absolute;
   inset: 0;
 }
+.argus-globe .cesium-viewer-bottom,
+.argus-globe .cesium-widget-credits {
+  left: auto !important;
+  right: 60px;
+  bottom: 52px !important;
+  opacity: 0.55;
+  font-size: 10px;
+}
 
-/* Side console: docked top-left, out of the way of globe interaction. */
-.argus-shell-desktop .argus-panel {
+.argus-overlay {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  width: 312px;
-  max-width: calc(100vw - 28px);
-  max-height: calc(100vh - 28px);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(64, 122, 138, 0.4);
-  border-radius: 4px;
-  background: linear-gradient(180deg, rgba(6, 13, 18, 0.82), rgba(5, 9, 14, 0.82));
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(90, 160, 150, 0.5) transparent;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.argus-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+.argus-hud > * {
   pointer-events: auto;
 }
-.argus-shell-desktop .argus-panel::-webkit-scrollbar {
-  width: 8px;
-}
-.argus-shell-desktop .argus-panel::-webkit-scrollbar-thumb {
-  background: rgba(90, 160, 150, 0.4);
-  border-radius: 0;
+
+.argus-shell-desktop .ct-bar:not(.ct-bar--strip) {
+  position: absolute;
+  top: var(--hud-gap);
+  left: var(--hud-gap);
+  right: var(--hud-gap);
 }
 
-/* Console header: product mark + designation, in a phosphor monospace. */
-.argus-panel__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 2px 9px;
-  border-bottom: 1px solid rgba(64, 122, 138, 0.4);
-}
-.argus-panel__mark {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, #7ff2ff, #2b8fb0);
-  box-shadow: 0 0 8px rgba(95, 227, 255, 0.85);
-}
-.argus-panel__name {
-  font:
-    700 14px/1 ui-monospace,
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
-  letter-spacing: 0.34em;
-  color: #cdeeff;
-}
-.argus-panel__sub {
-  font:
-    9px/1 ui-monospace,
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
-  letter-spacing: 0.13em;
-  color: #5f8f87;
-  margin-left: auto;
-  text-transform: uppercase;
-}
-
-.argus-shell-desktop .argus-panel__controls {
+.argus-left,
+.argus-right {
+  position: absolute;
+  top: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  bottom: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  min-height: 0;
+}
+.argus-left {
+  left: var(--hud-gap);
+  width: var(--panel-w);
+}
+.argus-left[hidden],
+.argus-right[hidden] {
+  display: none;
+}
+.argus-left .ct-tabs {
+  padding: 6px 6px 0;
+}
+.argus-pane {
+  height: 100%;
+  padding-bottom: 8px;
+  box-sizing: border-box;
+}
+.argus-right {
+  right: calc(var(--hud-gap) + 37px + var(--gaps-in));
+  width: var(--target-w);
+  bottom: auto;
+  max-height: calc(100% - 2 * (var(--hud-gap) + var(--bar-height) + var(--gaps-in)));
 }
 
-/* Floating zoom stepper, bottom-right of the globe. */
-.argus-shell-desktop .argus-zoom {
+.argus-stack {
   position: absolute;
-  right: 16px;
-  bottom: 22px;
-  z-index: 5;
+  right: var(--hud-gap);
+  top: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  display: flex;
+  flex-direction: column;
+  gap: var(--gaps-in);
 }
 
-/* Tuck the Cesium attribution credit into the bottom-right, dimmed. */
-.argus-shell-desktop .cesium-viewer-bottom {
-  right: 8px;
-  left: auto;
-  bottom: 6px;
-  opacity: 0.5;
+.argus-shell-desktop .ct-bar--strip {
+  position: absolute;
+  left: var(--hud-gap);
+  right: var(--hud-gap);
+  bottom: var(--hud-gap);
+  font-size: 12px;
+}
+.ct-bar--strip .argus-scrub {
+  width: min(420px, 32vw);
+}
+
+.argus-notify {
+  position: absolute;
+  top: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  right: calc(var(--hud-gap) + 37px + var(--target-w) + 2 * var(--gaps-in));
+  pointer-events: none;
+}
+.argus-notify > * {
+  pointer-events: none;
+}
+
+.argus-float {
+  position: absolute;
+  left: calc(var(--hud-gap) + var(--panel-w) + var(--gaps-in));
+  bottom: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  pointer-events: none;
+}
+.argus-float > * {
+  pointer-events: auto;
+}
+
+/* Narrow desktop windows: slimmer panels. */
+@media (max-width: 1180px) {
+  :root {
+    --panel-w: 268px;
+    --target-w: 300px;
+  }
 }

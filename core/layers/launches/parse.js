@@ -82,3 +82,63 @@ export function parseLaunches(payload) {
     p.meta.launches.sort((a, b) => (a.net ?? 0) - (b.net ?? 0));
   return [...pads.values()];
 }
+
+// --- one launch in detail (for the reconstructed replay) ----------------------
+//
+// LL2's detail endpoint (/launches/<uuid>/) adds the mission timeline
+// ([{ type { abbrev, name, description }, relative_time: ISO 8601 duration }])
+// to the fields above. Adapted from gods-eye-view src/layers/launches/model.js
+// and policyHelpers.js (MIT).
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Proxy sub-path for one launch's detailed record, or null for a bad id. */
+export const launchDetailPath = (id) =>
+  UUID.test(String(id ?? '')) ? `/launches/${id}/` : null;
+
+/** ISO 8601 duration ("PT2M42S", "-PT10S", "P1DT2H") -> seconds, or null. */
+export function parseIsoDuration(value) {
+  const m = String(value ?? '')
+    .trim()
+    .match(
+      /^(-)?P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/,
+    );
+  if (!m || !(m[2] || m[3] || m[4] || m[5])) return null;
+  const s =
+    Number(m[2] || 0) * 86400 +
+    Number(m[3] || 0) * 3600 +
+    Number(m[4] || 0) * 60 +
+    Number(m[5] || 0);
+  return m[1] ? -s : s;
+}
+
+/**
+ * @param {object} l one LL2 launch (detailed mode)
+ * @returns {object|null} { id, name, net, status, abbrev, failed, provider,
+ *   rocket, mission, orbit, pad: { name, latitude, longitude }, timeline:
+ *   [{ name, description, offsetSeconds }] (oldest first) }
+ */
+export function parseLaunchDetail(l) {
+  if (!l || typeof l !== 'object') return null;
+  const base = launchOf(l);
+  const latitude = num(l.pad?.latitude);
+  const longitude = num(l.pad?.longitude);
+  const timeline = (Array.isArray(l.timeline) ? l.timeline : [])
+    .map((e) => ({
+      name: text(e?.type?.abbrev || e?.type?.name || e?.name, 60) || 'Mission event',
+      description: text(e?.type?.description, 160),
+      offsetSeconds: parseIsoDuration(e?.relative_time ?? e?.relativeTime),
+    }))
+    .filter((e) => e.offsetSeconds !== null)
+    .sort((a, b) => a.offsetSeconds - b.offsetSeconds);
+  return {
+    ...base,
+    failed: /fail/i.test(`${base.abbrev || ''} ${base.status || ''}`),
+    pad: {
+      name: text(l.pad?.name) || 'Launch pad',
+      latitude,
+      longitude,
+    },
+    timeline,
+  };
+}

@@ -1,72 +1,45 @@
 import * as Cesium from 'cesium';
 
-// The interaction spine: selecting an entity tracks it (camera follows), draws a
-// fading trail of its recent path, highlights it, and shows a metadata card.
-// Deselecting (tap on empty space, the card's close button, or Escape) restores
-// everything. It is layer-agnostic: a `resolve(entity)` callback supplies the
-// card model and the trail history, so later layers reuse it unchanged.
+// The interaction spine. Selecting a contact makes it the target: the tracking
+// overlay locks the hub brackets on it, a fading trail shows where it has been,
+// and the target panel opens with its card and actions. Selecting never moves
+// the camera; FOLLOW is an explicit action, and it keeps the current viewing
+// distance and angle instead of diving in. Deselecting (tap on empty space, the
+// panel's ESC button, or Escape) releases everything and leaves the camera
+// where it is. Layer-agnostic: resolve(target) supplies the card model and the
+// history, so every layer reuses it unchanged.
 
-const TRAIL_MAX_POINTS = 24;
-
-let ringImageCache = null;
-function ringImage() {
-  if (ringImageCache) return ringImageCache;
-  const S = 64;
-  const c = document.createElement('canvas');
-  c.width = S;
-  c.height = S;
-  const g = c.getContext('2d');
-  const cx = S / 2;
-  // Targeting-bracket reticle: four corner brackets around a thin ring, the way
-  // an ops console frames a locked contact. Phosphor cyan, restrained glow.
-  g.strokeStyle = '#7ff2ff';
-  g.shadowColor = 'rgba(95,227,255,0.9)';
-  g.shadowBlur = 4;
-  g.lineWidth = 2;
-  g.beginPath();
-  g.arc(cx, cx, 15, 0, Math.PI * 2);
-  g.stroke();
-
-  g.lineWidth = 3;
-  const r = 26; // corner distance from centre
-  const len = 9; // bracket arm length
-  for (let i = 0; i < 4; i++) {
-    const sx = i & 1 ? 1 : -1;
-    const sy = i & 2 ? 1 : -1;
-    const x = cx + sx * r;
-    const y = cx + sy * r;
-    g.beginPath();
-    g.moveTo(x - sx * len, y);
-    g.lineTo(x, y);
-    g.lineTo(x, y - sy * len);
-    g.stroke();
-  }
-  ringImageCache = c;
-  return c;
-}
+const TRAIL_MAX_POINTS = 48;
+const FOLLOW_MIN_RANGE_M = 1500;
+const FOLLOW_MAX_RANGE_M = 600_000;
 
 /**
  * @param {import('cesium').Viewer} viewer
  * @param {object} opts
- * @param {(entity: import('cesium').Entity) => ({ metadata: object, getHistoryFixes: () => object[] } | null)} opts.resolve
- * @param {{ show: (m: object) => void, hide: () => void }} opts.card
- * @param {(entity: import('cesium').Entity | null) => void} [opts.onChange]
+ * @param {(target: object) => ({ metadata: object, getHistoryFixes: () => object[], mover?: boolean, key?: string } | null)} opts.resolve
+ * @param {{ showTarget: Function, clearTarget: Function }} opts.panel
+ * @param {{ setSelected: Function, setFollowing: Function }} [opts.overlay]
+ * @param {(target: object|null, rec?: object) => void} [opts.onChange]
+ * @param {(target: object) => void} [opts.onCockpit]
+ * @param {(target: object, rec: object) => object[]} [opts.extraActions]
+ * @param {(msg: { title: string, body?: string }) => void} [opts.notify]
  */
-export function createTracker(viewer, { resolve, card, onChange, onCockpit }) {
+export function createTracker(
+  viewer,
+  { resolve, panel, overlay, onChange, onCockpit, extraActions, notify },
+) {
   const scene = viewer.scene;
-  let tracked = null; // { entity, getHistoryFixes }
-
-  // A "Cockpit" action is offered for movers when a cockpit handler is wired.
-  const actionsFor = (entity, rec) =>
-    rec.mover && onCockpit
-      ? [{ label: 'Cockpit', onClick: () => onCockpit(entity) }]
-      : [];
+  let tracked = null; // { target, rec }
   let trailEntity = null;
-  let haloEntity = null;
+  let followEntity = null;
+  const head = new Cesium.Cartesian3();
+
+  const positionNow = (target, result) =>
+    target.position.getValue(viewer.clock.currentTime, result);
 
   function trailPositions() {
     if (!tracked) return [];
-    const fixes = tracked.getHistoryFixes().slice(-TRAIL_MAX_POINTS);
+    const fixes = tracked.rec.getHistoryFixes?.().slice(-TRAIL_MAX_POINTS) ?? [];
     const positions = fixes.map((f) =>
       Cesium.Cartesian3.fromDegrees(
         f.longitude,
@@ -74,107 +47,212 @@ export function createTracker(viewer, { resolve, card, onChange, onCockpit }) {
         Math.max(0, f.altitude ?? 0),
       ),
     );
-    // Append the live interpolated head so the trail meets the moving aircraft.
-    const head = tracked.entity.position.getValue(viewer.clock.currentTime);
-    if (head) positions.push(head);
+    // The live interpolated head, so the trail meets the moving contact.
+    const p = positionNow(tracked.target, head);
+    if (p) positions.push(Cesium.Cartesian3.clone(p));
     return positions;
   }
 
-  function haloPosition() {
-    return tracked
-      ? tracked.entity.position.getValue(viewer.clock.currentTime)
-      : undefined;
-  }
-
-  function addOverlays() {
+  function addTrail() {
     trailEntity = viewer.entities.add({
       polyline: {
         positions: new Cesium.CallbackProperty(trailPositions, false),
-        width: 2.5,
+        width: 3,
         material: new Cesium.PolylineGlowMaterialProperty({
-          glowPower: 0.2,
-          taperPower: 0.4, // fades toward the oldest point
-          color: Cesium.Color.fromCssColorString('#5fe3ff'),
+          glowPower: 0.18,
+          taperPower: 0.45, // fades toward the oldest point
+          color: Cesium.Color.WHITE.withAlpha(0.85),
         }),
-        // No depthFailMaterial: the trail is occluded by the globe where it
-        // passes behind the limb (depthTestAgainstTerrain) instead of showing
-        // through it.
-      },
-    });
-    haloEntity = viewer.entities.add({
-      position: new Cesium.CallbackProperty(haloPosition, false),
-      billboard: {
-        image: ringImage(),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        scaleByDistance: new Cesium.NearFarScalar(1e6, 1.0, 2e7, 0.5),
       },
     });
   }
 
-  function removeOverlays() {
+  function removeTrail() {
     if (trailEntity) viewer.entities.remove(trailEntity);
-    if (haloEntity) viewer.entities.remove(haloEntity);
     trailEntity = null;
-    haloEntity = null;
   }
 
-  // Trail/halo positions update per frame (cheap), but the card is DOM, so it is
-  // refreshed on a 1s timer rather than every frame; feed data changes only
-  // every poll (~15s). The same tick drops the selection if the tracked aircraft
-  // has left the view (resolve returns null once it is gone).
+  // ------------------------------------------------------------- follow mode
+  // Cesium follows a tracked entity, so a hidden 1 px stand-in entity rides
+  // the target. Its viewFrom is the camera's current offset in the target's
+  // east-north-up frame (clamped to a sensible range), so starting to follow
+  // does not jump the view.
+  function follow() {
+    if (!tracked) return;
+    const target = tracked.target;
+    const p = positionNow(target, new Cesium.Cartesian3());
+    if (!p) return;
+    const enu = Cesium.Transforms.eastNorthUpToFixedFrame(p);
+    const inv = Cesium.Matrix4.inverseTransformation(enu, new Cesium.Matrix4());
+    const offset = Cesium.Matrix4.multiplyByPoint(
+      inv,
+      viewer.camera.positionWC,
+      new Cesium.Cartesian3(),
+    );
+    const range = Cesium.Cartesian3.magnitude(offset);
+    const clamped = Math.min(FOLLOW_MAX_RANGE_M, Math.max(FOLLOW_MIN_RANGE_M, range));
+    if (range > 0) Cesium.Cartesian3.multiplyByScalar(offset, clamped / range, offset);
+    // Looking straight down from far away: tilt a little so the follow reads.
+    if (offset.z > 0 && Math.hypot(offset.x, offset.y) < offset.z * 0.15) {
+      offset.y = -offset.z * 0.6;
+    }
+    unfollow(false);
+    followEntity = viewer.entities.add({
+      position: new Cesium.CallbackProperty(
+        (time, result) => positionNow(target, result),
+        false,
+      ),
+      point: { pixelSize: 1, color: Cesium.Color.TRANSPARENT },
+      viewFrom: offset,
+    });
+    viewer.trackedEntity = followEntity;
+    overlay?.setFollowing(true);
+    refreshPanel();
+  }
+
+  function unfollow(refresh = true) {
+    if (!followEntity) return;
+    if (viewer.trackedEntity === followEntity) viewer.trackedEntity = undefined;
+    viewer.entities.remove(followEntity);
+    followEntity = null;
+    overlay?.setFollowing(false);
+    if (refresh) refreshPanel();
+  }
+
+  function flyTo() {
+    if (!tracked) return;
+    const p = positionNow(tracked.target, new Cesium.Cartesian3());
+    if (!p) return;
+    unfollow(false);
+    const carto = Cesium.Cartographic.fromCartesian(p);
+    const height = Math.max(carto.height, 0);
+    const range = Math.min(
+      Math.max(viewer.camera.positionCartographic.height * 0.4, 4000),
+      250_000,
+    );
+    viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(p, 1), {
+      offset: new Cesium.HeadingPitchRange(
+        viewer.camera.heading,
+        -Math.PI / 4,
+        range + height * 0.1,
+      ),
+      duration: 1.6,
+    });
+    refreshPanel();
+  }
+
+  // ------------------------------------------------------------------ panel
+  function actionsFor(target, rec) {
+    const out = [
+      {
+        label: followEntity ? 'FOLLOWING' : 'FOLLOW',
+        title: 'Keep the camera on this target (F)',
+        pressed: Boolean(followEntity),
+        ok: true,
+        onClick: () => (followEntity ? unfollow() : follow()),
+      },
+      { label: 'FLY TO', title: 'Fly the camera to it', onClick: flyTo },
+    ];
+    if (rec.mover && onCockpit) {
+      out.push({
+        label: 'COCKPIT',
+        title: 'Ride along (C)',
+        onClick: () => onCockpit(target),
+      });
+    }
+    return out.concat(extraActions?.(target, rec) ?? []);
+  }
+
+  function refreshPanel() {
+    if (!tracked) return;
+    const rec = resolve(tracked.target);
+    if (!rec) {
+      notify?.({
+        title: 'TARGET LOST',
+        body: `${tracked.rec.metadata.title} left the feed.`,
+      });
+      deselect();
+      return;
+    }
+    tracked.rec = rec;
+    panel.showTarget(rec.metadata, actionsFor(tracked.target, rec));
+    overlay?.setSelected(tracked.target, hubInfo(rec));
+  }
+
+  function hubInfo(rec) {
+    const m = rec.metadata;
+    return {
+      label: String(m.title ?? '').toUpperCase(),
+      sub: m.readout ?? String(m.subtitle ?? '').toUpperCase(),
+      history: () => rec.getHistoryFixes?.().length ?? 0,
+    };
+  }
+
+  // The card is DOM, so it refreshes on a 1 s timer, not per frame; feed data
+  // changes only every poll. The same tick notices a target that left the feed.
   let refreshTimer = null;
   function startRefresh() {
     stopRefresh();
-    refreshTimer = setInterval(() => {
-      if (!tracked) return;
-      const rec = resolve(tracked.entity);
-      if (!rec) deselect();
-      else card.show(rec.metadata, actionsFor(tracked.entity, rec));
-    }, 1000);
+    refreshTimer = setInterval(refreshPanel, 1000);
   }
   function stopRefresh() {
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-      refreshTimer = null;
-    }
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
   }
 
-  function select(entity) {
-    const rec = entity ? resolve(entity) : null;
+  function select(target) {
+    const rec = target ? resolve(target) : null;
     if (!rec) {
       deselect();
       return;
     }
-    if (!trailEntity) addOverlays();
-    tracked = { entity, getHistoryFixes: rec.getHistoryFixes };
-    viewer.trackedEntity = entity; // camera follows
-    card.show(rec.metadata, actionsFor(entity, rec));
+    if (tracked?.target !== target) unfollow(false);
+    tracked = { target, rec };
+    if (!trailEntity) addTrail();
+    panel.showTarget(rec.metadata, actionsFor(target, rec));
+    overlay?.setSelected(target, hubInfo(rec));
     startRefresh();
-    onChange?.(entity);
+    onChange?.(target, rec);
     scene.requestRender();
   }
 
   function deselect() {
     if (!tracked) return;
+    unfollow(false);
     tracked = null;
-    viewer.trackedEntity = undefined;
-    removeOverlays();
+    removeTrail();
     stopRefresh();
-    card.hide();
+    panel.clearTarget();
+    overlay?.setSelected(null);
     onChange?.(null);
     scene.requestRender();
   }
 
   const onKeyDown = (e) => {
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
     if (e.key === 'Escape') deselect();
+    else if ((e.key === 'f' || e.key === 'F') && tracked && !e.ctrlKey && !e.metaKey) {
+      if (followEntity) unfollow();
+      else follow();
+    }
   };
   document.addEventListener('keydown', onKeyDown);
 
   return {
     select,
     deselect,
+    follow,
+    unfollow,
+    flyTo,
     get trackedEntity() {
-      return tracked?.entity ?? null;
+      return tracked?.target ?? null;
+    },
+    get following() {
+      return Boolean(followEntity);
+    },
+    /** Re-follow after something else (cockpit) borrowed the camera. */
+    resume() {
+      if (followEntity) viewer.trackedEntity = followEntity;
     },
     destroy() {
       deselect();

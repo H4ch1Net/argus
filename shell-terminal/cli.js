@@ -24,6 +24,20 @@ import { saffirSimpson } from '../core/layers/cyclones/format.js';
 import { parseLaunches, launchQuery } from '../core/layers/launches/parse.js';
 import { relativeTime } from '../core/layers/launches/format.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
+import { findPlace, searchPlaces } from '../core/search/places.js';
+import {
+  routeRequest,
+  parseRoute,
+  routeErrorMessage,
+  normalizeMode,
+  checkRoutePoints,
+  formatRouteDistance,
+  formatRouteDuration,
+  ROUTE_MODES,
+  ROUTE_ATTRIBUTION,
+  FIX_THE_MAP_URL,
+} from '../core/route/osrm.js';
+import { greatCircleM, initialBearingDeg } from '../core/draw/geometry.js';
 
 export const CLI_COMMANDS = [
   'query',
@@ -36,6 +50,8 @@ export const CLI_COMMANDS = [
   'sats',
   'fires',
   'geocode',
+  'route',
+  'measure',
   'bgp',
   'ct',
   'health',
@@ -135,12 +151,44 @@ function printCard(card) {
   return lines.join('\n');
 }
 
-async function resolvePlace(backend, text) {
+const asPlace = (p) => ({ lat: p.latitude, lon: p.longitude, name: p.name });
+
+/** Coordinates or an exact bundled place name, with no network; else null. */
+export function resolveOffline(text) {
   const ll = parseLatLon(text);
   if (ll) return { ...ll, name: `${ll.lat}, ${ll.lon}` };
-  const places = await backend.geocode?.(text);
-  if (!places?.length) throw new Error(`no place found for "${text}"`);
-  return { lat: places[0].latitude, lon: places[0].longitude, name: places[0].name };
+  const p = findPlace(text);
+  return p ? asPlace(p) : null;
+}
+
+/**
+ * Coordinates, then the bundled offline places, then the proxy geocoder (Photon,
+ * then Nominatim). If the geocoder is unreachable or finds nothing, the closest
+ * bundled name still beats no answer.
+ */
+async function resolvePlace(backend, text) {
+  const offline = resolveOffline(text);
+  if (offline) return offline;
+  let places = null;
+  let failure = null;
+  try {
+    places = await backend?.geocode?.(text);
+  } catch (e) {
+    failure = e;
+  }
+  if (places?.length) return asPlace(places[0]);
+  const [guess] = searchPlaces(text, { limit: 1 });
+  if (guess) return asPlace(guess);
+  if (failure) throw failure;
+  throw new Error(`no place found for "${text}"`);
+}
+
+/** Two places from positionals: "A B" (quote multi-word names) or "A to B". */
+export function twoPlaces(args) {
+  const i = args.findIndex((a) => a.toLowerCase() === 'to');
+  if (i > 0 && i < args.length - 1)
+    return [args.slice(0, i).join(' '), args.slice(i + 1).join(' ')];
+  return args.length === 2 ? [...args] : null;
 }
 
 function streamLines(url, type, key, count, json, print) {
@@ -200,8 +248,38 @@ export async function runCli(cmd, argv, io = {}) {
     '--radius',
     '--group',
     '--count',
+    '--mode',
   ];
   const args = positionals(argv, valueFlags);
+
+  // Great-circle distance and initial bearing between two resolved places.
+  const printMeasure = (a, b) => {
+    const m = greatCircleM(a, b);
+    const bearing = initialBearingDeg(a, b);
+    if (json)
+      out(
+        JSON.stringify(
+          {
+            from: a,
+            to: b,
+            distanceM: Math.round(m),
+            distanceKm: Number((m / 1000).toFixed(3)),
+            distanceNm: Number((m / 1852).toFixed(3)),
+            bearingDeg: Number(bearing.toFixed(1)),
+          },
+          null,
+          2,
+        ),
+      );
+    else {
+      out(`${a.name} -> ${b.name}`);
+      out(
+        `  distance  ${(m / 1000).toFixed(1)} km  (${(m / 1852).toFixed(1)} nm, ${(m / 1609.344).toFixed(1)} mi), great circle`,
+      );
+      out(`  bearing   ${bearing.toFixed(1)} deg true (initial)`);
+    }
+    return 0;
+  };
 
   // Validate before starting any proxy, so usage errors are instant.
   if ((cmd === 'query' || cmd === 'correlate') && !classifyAsset(args.join(' '))) {
@@ -215,6 +293,25 @@ export async function runCli(cmd, argv, io = {}) {
   if (cmd === 'geocode' && !args.length) {
     err('argus geocode: give a place name');
     return 2;
+  }
+  if ((cmd === 'route' || cmd === 'measure') && !twoPlaces(args)) {
+    err(
+      `argus ${cmd}: give two places, e.g. argus ${cmd} London Paris (quote multi-word names, or write "A to B")`,
+    );
+    return 2;
+  }
+  if (
+    cmd === 'route' &&
+    opt(argv, '--mode') !== undefined &&
+    !normalizeMode(opt(argv, '--mode'))
+  ) {
+    err('argus route: --mode must be car, foot or bike');
+    return 2;
+  }
+  // Two coordinates or two bundled names need no network at all.
+  if (cmd === 'measure') {
+    const [a, b] = twoPlaces(args).map(resolveOffline);
+    if (a && b) return printMeasure(a, b);
   }
 
   const backend =
@@ -283,6 +380,83 @@ export async function runCli(cmd, argv, io = {}) {
           ),
         );
       return places.length ? 0 : 1;
+    }
+
+    if (cmd === 'measure') {
+      const [ta, tb] = twoPlaces(args);
+      return printMeasure(
+        await resolvePlace(backend, ta),
+        await resolvePlace(backend, tb),
+      );
+    }
+
+    if (cmd === 'route') {
+      if (!c) {
+        err(
+          'route: routing is online only (OSRM through the proxy); --demo has no network',
+        );
+        return 1;
+      }
+      const mode = normalizeMode(opt(argv, '--mode') ?? 'car');
+      const [ta, tb] = twoPlaces(args);
+      const a = await resolvePlace(backend, ta);
+      const b = await resolvePlace(backend, tb);
+      const check = checkRoutePoints([a, b]);
+      if (!check.ok) {
+        err(`route: ${check.error}`);
+        return 1;
+      }
+      const req = routeRequest(mode, [a, b]);
+      let raw;
+      try {
+        raw = await c.getJson(req.feed, req.path, { params: req.params });
+      } catch (e) {
+        // OSRM answers NoRoute / NoSegment with a 400.
+        if (e?.status === 400) {
+          err('route: no route found (a stop may be too far from any road or path)');
+          return 1;
+        }
+        throw e;
+      }
+      const route = parseRoute(raw);
+      if (!route) {
+        err(`route: ${routeErrorMessage(raw)}`);
+        return 1;
+      }
+      if (json) {
+        out(
+          JSON.stringify(
+            {
+              mode,
+              from: a,
+              to: b,
+              distanceM: route.distanceM,
+              durationS: route.durationS,
+              steps: route.steps,
+              stepsTruncated: route.stepsTruncated,
+              geometry: route.coordinates,
+              attribution: ROUTE_ATTRIBUTION,
+              fixTheMap: FIX_THE_MAP_URL,
+            },
+            null,
+            2,
+          ),
+        );
+        return 0;
+      }
+      out(
+        `${ROUTE_MODES[mode].label} ${a.name} -> ${b.name}: ${formatRouteDistance(route.distanceM)}, ${formatRouteDuration(route.durationS)}`,
+      );
+      let at = 0;
+      const rows = route.steps.map((s, i) => {
+        const row = [String(i + 1), formatRouteDistance(at), s.instruction];
+        at += s.distanceM;
+        return row;
+      });
+      out(table(['#', 'at', 'instruction'], rows));
+      if (route.stepsTruncated) out(`(first ${route.steps.length} steps only)`);
+      out(`${ROUTE_ATTRIBUTION}. Fix the map: ${FIX_THE_MAP_URL}`);
+      return 0;
     }
 
     if (cmd === 'quakes') {

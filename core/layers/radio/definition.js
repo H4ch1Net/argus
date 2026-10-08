@@ -1,6 +1,6 @@
-import * as Cesium from 'cesium';
 import { parseRadio } from './parse.js';
-import { describeRadio, radioColorHex, radioSearchText } from './format.js';
+import { describeRadio, radioSearchText } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Public radio stations (Radio Browser) as a Layer SDK definition: one global
 // catalogue of the most-played located stations, refreshed every 45 minutes
@@ -14,10 +14,7 @@ export const radioDefinition = {
   normalize: (raw) => parseRadio(raw),
   render: {
     renderType: 'point',
-    style: (n) => ({
-      pixelSize: 6,
-      color: Cesium.Color.fromCssColorString(radioColorHex(n)),
-    }),
+    style: () => ({ glyph: 'cross', pixelSize: 10, color: ink('teal') }),
   },
   describe: (n) => describeRadio(n),
   searchText: radioSearchText,

@@ -1,27 +1,10 @@
-/* Point-at-sky button (sits with the other controls). */
-.argus-compass-btn {
-  padding: 8px 14px;
-  border: 1px solid rgba(95, 227, 255, 0.28);
-  border-radius: 999px;
-  background: rgba(12, 20, 34, 0.6);
-  color: #cfe3ff;
-  font:
-    13px/1 system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  cursor: pointer;
-  align-self: flex-start;
-}
+/* Point-at-sky: the button sits with the controls; the reticle is a ctOS
+   crosshair in corner brackets with a LOCK chip for the aimed contact. */
 .argus-compass-btn.is-on {
-  background: #5fe3ff;
-  border-color: #5fe3ff;
-  color: #06101c;
-  font-weight: 600;
+  background: var(--ctosGray);
+  border-color: var(--ctosGray);
+  color: var(--background);
 }
-
-/* Full-screen reticle overlay: a centre ring plus a HUD chip for the aimed entity. */
 .argus-reticle {
   position: fixed;
   inset: 0;
@@ -34,50 +17,50 @@
   display: none;
 }
 .argus-reticle__ring {
-  width: 74px;
-  height: 74px;
-  border: 2px solid rgba(95, 227, 255, 0.8);
-  border-radius: 50%;
-  box-shadow:
-    0 0 12px rgba(95, 227, 255, 0.5),
-    inset 0 0 12px rgba(95, 227, 255, 0.25);
+  --c: var(--textPrimary);
+  --arm: 12px;
+  width: 78px;
+  height: 78px;
   position: relative;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--arm) 1.5px,
+    linear-gradient(var(--c), var(--c)) top left / 1.5px var(--arm),
+    linear-gradient(var(--c), var(--c)) top right / var(--arm) 1.5px,
+    linear-gradient(var(--c), var(--c)) top right / 1.5px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--arm) 1.5px,
+    linear-gradient(var(--c), var(--c)) bottom left / 1.5px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--arm) 1.5px,
+    linear-gradient(var(--c), var(--c)) bottom right / 1.5px var(--arm);
+  background-repeat: no-repeat;
 }
 .argus-reticle__ring::before,
 .argus-reticle__ring::after {
   content: '';
   position: absolute;
-  background: rgba(95, 227, 255, 0.8);
+  background: var(--ctosGray);
 }
 .argus-reticle__ring::before {
   left: 50%;
-  top: -10px;
-  width: 2px;
-  height: 20px;
-  transform: translateX(-50%);
+  top: 30px;
+  width: 1px;
+  height: 18px;
 }
 .argus-reticle__ring::after {
   top: 50%;
-  left: -10px;
-  height: 2px;
-  width: 20px;
-  transform: translateY(-50%);
+  left: 30px;
+  height: 1px;
+  width: 18px;
 }
 .argus-reticle__hud {
   pointer-events: auto;
   position: absolute;
   bottom: 22%;
-  padding: 8px 16px;
-  border: 1px solid rgba(95, 227, 255, 0.5);
-  border-radius: 999px;
-  background: rgba(6, 12, 22, 0.9);
-  color: #e8f1ff;
-  font:
-    14px/1 ui-monospace,
-    'Cascadia Code',
-    Menlo,
-    Consolas,
-    monospace;
+  padding: 8px 14px;
+  border: 1px solid var(--success);
+  background: var(--panel-translucent);
+  color: var(--success);
+  font: 500 13px/1 var(--font-mono);
+  letter-spacing: 0.06em;
   cursor: pointer;
 }
 .argus-reticle__hud[hidden] {

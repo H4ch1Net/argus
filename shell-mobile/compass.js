@@ -27,8 +27,9 @@ const screenAngle = () => screen.orientation?.angle ?? window.orientation ?? 0;
 export function createCompass({ cameraControls, pickCenter, onLock }) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'argus-compass-btn';
-  button.textContent = 'Point at sky';
+  button.className = 'ct-btn argus-compass-btn';
+  button.title = 'Point the phone at the sky to identify what is overhead';
+  button.textContent = 'SKY';
 
   const reticle = document.createElement('div');
   reticle.className = 'argus-reticle';
@@ -57,7 +58,7 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
     const hit = pickCenter?.();
     current = hit?.entity ?? null;
     if (hit?.label) {
-      hud.textContent = `▶ ${hit.label}`;
+      hud.textContent = `LOCK ${String(hit.label).toUpperCase()}`;
       hud.hidden = false;
     } else {
       hud.hidden = true;
@@ -67,9 +68,9 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
   async function enable() {
     const granted = await requestOrientationPermission();
     if (!granted) {
-      button.textContent = 'Orientation blocked';
+      button.textContent = 'BLOCKED';
       setTimeout(() => {
-        button.textContent = 'Point at sky';
+        button.textContent = 'SKY';
       }, 2500);
       return;
     }
@@ -87,7 +88,7 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
     reticle.hidden = false;
     active = true;
     button.classList.add('is-on');
-    button.textContent = 'Exit sky';
+    button.textContent = 'EXIT SKY';
   }
 
   function disable() {
@@ -103,7 +104,7 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
     active = false;
     current = null;
     button.classList.remove('is-on');
-    button.textContent = 'Point at sky';
+    button.textContent = 'SKY';
   }
 
   button.addEventListener('click', () => (active ? disable() : enable()));

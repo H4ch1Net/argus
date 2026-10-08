@@ -7,7 +7,7 @@ import { fit } from './ansi.js';
 import { metrics, project, latSpan, widthKm, DOTS_X, DOTS_Y } from './projection.js';
 import { drawBasemap, drawGraticule, drawPolyline } from './mapRender.js';
 import { graticuleStep } from './basemap.js';
-import { CITIES } from './data/cities.js';
+import { CITIES } from '../core/search/places.js';
 
 export const THEME = {
   brand: '#57e39a',

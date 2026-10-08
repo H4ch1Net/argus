@@ -7,6 +7,8 @@ import * as Cesium from 'cesium';
 // the globe always starts. It is a coarse whole-world basemap with NO street-level
 // detail, so two higher-resolution sources sit on top of it as an explicit choice:
 //
+//   dark      -> Esri World Dark Gray Canvas (base only, no labels): the ctOS look,
+//                quiet land and sea so contacts read first. Keyless.
 //   satellite -> Esri World Imagery (ArcGIS), aerial photography, the Google-Earth
 //                look. Keyless public tile service.
 //   streets   -> OpenStreetMap, roads + labels, so you can see which street a
@@ -19,13 +21,27 @@ import * as Cesium from 'cesium';
 
 const ESRI_WORLD_IMAGERY =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
+const ESRI_DARK_GRAY =
+  'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer';
 const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 export const IMAGERY_SOURCES = [
-  { id: 'base', label: 'Relief' },
-  { id: 'satellite', label: 'Satellite' },
-  { id: 'streets', label: 'Streets' },
+  { id: 'dark', label: 'Dark', title: 'Esri World Dark Gray Canvas' },
+  { id: 'satellite', label: 'Sat', title: 'Esri World Imagery' },
+  { id: 'streets', label: 'Streets', title: 'OpenStreetMap' },
+  { id: 'base', label: 'Relief', title: 'Natural Earth II (offline)' },
 ];
+
+// The ctOS "mono" tone: imagery desaturated and dimmed so the map sits behind
+// the data in grays, matching the UI. Applied to the base layer and to label
+// overlays (core/scene/labels.js), toggled from the display menu.
+export const MONO_TONE = { saturation: 0, brightness: 0.62, contrast: 1.18, gamma: 1 };
+export const NATURAL_TONE = { saturation: 1, brightness: 1, contrast: 1, gamma: 1 };
+
+export function applyTone(layer, mono) {
+  if (!layer) return;
+  Object.assign(layer, mono ? MONO_TONE : NATURAL_TONE);
+}
 
 /** Build the default base imagery layer (local Natural Earth II). */
 export function createBaseImageryLayer() {
@@ -39,6 +55,14 @@ export function createBaseImageryLayer() {
 
 /** Build an imagery layer for one of IMAGERY_SOURCES. */
 export function createImageryLayer(source) {
+  if (source === 'dark') {
+    return Cesium.ImageryLayer.fromProviderAsync(
+      Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_DARK_GRAY, {
+        enablePickFeatures: false,
+      }),
+      {},
+    );
+  }
   if (source === 'satellite') {
     return Cesium.ImageryLayer.fromProviderAsync(
       Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_WORLD_IMAGERY, {
@@ -66,9 +90,14 @@ export function createImageryLayer(source) {
  * such as weather radar sit above it and survive a basemap switch.
  * @param {import('cesium').Viewer} viewer
  */
-export function createImageryController(viewer) {
+export function createImageryController(viewer, { mono = true } = {}) {
   let current = 'base';
   let baseLayer = viewer.imageryLayers.length ? viewer.imageryLayers.get(0) : null;
+  let monoOn = mono;
+  const listeners = new Set();
+  // The dark canvas is already gray; toning it again would only crush it.
+  const tone = () => applyTone(baseLayer, monoOn && current !== 'dark');
+  tone();
   return {
     current: () => current,
     set(source) {
@@ -80,7 +109,21 @@ export function createImageryController(viewer) {
       baseLayer = createImageryLayer(source);
       layers.add(baseLayer, 0);
       current = source;
+      tone();
+      listeners.forEach((fn) => fn(current));
       viewer.scene.requestRender();
+    },
+    mono: () => monoOn,
+    setMono(on) {
+      monoOn = Boolean(on);
+      tone();
+      listeners.forEach((fn) => fn(current));
+      viewer.scene.requestRender();
+    },
+    /** fn(sourceId) after a basemap or tone change. */
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
     },
   };
 }

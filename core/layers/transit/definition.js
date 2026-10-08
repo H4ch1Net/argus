@@ -1,17 +1,11 @@
 import * as Cesium from 'cesium';
 import { parseTransit, transitNote } from './parse.js';
-import { describeTransit, transitColorHex, transitSearchText } from './format.js';
+import { describeTransit, transitSearchText } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Live transit vehicles (GTFS-RT) as a Layer SDK definition: viewport-bounded
 // polling of whichever covered agencies are in view, interpolated between the
 // 15 s fixes like flights. Colour follows the route so a line reads as a line.
-
-const colors = new Map();
-const routeColor = (routeId) => {
-  const hex = transitColorHex(routeId);
-  if (!colors.has(hex)) colors.set(hex, Cesium.Color.fromCssColorString(hex));
-  return colors.get(hex);
-};
 
 export const transitDefinition = {
   id: 'transit',
@@ -22,7 +16,12 @@ export const transitDefinition = {
   statusNote: (_q, raw) => transitNote(raw),
   render: {
     renderType: 'point',
-    style: (n) => ({ pixelSize: 6, color: routeColor(n.meta.routeId) }),
+    style: (n) => ({
+      glyph: 'vehicle',
+      pixelSize: 13,
+      headingDeg: Number.isFinite(n.meta.bearing) ? n.meta.bearing : undefined,
+      color: ink('teal'),
+    }),
     scaleByDistance: new Cesium.NearFarScalar(5e3, 1.2, 2e6, 0.5),
   },
   describe: (n) => describeTransit(n),

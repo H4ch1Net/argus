@@ -31,13 +31,19 @@ export function qualityProfileForTier(tier, caps) {
     case Tier.FULL:
       return {
         ...base,
-        // Desktops with headroom can afford native-ish resolution, capped so a
-        // 4K/hiDPI panel does not quietly quadruple the pixel budget.
-        resolutionScale: Math.min(dpr, 2),
+        // Render at 1:1 CSS pixels even on hiDPI panels: a 2x scale quadruples
+        // the fill cost for little visible gain on a globe, and was the single
+        // biggest drain on laptops with integrated graphics. (The UI itself
+        // stays sharp; only the WebGL canvas is affected.)
+        resolutionScale: Math.min(dpr, 1.25),
         targetFrameRate: 60,
         // Screen-space error: lower is sharper terrain/tiles.
-        maximumScreenSpaceError: 1.5,
-        msaaSamples: 4,
+        maximumScreenSpaceError: 2,
+        // FXAA (Cesium's default) is enough for hairline glyphs; 4x MSAA cost
+        // too much on integrated GPUs.
+        msaaSamples: 1,
+        // Movers request frames at this rate; cockpit and camera moves go higher.
+        animationFps: 30,
         // Globe terrain/imagery tiles kept in memory, and the photoreal tileset's
         // byte budget (cacheBytes + how far it may overflow while loading).
         tileCacheSize: 300,
@@ -50,10 +56,11 @@ export function qualityProfileForTier(tier, caps) {
         // ~1.0-1.5 effective; upscaling is near-invisible at arm's length on a
         // 6.9" panel. Nudge up slightly on very high-DPI screens.
         resolutionScale: dpr >= 3 ? 1.25 : 1.0,
-        // 30 ambient; cockpit mode will raise this to 60 when it lands.
+        // 30 ambient; cockpit mode raises this to 60.
         targetFrameRate: 30,
         maximumScreenSpaceError: 2,
         msaaSamples: 1,
+        animationFps: 20,
         tileCacheSize: 100,
         tilesetCache: { cacheBytes: 256 * MiB, maximumCacheOverflowBytes: 128 * MiB },
       };
@@ -66,6 +73,7 @@ export function qualityProfileForTier(tier, caps) {
         targetFrameRate: 30,
         maximumScreenSpaceError: 4,
         msaaSamples: 1,
+        animationFps: 15,
         tileCacheSize: 50,
         tilesetCache: { cacheBytes: 128 * MiB, maximumCacheOverflowBytes: 64 * MiB },
       };

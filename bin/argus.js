@@ -43,13 +43,18 @@ running proxy instead of an embedded one)
   launches [--past] [--limit N]  rocket launches (Launch Library 2)
   sats [--group stations|visual|active|starlink|gps-ops|weather] [--limit N]
   fires --near <LAT,LON|place> [--radius KM]
-  geocode <place>
+  geocode <place>              offline places, then Photon, then Nominatim
+  route <A> <B> [--mode car|foot|bike]
+                               turn-by-turn directions (OSRM, FOSSGIS servers);
+                               quote multi-word places or write "A to B"
+  measure <A> <B>              great-circle distance and bearing (offline when
+                               both are coordinates or bundled place names)
   bgp [--count N]              stream sampled RIPE RIS Live BGP updates
   ct [--count N]               stream Certificate Transparency issuance
   health                       which feeds are configured on the proxy
 
 keys and secrets live in .env (repo root) or ~/.config/argus/.env, read only by
-the proxy. Inputs are network assets (IP, domain, ASN), never people.
+the proxy. Inputs are network assets (IP, domain, ASN) or places, never people.
 `;
 
 function flag(argv, name) {

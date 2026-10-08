@@ -39,23 +39,21 @@
 // @property {string} clientId          ENV VAR NAME holding the client id (not the value)
 // @property {string} clientSecret      ENV VAR NAME holding the client secret (not the value)
 
-// Every upstream sees who is calling: OSM, CelesTrak, adsb.lol, Radio Browser,
-// Entur and NOAA all ask clients to name the app and give a contact point.
-const USER_AGENT =
-  'Argus/0.2 (+https://github.com/H4ch1Net/argus; personal public-data research)';
-const UA = { 'user-agent': USER_AGENT };
+import { UA, exactPath, MINUTE, HOUR } from './feeds/common.js';
+import { feeds as spaceFeeds } from './feeds/space.js';
+import { feeds as earthFeeds } from './feeds/earth.js';
+import { feeds as navFeeds } from './feeds/nav.js';
+import { feeds as cameraFeeds } from './feeds/cameras.js';
 
-/** An allowPaths entry matching exactly this upstream pathname. */
-const exactPath = (p) => new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+// Feeds added after the core set live in per-area modules beside this file
+// (proxy/feeds/*.js), each exporting its own array in the same Feed shape.
 
 const NOWCOAST_LAYERS = [
   'global_longwave_imagery_mosaic',
+  'goes_longwave_imagery',
   'conus_base_reflectivity_mosaic',
   'ldn_lightning_strike_density',
 ];
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
 
 /** @type {Feed[]} */
 export const feeds = [
@@ -219,11 +217,18 @@ export const feeds = [
     // directory data is public domain (PDDL 1.0); each broadcaster's stream keeps
     // its own terms. all.api.radio-browser.info is the round-robin name for the
     // community mirrors; RADIO_BROWSER_URL can pin one (e.g. https://de1.api.radio-browser.info).
+    // GET /json/url/<uuid> is Radio Browser's listen counter (the tuner sends
+    // one when a station starts playing; per the reference implementation, not
+    // live-tested here). The cache below means one count per station per 45
+    // minutes however often it is re-tuned, and the clicks share the governor.
     id: 'radiobrowser',
     baseUrl: 'https://all.api.radio-browser.info',
     baseUrlEnv: 'RADIO_BROWSER_URL',
     methods: ['GET'],
-    allowPaths: [/^\/json\/stations\/search$/],
+    allowPaths: [
+      /^\/json\/stations\/search$/,
+      /^\/json\/url\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    ],
     headers: UA,
     governor: { ratePerMinute: 10 },
     cache: { ttlMs: 45 * MINUTE, staleMs: 7 * 24 * HOUR },
@@ -232,10 +237,17 @@ export const feeds = [
     // Rocket launches (Launch Library 2, The Space Devs). Keyless at 15 calls per
     // hour; an optional LL2_API_TOKEN raises that. Cached 15 minutes, and the
     // governor caps upstream calls at 12 an hour so the free tier is never hit.
+    // Besides the list, one launch's detailed record (/launches/<uuid>/, with its
+    // timeline and orbit, for the reconstructed replay) is fetched on demand
+    // inside the same budget. The detail path is per the reference
+    // implementation, not live-tested here.
     id: 'll2',
     baseUrl: 'https://ll.thespacedevs.com/2.3.0',
     methods: ['GET'],
-    allowPaths: [/^\/2\.3\.0\/launches\/?$/],
+    allowPaths: [
+      /^\/2\.3\.0\/launches\/?$/,
+      /^\/2\.3\.0\/launches\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/,
+    ],
     headers: UA,
     inject: [
       {
@@ -260,9 +272,11 @@ export const feeds = [
     cache: { ttlMs: 5 * MINUTE, staleMs: 12 * HOUR },
   },
   {
-    // Observed weather imagery (NOAA nowCOAST GeoServer WMS): global infrared
-    // clouds, the US radar mosaic, lightning density. Keyless, public domain
-    // (NOAA disclaimer). Only the three observation services are reachable.
+    // Observed weather imagery (NOAA nowCOAST GeoServer WMS): global and GOES
+    // infrared clouds, the US radar mosaic, lightning density. Keyless, public
+    // domain (NOAA disclaimer). Only the three observation services are
+    // reachable. GetCapabilities (time discovery for the weather timeline) and
+    // timed GetMap are per the reference implementation, not live-tested here.
     id: 'nowcoast',
     baseUrl: 'https://nowcoast.noaa.gov/geoserver/observations',
     methods: ['GET'],
@@ -270,7 +284,9 @@ export const feeds = [
       /^\/geoserver\/observations\/(weather_radar|satellite|lightning_detection)\/ows$/,
     ],
     // `ows` is GeoServer's generic endpoint (WMS, WFS, WCS, WPS), so the query
-    // is pinned too: tile-sized WMS GetMap of the three imagery layers only.
+    // is pinned too: tile-sized WMS GetMap of the imagery layers (optionally at
+    // one explicit UTC instant, never an interval or period), or a WMS 1.3.0
+    // GetCapabilities with no other parameter.
     allowQuery: (q) => {
       const keys = [...q.keys()].map((k) => k.toLowerCase());
       if (new Set(keys).size !== keys.length) return false;
@@ -278,9 +294,19 @@ export const feeds = [
         for (const [k, v] of q) if (k.toLowerCase() === name) return v;
         return null;
       };
+      if (!/^wms$/i.test(get('service') ?? '')) return false;
+      const request = get('request') ?? '';
+      if (/^getcapabilities$/i.test(request)) {
+        return keys.length === 3 && get('version') === '1.3.0';
+      }
+      const time = get('time');
+      const instant =
+        time === null ||
+        (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(time) &&
+          Number.isFinite(Date.parse(time)));
       return (
-        /^wms$/i.test(get('service') ?? '') &&
-        /^getmap$/i.test(get('request') ?? '') &&
+        /^getmap$/i.test(request) &&
+        instant &&
         NOWCOAST_LAYERS.includes(get('layers')) &&
         Number(get('width')) <= 512 &&
         Number(get('height')) <= 512
@@ -288,6 +314,11 @@ export const feeds = [
     },
     headers: UA,
     governor: { ratePerMinute: 600 },
+    // Capabilities refresh every 2 minutes and may stand in for an hour if
+    // nowCOAST fails. Tiles share the entry budget; an exact-time frame never
+    // changes, but the relay's cache is per feed (one TTL), so tiles keep the
+    // same 2 minutes and Cesium keeps the loaded ones.
+    cache: { ttlMs: 2 * MINUTE, staleMs: HOUR, maxEntries: 48 },
   },
   {
     // Submarine cables and landing points (TeleGeography's public map GeoJSON).
@@ -420,4 +451,8 @@ export const feeds = [
     governor: { ratePerMinute: 8 },
     cache: { ttlMs: 12_000, staleMs: 10 * MINUTE },
   })),
+  ...spaceFeeds,
+  ...earthFeeds,
+  ...navFeeds,
+  ...cameraFeeds,
 ];

@@ -1,6 +1,6 @@
-import * as Cesium from 'cesium';
 import { parseFires } from './parse.js';
-import { fireColorHex, firePixelSize, describeFire } from './format.js';
+import { firePixelSize, describeFire } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // Fires (NASA FIRMS) as a Layer SDK definition. Viewport-bounded (global VIIRS
 // queries are huge and credit-limited), polled every few minutes, rendered as
@@ -14,11 +14,12 @@ export const firesDefinition = {
   maxEntities: 6000,
   normalize: (csv) => parseFires(csv),
   render: {
+    // Active fire hotspots: a hazard, so the error red, sized by radiative power.
     renderType: 'point',
     style: (n) => ({
-      pixelSize: firePixelSize(n.meta.frp),
-      color: Cesium.Color.fromCssColorString(fireColorHex(n.meta.frp)).withAlpha(0.9),
-      outlineColor: Cesium.Color.fromCssColorString('#3a0d00').withAlpha(0.6),
+      glyph: 'triangle',
+      pixelSize: Math.round(firePixelSize(n.meta.frp) * 1.25) + 3,
+      color: ink('error', 0.95),
     }),
   },
   describe: (n) => describeFire(n),

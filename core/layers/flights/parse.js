@@ -37,6 +37,7 @@ export function parseStates(payload) {
       trueTrack: num(s[10]), // degrees clockwise from north
       verticalRate: num(s[11]), // m/s
       geoAltitude: num(s[13]), // metres
+      category: num(s[17]), // emitter category (extended=1 requests only)
       source,
     });
   }
@@ -77,6 +78,7 @@ export function parseAdsb(payload) {
       originCountry: null,
       registration: typeof a.r === 'string' ? a.r : null,
       typeCode: typeof a.t === 'string' ? a.t : null,
+      category: typeof a.category === 'string' ? a.category : null,
       squawk: typeof a.squawk === 'string' ? a.squawk : null,
       timePosition: null,
       longitude,
@@ -154,6 +156,8 @@ export const openSkyParams = ({ lamin, lomin, lamax, lomax }) => ({
   lomin,
   lamax,
   lomax,
+  // Adds the emitter category (index 17), which picks the aircraft silhouette.
+  extended: 1,
 });
 
 /** adsb.lol's global list of aircraft flagged military (readsb dbFlags). */

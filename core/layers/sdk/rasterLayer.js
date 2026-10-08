@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { createFrameSwapper } from './rasterSwap.js';
 
 // The `raster` renderType: field / overlay layers (weather radar, satellite
 // clouds, lightning density) through the same Layer SDK contract as entity
@@ -9,8 +10,17 @@ import * as Cesium from 'cesium';
 //   { kind: 'wms', url, layers, parameters?, label?, credit?, maximumLevel?, rectangle? }
 //   { kind: 'xyz', url /* {z}/{x}/{y} template */, label?, credit?, maximumLevel? }
 //
+//   { kind: 'empty', label? }   nothing to show now (e.g. no weather frame near
+//                               the timeline's target): the overlay is cleared
+//
 // A spec whose `key` (default: its url + layers + parameters) has not changed is
 // left alone, so polling only reloads tiles when the upstream time step moves.
+// Frames swap double-buffered (rasterSwap.js): a new one loads hidden and
+// replaces the old in one step, so stepping a timeline never flickers. A source
+// may carry subscribe(onChange) -> unsubscribe (the weather timeline's sources
+// do): the engine subscribes while running and reloads on each change instead
+// of waiting for the next poll. A source may also carry shown(spec): the engine
+// calls it when that spec's frame is on screen (an 'empty' spec once cleared).
 // Rasters have no entities, so search and picking return nothing.
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
@@ -62,38 +72,61 @@ export function createRasterLayer(viewer, def, ctx) {
   let running = false;
   let timer = null;
   let aborter = null;
-  let imagery = null;
   let currentKey = '';
+  let unsubscribeSource = null;
 
-  // Keep the previous frame under the new one until the globe has finished
-  // loading tiles (or 15 s at most), so a refresh never blanks the overlay.
-  const retiring = new Set();
-  function retireWhenLoaded(old) {
-    retiring.add(old);
-    let offProgress = null;
-    let timeout = null;
-    const done = () => {
-      offProgress?.();
-      clearTimeout(timeout);
-      if (!retiring.delete(old)) return;
-      if (viewer.imageryLayers.contains(old)) viewer.imageryLayers.remove(old, true);
+  const layers = viewer.imageryLayers;
+  const specs = new WeakMap(); // imagery layer -> the spec it shows
+  const reportShown = (spec) => {
+    try {
+      ctx.source.shown?.(spec);
+    } catch {
+      // a reporting hook must never break the overlay
+    }
+  };
+  const swapper = createFrameSwapper({
+    // A new frame goes just above the one it replaces (two overlays keep their
+    // order); a first frame goes on top of the basemap.
+    add(next, below, hidden) {
+      if (hidden) next.alpha = 0;
+      if (below && layers.contains(below)) layers.add(next, layers.indexOf(below) + 1);
+      else layers.add(next);
       viewer.scene.requestRender();
-    };
-    const progress = viewer.scene.globe?.tileLoadProgressEvent;
-    if (progress)
-      offProgress = progress.addEventListener((queued) => queued === 0 && done());
-    timeout = setTimeout(done, 15_000);
-  }
+    },
+    reveal(layer) {
+      layer.alpha = alpha;
+      viewer.scene.requestRender();
+    },
+    remove(layer) {
+      if (layers.contains(layer)) layers.remove(layer, true);
+      viewer.scene.requestRender();
+    },
+    // Loaded when the globe's tile queue drains after the frame went up, or
+    // when the first frame rendered with it leaves nothing queued (the frame is
+    // out of view, or its tiles were cached).
+    whenLoaded(_layer, done) {
+      const globe = viewer.scene.globe;
+      const offProgress = globe?.tileLoadProgressEvent?.addEventListener(
+        (queued) => queued === 0 && done(),
+      );
+      const offRender = viewer.scene.postRender.addEventListener(() => {
+        offRender();
+        if (globe?.tilesLoaded) done();
+      });
+      viewer.scene.requestRender();
+      return () => {
+        offProgress?.();
+        offRender();
+      };
+    },
+    onShown(layer) {
+      const spec = specs.get(layer);
+      if (spec) reportShown(spec);
+    },
+  });
 
   function removeImagery() {
-    for (const old of retiring) {
-      if (viewer.imageryLayers.contains(old)) viewer.imageryLayers.remove(old, true);
-    }
-    retiring.clear();
-    if (imagery && viewer.imageryLayers.contains(imagery)) {
-      viewer.imageryLayers.remove(imagery, true);
-    }
-    imagery = null;
+    swapper.clear();
     currentKey = '';
   }
 
@@ -106,19 +139,20 @@ export function createRasterLayer(viewer, def, ctx) {
       const spec = await ctx.source({}, controller.signal);
       if (!running || controller.signal.aborted) return;
       if (!spec) throw new Error('no raster available');
+      if (spec.kind === 'empty') {
+        removeImagery();
+        reportShown(spec);
+        ctx.onStatus?.({ state: 'ok', count: 0, reason: spec.label, note: spec.label });
+        return;
+      }
       const key = rasterSpecKey(spec);
       if (key !== currentKey) {
-        const layers = viewer.imageryLayers;
         const next = new Cesium.ImageryLayer(buildProvider(spec), { alpha });
-        const old = imagery && layers.contains(imagery) ? imagery : null;
-        // A refresh takes the old frame's place in the stack (so two overlays
-        // keep their order); a first load goes on top of the basemap.
-        if (old) layers.add(next, layers.indexOf(old) + 1);
-        else layers.add(next);
-        imagery = next;
+        specs.set(next, spec);
         currentKey = key;
-        if (old) retireWhenLoaded(old);
-        viewer.scene.requestRender();
+        swapper.show(next);
+      } else if (!swapper.pending && swapper.shown) {
+        reportShown(specs.get(swapper.shown) ?? spec);
       }
       ctx.onStatus?.({ state: 'ok', count: 1, reason: spec.label });
     } catch (err) {
@@ -144,6 +178,12 @@ export function createRasterLayer(viewer, def, ctx) {
       if (running) return;
       running = true;
       document.addEventListener('visibilitychange', onVisibilityChange);
+      if (typeof ctx.source.subscribe === 'function') {
+        // Backgrounded, nothing reloads; becoming visible refreshes anyway.
+        unsubscribeSource = ctx.source.subscribe(() => {
+          if (!document.hidden) refresh();
+        });
+      }
       refresh();
       timer = setInterval(refresh, intervalMs);
     },
@@ -152,6 +192,8 @@ export function createRasterLayer(viewer, def, ctx) {
       clearInterval(timer);
       timer = null;
       aborter?.abort();
+      unsubscribeSource?.();
+      unsubscribeSource = null;
       document.removeEventListener('visibilitychange', onVisibilityChange);
       removeImagery();
       viewer.scene.requestRender();
@@ -163,8 +205,10 @@ export function createRasterLayer(viewer, def, ctx) {
     destroy() {
       this.stop();
     },
+    /** Reload now (e.g. after the source's inputs changed). */
+    refresh,
     get size() {
-      return imagery ? 1 : 0;
+      return swapper.shown ? 1 : 0;
     },
     search: () => [],
     getRecord: () => null,

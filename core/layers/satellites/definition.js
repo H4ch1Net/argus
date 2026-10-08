@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { ink } from '../sdk/colors.js';
 import { satPositionAt, orbitTrack } from './propagate.js';
 import { tleToNormalized, describeSatellite, satelliteSearchText } from './format.js';
 
@@ -15,6 +16,21 @@ function trackToCartesians(satrec) {
   );
 }
 
+const ringCollections = new WeakMap(); // scene -> PolylineCollection
+function ringCollection(scene) {
+  let rings = ringCollections.get(scene);
+  if (!rings || rings.isDestroyed()) {
+    rings = scene.primitives.add(new Cesium.PolylineCollection());
+    ringCollections.set(scene, rings);
+  }
+  return rings;
+}
+let ringMaterial = null;
+const RING_MATERIAL = () =>
+  (ringMaterial ??= Cesium.Material.fromType('Color', {
+    color: ink('gray', 0.16),
+  }));
+
 export const satellitesDefinition = {
   id: 'satellites',
   // Fetch TLEs rarely: once on start, then every 6 hours (well within policy).
@@ -26,28 +42,31 @@ export const satellitesDefinition = {
 
   render: {
     renderType: 'point',
-    style: () => ({
-      pixelSize: 5,
-      color: Cesium.Color.fromCssColorString('#ffd95f'),
-      outlineColor: Cesium.Color.BLACK.withAlpha(0.5),
-    }),
+    style: () => ({ glyph: 'sat', pixelSize: 13, color: ink('dim') }),
   },
 
-  onEntityCreate: (entity, n, { scene }) => {
-    let track = trackToCartesians(n.meta.satrec);
-    entity.polyline = new Cesium.PolylineGraphics({
-      positions: new Cesium.CallbackProperty(() => track, false),
+  // Orbit rings live in one PolylineCollection shared by the layer (a single
+  // primitive), each ring re-propagated every 30 s (GMST realignment), instead
+  // of an entity polyline per satellite rebuilt every frame.
+  onEntityCreate: (target, n, { scene }) => {
+    const rings = ringCollection(scene);
+    const ring = rings.add({
+      positions: trackToCartesians(n.meta.satrec),
       width: 1,
-      // ArcType.NONE: straight segments in 3D, so the ring floats at orbital
-      // altitude instead of being clamped to the ellipsoid surface.
-      arcType: Cesium.ArcType.NONE,
-      material: Cesium.Color.fromCssColorString('#6cc6ff').withAlpha(0.35),
+      material: RING_MATERIAL(),
     });
     const timer = setInterval(() => {
-      track = trackToCartesians(n.meta.satrec);
+      ring.positions = trackToCartesians(n.meta.satrec);
       scene.requestRender();
     }, ORBIT_REALIGN_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      if (!rings.isDestroyed()) rings.remove(ring);
+    };
+  },
+
+  onShow: (on, { scene }) => {
+    ringCollection(scene).show = on;
   },
 
   describe: (n) => describeSatellite(n),

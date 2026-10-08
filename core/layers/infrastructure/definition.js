@@ -1,4 +1,3 @@
-import * as Cesium from 'cesium';
 import { parseOverpass } from '../overpass/parse.js';
 import { areaTooLarge } from '../overpass/client.js';
 import {
@@ -6,9 +5,9 @@ import {
   INSTALLATION_MAX_DEG,
   describeDatacenter,
   describeInstallation,
-  installationColorHex,
   infraSearchText,
 } from './format.js';
+import { ink } from '../sdk/colors.js';
 
 // OSM-mapped infrastructure as viewport-fetched point layers, sharing the
 // Overpass client with surveillance and landmarks: data centres (internet
@@ -18,7 +17,6 @@ const zoomNote = (maxDeg) => (q, raw) =>
   q.bbox && areaTooLarge(q.bbox, maxDeg) && !raw?.elements?.length
     ? 'zoom in to load'
     : '';
-const DC_COLOR = Cesium.Color.fromCssColorString('#80deea');
 
 export const datacentersDefinition = {
   id: 'datacenters',
@@ -27,7 +25,10 @@ export const datacentersDefinition = {
   maxEntities: 3000,
   normalize: (json) => parseOverpass(json),
   statusNote: zoomNote(DATACENTER_MAX_DEG),
-  render: { renderType: 'point', style: () => ({ pixelSize: 8, color: DC_COLOR }) },
+  render: {
+    renderType: 'point',
+    style: () => ({ glyph: 'frame', pixelSize: 11, color: ink('cyan') }),
+  },
   describe: (n) => describeDatacenter(n),
   searchText: infraSearchText,
 };
@@ -41,10 +42,7 @@ export const installationsDefinition = {
   statusNote: zoomNote(INSTALLATION_MAX_DEG),
   render: {
     renderType: 'point',
-    style: (n) => ({
-      pixelSize: 8,
-      color: Cesium.Color.fromCssColorString(installationColorHex(n.meta.tags)),
-    }),
+    style: () => ({ glyph: 'diamond', pixelSize: 12, color: ink('mint', 0.9) }),
   },
   describe: (n) => describeInstallation(n),
   searchText: infraSearchText,
