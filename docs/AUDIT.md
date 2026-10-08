@@ -924,6 +924,20 @@ was checked in the stub harness only).
 | PROJECT: a traffic camera's still in 3D at its frustum's far plane, pose gizmo     | Stub-checked | `core/layers/trafficcams/projection.test` |
 | Cockpit weather: haze, fog, cloud, rain, snow, droplets, storm flashes             | Stub-checked |                                           |
 
+### A second review of this phase (fixed)
+
+- Orbit overrode every camera move it did not make (zoom buttons, fly-to,
+  presets): it now stops before any move through the camera controls, and
+  yields on the next frame to any other.
+- The proxy's hand-followed redirects carried credentials to another origin:
+  `authorization`, cookies and injected key headers are now dropped on a
+  cross-origin hop. The private-host check also covers IPv4-mapped IPv6 and
+  unspecified addresses.
+- A preset pressed twice quickly threw; a scene left a stale preset restore;
+  N with nothing selected skipped the first contact and could select a
+  contact that had left its layer; a slow PROJECT could land after the
+  selection moved on; the cockpit weather ran frames with nothing to draw.
+
 ### Still unverified (and why)
 
 - All of the above on real Cesium: the orbit's `lookAt` handoff, the HUD's

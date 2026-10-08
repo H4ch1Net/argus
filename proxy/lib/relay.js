@@ -41,6 +41,16 @@ export function buildUpstreamUrl(feed, subpath, search) {
 }
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/** Request headers minus anything that carries a credential. */
+function withoutSecrets(headers, feed) {
+  const drop = new Set(['authorization', 'proxy-authorization', 'cookie']);
+  for (const rule of feed.inject ?? [])
+    if (rule.as === 'header') drop.add(rule.name.toLowerCase());
+  return Object.fromEntries(
+    Object.entries(headers).filter(([k]) => !drop.has(k.toLowerCase())),
+  );
+}
 const MAX_REDIRECTS = 4;
 
 // Every relayed body is data, never a page: the browser must not sniff it into
@@ -56,7 +66,22 @@ export function isPrivateHost(hostname) {
   const h = String(hostname)
     .toLowerCase()
     .replace(/^\[|\]$/g, '');
-  return isLocalHost(h) || h === '0.0.0.0' || /^169\.254\./.test(h) || /^fe80:/.test(h);
+  if (h === '::' || /^0\./.test(h)) return true; // unspecified, "this network"
+  // IPv4-mapped IPv6 (::ffff:127.0.0.1, which URL writes as ::ffff:7f00:1).
+  const mapped = /^::ffff:(.+)$/.exec(h);
+  if (mapped) {
+    const v4 = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(mapped[1]);
+    const dotted = v4
+      ? [
+          parseInt(v4[1], 16) >> 8,
+          parseInt(v4[1], 16) & 255,
+          parseInt(v4[2], 16) >> 8,
+          parseInt(v4[2], 16) & 255,
+        ].join('.')
+      : mapped[1];
+    return isPrivateHost(dotted);
+  }
+  return isLocalHost(h) || /^169\.254\./.test(h) || /^fe80:/.test(h);
 }
 
 /** Loopback, RFC 1918 IPv4, IPv6 loopback / unique-local, localhost, *.local. */
@@ -268,10 +293,11 @@ export async function handleRelay(
         let url = target;
         let method = req.method;
         let sendBody = body && body.length ? body : undefined;
+        let hopHeaders = outbound;
         for (let hop = 0; ; hop += 1) {
           const up = await fetch(url, {
             method,
-            headers: outbound,
+            headers: hopHeaders,
             body: sendBody,
             signal: controller.signal,
             redirect: 'manual',
@@ -297,6 +323,10 @@ export async function handleRelay(
             method = 'GET';
             sendBody = undefined;
           }
+          // Credentials never follow a redirect to another origin (the
+          // Bearer token, an injected key header), as fetch's own follow mode
+          // also drops them.
+          if (next.origin !== url.origin) hopHeaders = withoutSecrets(hopHeaders, feed);
           url = next;
         }
       } finally {

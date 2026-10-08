@@ -3,8 +3,9 @@ import { acquireContinuousRender, releaseContinuousRender } from './renderMode.j
 
 // Orbit: the camera circles the ground point in the middle of the view (or a
 // given point), keeping its range and pitch, at a steady 6 degrees a second.
-// Any press on the globe, a wheel turn or Escape stops it; callers stop it
-// before flying the camera elsewhere. Frames are claimed from the shared pacer
+// Any press on the globe, a wheel turn or Escape stops it, and so does any
+// other camera move (callers stop it first where they can; a move it did not
+// make is caught on the next frame). Frames are claimed from the shared pacer
 // only while it turns. Adapted from gods-eye-view's orbit controller (src/camera.js, MIT).
 
 const DEG_PER_S = 6;
@@ -20,6 +21,7 @@ export function createOrbit(viewer, { fps = 30, onChange, isBusy } = {}) {
   let hpr = null;
   let last = 0;
   let removePre = null;
+  let written = null; // where the last turn left the camera
 
   function centerPoint() {
     const c = scene.canvas;
@@ -37,6 +39,12 @@ export function createOrbit(viewer, { fps = 30, onChange, isBusy } = {}) {
       stop();
       return;
     }
+    // Something moved the camera since the last turn (a flight, a zoom
+    // button, a fly-to): the orbit yields instead of overriding it.
+    if (written && !Cesium.Cartesian3.equalsEpsilon(camera.positionWC, written, 0, 0.5)) {
+      stop();
+      return;
+    }
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -44,6 +52,7 @@ export function createOrbit(viewer, { fps = 30, onChange, isBusy } = {}) {
       hpr.heading + Cesium.Math.toRadians(DEG_PER_S) * dt,
     );
     camera.lookAt(center, hpr);
+    written = Cesium.Cartesian3.clone(camera.positionWC, written ?? undefined);
   }
 
   const stopOnInput = () => stop();
@@ -63,6 +72,7 @@ export function createOrbit(viewer, { fps = 30, onChange, isBusy } = {}) {
       Math.min(range, 2_000_000),
     );
     active = true;
+    written = null;
     last = performance.now();
     removePre = scene.preRender.addEventListener(tick);
     acquireContinuousRender(scene, fps);

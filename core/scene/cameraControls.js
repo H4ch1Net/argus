@@ -5,6 +5,9 @@ import * as Cesium from 'cesium';
 // mobile shell reads GPS and calls flyTo; core never imports sensor code.
 
 export function createCameraControls(viewer) {
+  // Called before every move made through these controls (the orbit stops).
+  const before = new Set();
+  const pre = () => before.forEach((fn) => fn());
   // Re-aim the camera about the ground point at the centre of the screen,
   // keeping its distance; zoomed out past the globe's edge, go home instead.
   function orbitCentre({ heading, pitch }, duration) {
@@ -30,8 +33,14 @@ export function createCameraControls(viewer) {
   }
 
   return {
+    /** fn() runs before every move made through these controls; returns an unsubscribe. */
+    beforeMove(fn) {
+      before.add(fn);
+      return () => before.delete(fn);
+    },
     /** Fly to a geographic point. altitude in metres (eye height above the point). */
     flyTo({ longitude, latitude, altitude = 250_000, duration = 1.5 }) {
+      pre();
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, altitude),
         duration,
@@ -39,6 +48,7 @@ export function createCameraControls(viewer) {
       viewer.scene.requestRender();
     },
     flyHome(duration = 1.5) {
+      pre();
       viewer.camera.flyHome(duration);
       viewer.scene.requestRender();
     },
@@ -50,6 +60,7 @@ export function createCameraControls(viewer) {
      * where wheel/pinch gestures are inconsistent.
      */
     zoomStep(direction, fraction = 0.4) {
+      pre();
       const h = viewer.camera.positionCartographic.height;
       const amount = Math.max(500, h * fraction);
       if (direction > 0) viewer.camera.zoomIn(amount);
@@ -71,11 +82,13 @@ export function createCameraControls(viewer) {
      * screen in place (it orbits that point rather than spinning the eye).
      */
     northUp(duration = 0.8) {
+      pre();
       orbitCentre({ heading: 0 }, duration);
     },
 
     /** Toggle straight-down and a 35 degree oblique view about the screen centre. */
     toggleTilt(duration = 0.8) {
+      pre();
       const steep = viewer.camera.pitch < Cesium.Math.toRadians(-70);
       orbitCentre({ pitch: Cesium.Math.toRadians(steep ? -35 : -90) }, duration);
     },
@@ -96,6 +109,7 @@ export function createCameraControls(viewer) {
       pitch = -35,
       duration = 2,
     }) {
+      pre();
       const ground =
         viewer.scene.globe?.getHeight?.(
           Cesium.Cartographic.fromDegrees(longitude, latitude),
@@ -131,6 +145,7 @@ export function createCameraControls(viewer) {
      * when something cancels it (a press on the globe, another flight).
      */
     flyToView(v, duration = 1.5) {
+      pre();
       return new Promise((resolve) => {
         viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(v.longitude, v.latitude, v.height),
@@ -153,6 +168,7 @@ export function createCameraControls(viewer) {
      * phone points. heading 0 = north, pitch 0 = horizon, +90 = zenith.
      */
     lookFrom({ longitude, latitude, height = 30, heading = 0, pitch = 0, roll = 0 }) {
+      pre();
       viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
         orientation: {

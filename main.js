@@ -1029,8 +1029,13 @@ async function setupScene(app, splash) {
 
   // ------------------------------------------------------------------ bar
   let activePreset = null;
+  let before = null; // { layers: Set, view } from the free view (presets)
+  let staged = null; // the layer set the preset put on
   let cells = null;
   const setPreset = (id) => {
+    // No preset any more (left, or the view was replaced by a scene): nothing
+    // to give back later.
+    if (id === null) before = staged = null;
     activePreset = id;
     cells?.setActive(id);
     layerMenu?.setActivePreset(id);
@@ -1039,8 +1044,6 @@ async function setupScene(app, splash) {
   // the reference's Global Context does: entering one from a free view keeps
   // the camera and layers; pressing the active preset again restores them,
   // keeping any layer you switched on or off by hand in between.
-  let before = null; // { layers: Set, view } from the free view
-  let staged = null; // the layer set the preset put on
   const enabledKeys = () => new Set(manager.active().map((a) => a.key));
   const runPreset = async (preset, { initial = false } = {}) => {
     // Around Me pressed again re-centres on you; any other active preset
@@ -1054,8 +1057,10 @@ async function setupScene(app, splash) {
   };
   async function leavePreset() {
     const now = enabledKeys();
-    const added = [...now].filter((k) => !staged.has(k));
-    const removed = new Set([...staged].filter((k) => !now.has(k)));
+    // A second press before the preset finished applying: nothing staged yet.
+    const prev = staged ?? now;
+    const added = [...now].filter((k) => !prev.has(k));
+    const removed = new Set([...prev].filter((k) => !now.has(k)));
     const want = new Set([...before.layers, ...added].filter((k) => !removed.has(k)));
     const { view } = before;
     before = null;
@@ -1403,6 +1408,7 @@ async function setupScene(app, splash) {
     title: 'MGRS, GSD and NIIRS, sun elevation, off-nadir angle (H)',
     onToggle: (on) => intelHud.setVisible(on),
   });
+  camera.beforeMove(() => orbit.stop());
   view.push(section('DISPLAY', hudSwitch.el, cleanSwitch.el, orbitSwitch.el));
 
   // Contact cycling (N / P, and the arrows on the target panel): walk the
@@ -1412,17 +1418,27 @@ async function setupScene(app, splash) {
   let lastSummary = null;
   overlay.subscribe((sum) => (lastSummary = sum));
   let walk = { list: [], i: -1, at: 0 };
+  const alive = (t) =>
+    manager.active().some((a) => a.layer.getRecord(t.id)?.entity === t);
   const stepContact = (d) => {
     const now = Date.now();
     if (!walk.list.length || now - walk.at > 15_000) {
       const list = (lastSummary?.contacts ?? []).map((c) => c.target);
       const hubT = lastSummary?.hub?.target;
-      walk = { list: hubT ? [hubT, ...list] : list, i: 0, at: now };
+      // From the target (index 0) when there is one, else from before the
+      // first contact, so N starts at the first and P at the last.
+      walk = { list: hubT ? [hubT, ...list] : list, i: hubT ? 0 : -1, at: now };
     }
-    if (!walk.list.length) return;
-    walk.i = (walk.i + d + walk.list.length) % walk.list.length;
-    walk.at = now;
-    tracker.select(walk.list[walk.i]);
+    const n = walk.list.length;
+    // Skip contacts that left their layer since the walk began.
+    for (let tries = 0; tries < n; tries += 1) {
+      walk.i = walk.i < 0 ? (d > 0 ? 0 : n - 1) : (walk.i + d + n) % n;
+      if (alive(walk.list[walk.i])) {
+        walk.at = now;
+        tracker.select(walk.list[walk.i]);
+        return;
+      }
+    }
   };
   panel.setStepper?.(stepContact);
 
@@ -2108,7 +2124,9 @@ async function attachTracking(
     } catch (err) {
       notify({ title: 'NO STILL', body: String(err.message || err), level: 'low' });
     }
-    if (token !== projecting) return loaded?.revoke();
+    // STOP, another PROJECT, or another selection while the still loaded.
+    if (token !== projecting || String(tracker.trackedEntity?.id ?? '') !== id)
+      return loaded?.revoke();
     still = loaded;
     if (!projection.show(rec.normalized, still?.url ?? null)) return;
     tracker.unfollow();

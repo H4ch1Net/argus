@@ -44,7 +44,8 @@ export function createCockpitWeather(viewer) {
     canvas.style.height = `${h}px`;
     seed();
   }
-  const ro = new ResizeObserver(resize);
+  // Only while shown: a hidden overlay holds no full-size buffer.
+  const ro = new ResizeObserver(() => active && resize());
   ro.observe(host);
 
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -186,7 +187,8 @@ export function createCockpitWeather(viewer) {
       last = t;
       draw(t);
     }
-    if (!reduced) raf = requestAnimationFrame(tick);
+    // Nothing to draw (no reading): the cleared canvas stays as it is.
+    if (!reduced && profile.available) raf = requestAnimationFrame(tick);
   }
   const kick = () => {
     if (!raf && active && !document.hidden) raf = requestAnimationFrame(tick);

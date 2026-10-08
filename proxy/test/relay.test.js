@@ -572,3 +572,47 @@ test('private hosts: loopback, LAN, link-local', () => {
   for (const h of ['example.org', '8.8.8.8', '172.32.0.1'])
     assert.equal(isPrivateHost(h), false, h);
 });
+
+test('a redirect to another origin carries no credentials', async (t) => {
+  const other = await startEcho(); // reports the headers it received
+  t.after(() => other.close());
+  const up = await listen((req, res) => {
+    res.writeHead(302, { location: `${base(other)}/landing` });
+    res.end();
+  });
+  t.after(() => up.close());
+  process.env.HOP_TOKEN = 'S3CRET';
+  const proxy = await startProxy([
+    {
+      id: 'hop',
+      baseUrl: `${base(up)}/api`,
+      inject: [
+        {
+          secret: 'HOP_TOKEN',
+          as: 'header',
+          name: 'Authorization',
+          template: 'Token {value}',
+        },
+      ],
+    },
+  ]);
+  t.after(() => {
+    proxy.close();
+    delete process.env.HOP_TOKEN;
+  });
+  const res = await fetch(`${base(proxy)}/feed/hop/x`);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).authorization, null);
+});
+
+test('private hosts include IPv4-mapped IPv6 and unspecified forms', () => {
+  for (const h of [
+    '[::ffff:7f00:1]',
+    '::ffff:127.0.0.1',
+    '::ffff:c0a8:1',
+    '[::]',
+    '0.1.2.3',
+  ])
+    assert.equal(isPrivateHost(h), true, h);
+  assert.equal(isPrivateHost('::ffff:808:808'), false);
+});
