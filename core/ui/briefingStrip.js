@@ -11,13 +11,14 @@ import { h } from './dom.js';
 /**
  * @param {{ proxyClient: object|null, getSubject: () => ({ latitude: number,
  *   longitude: number }|null), getContacts: () => object[],
- *   onPickContact: (c: object) => void }} deps
+ *   onPickContact: (c: object) => void, onBrief?: (brief: object|null) => void }} deps
  */
 export function createBriefingStrip({
   proxyClient,
   getSubject,
   getContacts,
   onPickContact,
+  onBrief,
 }) {
   const title = h('span.ct-brief__title');
   const dots = h('span.ct-brief__dots');
@@ -55,6 +56,7 @@ export function createBriefingStrip({
       } catch {
         brief = brief ?? null;
       }
+      onBrief?.(brief);
     }
     render();
   }

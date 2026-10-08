@@ -1906,6 +1906,7 @@ async function attachTracking(
     import('./core/ui/briefingStrip.js'),
     import('./core/scene/sketch.js'),
   ]);
+  let wx = null; // cockpit weather, below
   const briefing =
     app.shell === 'desktop'
       ? createBriefingStrip({
@@ -1931,6 +1932,7 @@ async function attachTracking(
             }
             return out;
           },
+          onBrief: (b) => wx?.setWeather(b?.weather ?? null),
           onPickContact: (l) => {
             const rec = manager.getLayer(l.target.layer)?.getRecord(l.target.id);
             if (rec?.entity) tracker.select(rec.entity);
@@ -1938,15 +1940,21 @@ async function attachTracking(
         })
       : null;
   if (briefing) app.mount('float', briefing.el);
+  // Cockpit weather (desktop): the observed weather below, drawn over the view.
+  wx = briefing
+    ? (await import('./core/ui/cockpitWeather.js')).createCockpitWeather(app.viewer)
+    : null;
   let cockpitTarget = null;
   const cockpit = createCockpit(app.viewer, {
     onEnter: (t) => {
       cockpitTarget = t;
       briefing?.show();
+      wx?.show();
     },
     onExit: () => {
       cockpitTarget = null;
       briefing?.hide();
+      wx?.hide();
       tracker?.resume();
     },
   });
