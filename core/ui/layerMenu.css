@@ -38,6 +38,12 @@
 .ct-layers__row .ct-row__meta.is-demo {
   color: var(--textSecondary);
 }
+/* Last good data while its feed is down: dim, bracketed, never red. */
+.ct-layers__row .ct-row__meta.is-stale {
+  color: var(--textSecondary);
+  border: 1px dashed var(--textSecondary);
+  padding: 0 4px;
+}
 .ct-layers__row[aria-pressed='false'] .ct-tile canvas {
   opacity: 0.55;
 }

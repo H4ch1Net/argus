@@ -1,16 +1,26 @@
 import './notify.css';
 import { h } from '../dom.js';
+import { isFailureNotice } from '../logs.js';
 
 // mako-style notifications (design/ctos Notification): top-right, 360px, the
 // translucent panel, a 1px border, square corners. Normal ctosGray, low
 // backgroundBright, critical error with no timeout. One-line titles; the body
 // says what happened in plain words. A repeated key replaces its previous
-// notice instead of stacking (a layer that keeps failing shows one card).
+// notice instead of stacking.
+//
+// Failures (a feed, the proxy, a stream or a still that could not be reached)
+// are not popped up at all when a `log` is given: they go to the LOGS store
+// (core/ui/logs.js isFailureNotice), so a flaky network never fills the screen.
+// Critical notices (no proxy at all, the GPU dropping the globe) always show.
 
 const TIMEOUT_MS = 6000;
 const MAX_VISIBLE = 4;
 
-export function createNotifier() {
+/**
+ * @param {{ log?: (entry: { level: string, source: string, title: string,
+ *   body?: string }) => void }} [opts]
+ */
+export function createNotifier({ log = null } = {}) {
   const el = h('div.ct-notify', { role: 'status', 'aria-live': 'polite' });
   const byKey = new Map();
 
@@ -23,9 +33,16 @@ export function createNotifier() {
 
   /**
    * @param {{ title: string, body?: string, level?: 'low'|'normal'|'critical',
-   *   key?: string, timeoutMs?: number, action?: { label: string, onClick: Function } }} n
+   *   key?: string, timeoutMs?: number, action?: { label: string, onClick: Function },
+   *   kind?: 'failure'|'notice' }} n  kind forces the log ('failure') or a
+   *   popup ('notice'); without it the notice is judged by its words.
    */
-  function push({ title, body = '', level = 'normal', key, timeoutMs, action } = {}) {
+  function push(n = {}) {
+    const { title, body = '', level = 'normal', key, timeoutMs, action } = n;
+    if (log && isFailureNotice(n)) {
+      log({ level: 'warn', source: key ? String(key) : 'app', title, body });
+      return () => {};
+    }
     if (key && byKey.has(key)) dismiss(byKey.get(key));
     const card = h(
       `div.ct-note.ct-note--${level}`,

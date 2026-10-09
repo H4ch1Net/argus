@@ -1,20 +1,27 @@
 // California Highway Patrol dispatch incidents (the public CHP CAD "sa.xml"
 // feed: media.chp.ca.gov/sa_xml/sa.xml), pure: a small regex reader for that
 // one document shape, no DOM and no XML library, so the terminal shares it.
-// Per the reference implementation of public CHP scrapers, not live-tested
-// here.
+// Checked against the live feed (Oct 2026); fixtures/sa-sample.xml is a
+// trimmed copy of it.
 //
-// Shape: <State><Center ID="LACC"><Dispatch ID="LACC"><Log ID="...">
-//   <LogTime>"Oct 8 2026  9:15AM"</LogTime> <LogType>"1183-Trfc Collision-Unkn Inj"</LogType>
+// Shape (CRLF lines, and spaces around every attribute's "="):
+//   <State><Center ID = "LAHB"><Dispatch ID = "LACC"><Log ID = "...">
+//   <LogTime>"Oct  8 2026  9:15AM"</LogTime> <LogType>"1183-Trfc Collision-Unkn Inj"</LogType>
 //   <Location>"..."</Location> <LocationDesc>"..."</LocationDesc> <Area>"..."</Area>
 //   <LATLON>"34052235:118243683"</LATLON> <LogDetails>...</LogDetails>
-// </Log>...; values are wrapped in double quotes, LATLON is micro-degrees with
-// the longitude's sign dropped (California is west: it is negated here), and
-// times are Pacific local time.
+// </Log>...; a Center is a regional division ("LAHB") and each Dispatch in it
+// a communications centre ("LACC"), which is what an incident belongs to.
+// Values are wrapped in double quotes, LATLON is micro-degrees with the
+// longitude's sign dropped (California is west: it is negated here; "0:0"
+// means no position), and times are Pacific local time. One of CHP's servers
+// has been seen serving an hour-old copy cut off mid-element: every complete
+// log in it is still read, the cut one is not.
 //
 // GUARDRAIL: only the incident type, place, area and time are read. The
 // dispatcher narrative (LogDetails: units, free-text notes that can name
-// vehicles or people) is never parsed, kept or shown.
+// vehicles or people) is never parsed, kept or shown, and alerts about a
+// person (Silver, Amber, Blue, Feather alerts, missing persons, welfare
+// checks) are left out: this is a road incident map.
 
 const MAX_XML_CHARS = 8 * 1024 * 1024;
 const MAX_LOGS = 2000;
@@ -25,6 +32,7 @@ const CA_BOX = { lomin: -125, lamin: 32, lomax: -113.5, lamax: 42.5 };
 export const CHP_CENTERS = {
   BCCC: 'Border',
   BFCC: 'Bakersfield',
+  BICC: 'Bishop',
   BSCC: 'Barstow',
   CCCC: 'Capitol',
   CHCC: 'Chico',
@@ -40,8 +48,9 @@ export const CHP_CENTERS = {
   OCCC: 'Orange',
   RDCC: 'Redding',
   SACC: 'Sacramento',
-  SKCCSTCC: 'Stockton',
   SLCC: 'San Luis Obispo',
+  STCC: 'Stockton',
+  SUCC: 'Susanville',
   TKCC: 'Truckee',
   UKCC: 'Ukiah',
   VTCC: 'Ventura',
@@ -176,6 +185,18 @@ export function chpSeverity(type) {
   return 'minor';
 }
 
+// Alerts about a person rather than the road (GUARDRAIL above).
+const PERSON_ALERT =
+  /\b(silver|amber|blue|feather|ebony)\b|missing|welfare|kidnap|abduct|suicid|runaway/i;
+
+/** True for a log type about a person: such logs are never shown. */
+export const chpPersonAlert = (type) => PERSON_ALERT.test(String(type || ''));
+
+// `<Tag ID = "X">`: CHP writes spaces around "="; tolerate none, and either quote.
+const idAttr = (tag) =>
+  new RegExp(`<${tag}\\s+ID\\s*=\\s*["']([A-Za-z0-9]{1,12})["']`, 'g');
+const LOG = /<Log\s+ID\s*=\s*["']([^"'<>]{1,40})["']\s*>([\s\S]*?)<\/Log>/g;
+
 /**
  * The CHP sa.xml document -> normalized incident entities. A document that
  * declares a DOCTYPE or an ENTITY (the only routes to entity expansion) is
@@ -184,25 +205,27 @@ export function chpSeverity(type) {
 export function parseChpXml(xml) {
   if (typeof xml !== 'string' || xml.length > MAX_XML_CHARS) return [];
   if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) return [];
-  // Centre boundaries, so each log knows its dispatch centre.
-  const centers = [...xml.matchAll(/<Center\s+ID="([A-Za-z0-9]{1,12})"/g)].map((m) => ({
-    at: m.index,
-    id: m[1],
-  }));
+  // Communications-centre boundaries (the Center when a copy has no
+  // Dispatch level), so each log knows which centre logged it.
+  let marks = [...xml.matchAll(idAttr('Dispatch'))];
+  if (!marks.length) marks = [...xml.matchAll(idAttr('Center'))];
+  const centers = marks.map((m) => ({ at: m.index, id: m[1].toUpperCase() }));
   const out = [];
   const seen = new Set();
   let c = -1;
-  for (const m of xml.matchAll(/<Log\s+ID="([^"<>]{1,40})"\s*>([\s\S]*?)<\/Log>/g)) {
+  for (const m of xml.matchAll(LOG)) {
     while (c + 1 < centers.length && centers[c + 1].at < m.index) c += 1;
     const center = c >= 0 ? centers[c].id : '';
-    // Only the header fields: the narrative in LogDetails is never read.
-    const body = m[2].replace(/<LogDetails\b[\s\S]*?<\/LogDetails>/g, '');
+    // Only the header fields: LogDetails (the narrative, always the last
+    // child, sometimes self-closing) is cut off before anything is read.
+    const body = m[2].replace(/<LogDetails\b[\s\S]*$/, '');
+    const type = field(body, 'LogType');
+    if (chpPersonAlert(type)) continue;
     const at = parseChpLatLon(field(body, 'LATLON'));
     if (!at) continue;
     const id = `chp/${center || 'x'}/${chpText(m[1], 40)}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    const type = field(body, 'LogType');
     out.push({
       id,
       type: 'incident',

@@ -848,8 +848,8 @@ export const CREDITS = [
       "Free for any use with a citation and a link to the GDELT Project; linked articles keep their publishers' terms",
     url: 'https://www.gdeltproject.org/about.html#termsofuse',
     layers: ['cockpit', 'gdelt'],
-    feeds: ['gdelt', 'gdelt-geo'],
-    hosts: ['api.gdeltproject.org'],
+    feeds: ['gdelt', 'gdelt-events'],
+    hosts: ['api.gdeltproject.org', 'data.gdeltproject.org'],
     attribution: 'required',
   },
   {

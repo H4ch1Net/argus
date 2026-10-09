@@ -22,13 +22,19 @@ export function createLayerManager(
   const statusListeners = new Set();
   const emitStatus = (key, s) => statusListeners.forEach((fn) => fn(key, s));
 
-  function register(key, { label, loadDef, makeSource, demo = false, group = null }) {
+  // decorateStatus: an optional (status) => status the app applies before
+  // anyone sees it (main.js marks an answer the proxy served stale).
+  function register(
+    key,
+    { label, loadDef, makeSource, demo = false, group = null, decorateStatus = null },
+  ) {
     entries.set(key, {
       label,
       loadDef,
       makeSource,
       demo,
       group,
+      decorateStatus,
       layer: null,
       enabled: false,
       want: false,
@@ -67,7 +73,8 @@ export function createLayerManager(
           const def = await e.loadDef();
           return createLayer(viewer, def, {
             source,
-            onStatus: (s) => {
+            onStatus: (raw) => {
+              const s = e.decorateStatus?.(raw) ?? raw;
               e.status = s;
               readout?.setLayerStatus?.(e.label, s);
               emitStatus(key, s);

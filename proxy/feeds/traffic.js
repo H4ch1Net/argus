@@ -79,6 +79,14 @@ export const feeds = [
     // header is exactly application/xml, application/json or text/html (what a browser
     // fetch may forward), and 200 for text/xml or */*. The relay forwards the client's
     // Accept, so this feed pins its own.
+    // Live-sampled Oct 2026 (curl, a new connection each time): about one answer
+    // in three came from a server holding an hour-old copy cut off at 160 KiB,
+    // mid-element (the current file is ~250 KB and ends with </State>). So a
+    // document without its closing </State> is not an answer: it is never
+    // cached, and the request is tried twice more on a fresh connection, which
+    // usually reaches a current server; failing that, the last good copy (up to
+    // an hour old) stands in, and only then the cut copy (the parser reads its
+    // complete logs). The retry path is not live-tested through Node here.
     id: 'chp-cad',
     baseUrl: 'https://media.chp.ca.gov/sa_xml',
     baseUrlEnv: 'CHP_CAD_URL',
@@ -86,7 +94,17 @@ export const feeds = [
     allowPaths: [exactPath('/sa_xml/sa.xml')],
     allowQuery: pinnedQuery({}),
     headers: { ...UA, accept: 'text/xml, */*;q=0.1' },
+    validate: chpDocumentComplete,
+    retries: 2,
+    freshConnection: true,
     governor: { ratePerMinute: 6 },
-    cache: { ttlMs: MINUTE, staleMs: 30 * MINUTE, maxEntries: 2 },
+    cache: { ttlMs: MINUTE, staleMs: HOUR, maxEntries: 2 },
   },
 ];
+
+/** True when a CHP sa.xml body ends with its closing </State> (not cut off). */
+export function chpDocumentComplete(body) {
+  return /<\/State>\s*$/.test(
+    body.subarray(Math.max(0, body.length - 64)).toString('latin1'),
+  );
+}

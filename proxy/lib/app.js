@@ -33,6 +33,9 @@ export function createRequestHandler({
   streams = null,
   cache = createResponseCache(),
 }) {
+  // Upstream bases that failed lately (base URL -> cooling down until), so a
+  // feed with mirrors tries a working one first (lib/relay.js).
+  const health = new Map();
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://proxy.local');
@@ -61,13 +64,25 @@ export function createRequestHandler({
         });
         return;
       }
-      // The SETUP tab: which keys are set, and saving new ones (loopback only).
-      if (url.pathname === '/setup/keys') {
+      // The SETUP tab: which keys are set, saving new ones, and the encrypted
+      // export / import of them (loopback only).
+      if (
+        url.pathname === '/setup/keys' ||
+        url.pathname === '/setup/keys/export' ||
+        url.pathname === '/setup/keys/import'
+      ) {
         await handleSetup(req, res, { feeds, file: config.keysFile });
         return;
       }
       if (url.pathname.startsWith('/feed/')) {
-        await handleRelay(req, res, { feeds, config, tokenManagers, governor, cache });
+        await handleRelay(req, res, {
+          feeds,
+          config,
+          tokenManagers,
+          governor,
+          cache,
+          health,
+        });
         return;
       }
       // Google Photorealistic 3D Tiles broker (key server-side; host-pinned).

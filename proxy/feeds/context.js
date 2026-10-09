@@ -3,7 +3,7 @@
 // GIBS), Tor relays (Onionoo) and GDELT events. Same Feed shape as
 // proxy/feeds.js (see its typedefs); spread into that list.
 //
-// No network when these were added, so each is "per the provider's
+// No network when the first four were added, so each is "per the provider's
 // documentation, not live-tested here". Re-check terms before relying on one.
 // The query builders live in core (Cesium-free): core/layers/aurora/parse.js,
 // airquality/field.js, terminator/night.js, tor/parse.js, gdelt/parse.js;
@@ -11,16 +11,12 @@
 
 import { UA, exactPath, MINUTE, HOUR } from './common.js';
 import { pinnedQuery } from './earth.js';
+import { createGdeltEventsProducer } from '../lib/gdelt.js';
 
 // Kept equal to core by proxy/test/contextFeeds.test.js.
 export const AQ_CURRENT = 'us_aqi,european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide';
 export const ONIONOO_FIELDS =
   'nickname,fingerprint,country,country_name,as,as_name,flags,observed_bandwidth,latitude,longitude';
-export const GDELT_GEO_QUERIES = [
-  'theme:NATURAL_DISASTER',
-  'theme:PROTEST',
-  'theme:ARMEDCONFLICT',
-];
 
 /** "51.5,-0.12,..." -> 2..64 numbers within +-max, at most 2 decimals; else null. */
 function coordList(v, max) {
@@ -134,26 +130,32 @@ export const feeds = [
     cache: { ttlMs: HOUR, staleMs: 24 * HOUR, maxEntries: 2 },
   },
   {
-    // GDELT events (GDELT GEO 2.0 API: places in the last 24 hours of
-    // coverage matching a query, as GeoJSON). Keyless; GDELT terms allow use
-    // with a citation and a link, and each linked article keeps its
-    // publisher's terms. GUARDRAIL: pinned to three fixed GKG theme queries
-    // (natural disasters, protests, armed conflict), never free text, so it
-    // cannot become a search for a person. GDELT asks for at most one request
-    // every 5 seconds: the client spaces its three, the governor allows 6 a
-    // minute, and answers are cached 15 minutes.
-    // Per the provider's documentation, not live-tested here.
-    id: 'gdelt-geo',
-    baseUrl: 'https://api.gdeltproject.org/api/v2/geo',
+    // GDELT events (GDELT 2.0 Event exports; the GEO 2.0 API this used is
+    // gone, 404 since 2026). Not a relay: the proxy itself reads
+    // lastupdate.txt and the latest 15-minute export.CSV.zip (plus the three
+    // before it, once each) from data.gdeltproject.org over HTTPS, unzips and
+    // filters them (proxy/lib/gdelt.js), and serves one JSON document at
+    // /feed/gdelt-events/events.json. Keyless; GDELT terms allow use with a
+    // citation and a link, and each linked article keeps its publisher's
+    // terms. GUARDRAIL: fixed event classes only (protest, assault / fight /
+    // mass violence, humanitarian aid) and never the actor columns; the client
+    // sends no query at all. Rebuilt at most every 15 minutes (GDELT's own
+    // cadence); a failed rebuild serves the last good document for 12 hours.
+    // lastupdate.txt and an export were fetched live (Oct 2026); the
+    // fetch from Node was not run here.
+    id: 'gdelt-events',
+    baseUrl: 'https://data.gdeltproject.org/gdeltv2',
     methods: ['GET'],
-    allowPaths: [exactPath('/api/v2/geo/geo')],
-    allowQuery: pinnedQuery({
-      query: GDELT_GEO_QUERIES,
-      mode: 'PointData',
-      format: 'GeoJSON',
-    }),
+    allowPaths: [exactPath('/gdeltv2/events.json')],
+    allowQuery: pinnedQuery({}),
+    upstreamPaths: [
+      exactPath('/gdeltv2/lastupdate.txt'),
+      /^\/gdeltv2\/\d{14}\.export\.CSV\.zip$/,
+    ],
+    produce: createGdeltEventsProducer(),
     headers: UA,
+    timeoutMs: 60_000,
     governor: { ratePerMinute: 6 },
-    cache: { ttlMs: 15 * MINUTE, staleMs: 2 * HOUR, maxEntries: 6 },
+    cache: { ttlMs: 15 * MINUTE, staleMs: 12 * HOUR, maxEntries: 2 },
   },
 ];

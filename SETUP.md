@@ -319,12 +319,16 @@ sources and TomTom traffic flow) uses the endpoints that project uses live, but
 none could be reached from the build environment: each is marked "per the
 reference implementation, not live-tested here" in the proxy's feed registry.
 If one shows an error, `argus health`, the ERR row's hover text in LAYERS, and
-the notification say why; [docs/COMPARISON.md](docs/COMPARISON.md) lists each
+SETUP > LOGS say why; [docs/COMPARISON.md](docs/COMPARISON.md) lists each
 source and TOOLS > DATA CREDITS its terms.
 
 Note: public Overpass servers rate-limit hard and refuse clients that do not
-identify themselves (Argus sends a descriptive User-Agent). If OSM layers keep
-failing, point `OVERPASS_URL` at another instance, ideally one you run.
+identify themselves (Argus sends a descriptive User-Agent). The proxy tries
+`OVERPASS_URL` (if set), then overpass-api.de, then the VK Maps and
+kumi.systems mirrors, moving on after a 429, a 5xx, a timeout or a query the
+server gave up on, and keeps each answer 12 hours (mapped cameras and
+landmarks barely change). If OSM layers still fail, point `OVERPASS_URL` at an
+instance you run.
 
 ### Free key required
 
@@ -396,6 +400,30 @@ AISSTREAM_API_KEY=your_key
 ```
 
 Check what the proxy sees with `argus health`.
+
+### Moving keys to another device
+
+SETUP > KEYS > EXPORT KEYS (on the machine running the proxy) asks for a
+passphrase of 10 or more characters, twice, and gives you `argus-keys.json`:
+every key that is set, encrypted with that passphrase (scrypt, then
+AES-256-GCM). In the Android app, which cannot save a download, use COPY and
+paste it where you like. On the other device, IMPORT KEYS takes that file (or
+pasted text) and the passphrase, or plain `.env` lines (`NAME=value`): only
+the keys Argus uses are written, empty values never remove a key, and other
+settings in the text are left out and named. Keep the file and the passphrase
+apart; a wrong passphrase and a changed file fail the same way. Both are
+refused unless they come from the machine running the proxy, from the app
+itself, and `ARGUS_SETUP=off` turns them off with the rest of key setup.
+
+### When a feed fails
+
+Failures no longer pop up. A layer that cannot load turns `ERR` in LAYERS (its
+hover text says why); when the proxy still holds that feed's last good answer
+it serves it and the row says `STALE` instead. Every failure, stale answer and
+recovery is listed in SETUP > LOGS (collapsed at the bottom, with a count of
+new warnings), newest first, repeats folded into one line; COPY ALL copies it
+as text for a bug report. Only what really needs you still pops up (no proxy
+at all, the GPU dropping the globe).
 
 ---
 

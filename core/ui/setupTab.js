@@ -1,21 +1,47 @@
 import './settings.css';
 import { h } from './dom.js';
 import { section } from './controls.js';
+import { createLogsPanel, copyText } from './logs.js';
 
 // SETUP: everything needed to get Argus running well, in one tab, in the
 // order a first run needs it. STATUS (proxy, GPU, tier, font, secure context),
-// KEYS (which optional keys are set, and saving new ones to the proxy on this
-// machine: never kept in the browser), PROXY (point the app at another proxy,
-// e.g. your home machine from the phone), PERMISSIONS (location, motion),
-// INSTALL (as an app, the Android app, Android Auto) and a short START guide.
+// KEYS (which optional keys are set, saving new ones to the proxy on this
+// machine: never kept in the browser; and moving them to another machine as
+// a passphrase-encrypted file), PROXY (point the app at another proxy, e.g.
+// your home machine from the phone), PERMISSIONS (location, motion), INSTALL
+// (as an app, the Android app, Android Auto), a short START guide, and LOGS
+// (feed failures, collapsed, out of the way).
 
 const RELEASES = 'https://github.com/H4ch1Net/argus/releases/latest';
 export const PROXY_OVERRIDE_KEY = 'argus.proxyBase';
+const PASSPHRASE_MIN = 10; // as the proxy requires (proxy/lib/setup.js)
+const IMPORT_MAX_BYTES = 64 * 1024;
+const keysWord = (n) => `${n} KEY${n === 1 ? '' : 'S'}`;
+
+/**
+ * What an import box or file holds: an Argus keys file (the bundle itself, or
+ * the export answer around it) or .env text. Pure.
+ * @returns {{ bundle: object } | { env: string } | null}
+ */
+export function importPayload(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return null;
+  if (s.startsWith('{')) {
+    try {
+      const json = JSON.parse(s);
+      const bundle = json?.bundle ?? json;
+      if (bundle && typeof bundle === 'object' && bundle.kdf) return { bundle };
+    } catch {
+      // not JSON after all: read it as .env text
+    }
+  }
+  return { env: s };
+}
 
 /**
  * @param {{ proxyBase: string|null, health: object|null, tier: string,
  *   capabilities: object, notify: Function, openSettings: () => void,
- *   openKeys: () => void }} deps
+ *   openKeys: () => void, logs?: object }} deps  logs: the app's log store
  */
 export function createSetupTab({
   proxyBase,
@@ -25,6 +51,7 @@ export function createSetupTab({
   notify,
   openSettings,
   openKeys,
+  logs = null,
 }) {
   const checks = h('div');
   const check = (label, value, state = '') =>
@@ -93,6 +120,7 @@ export function createSetupTab({
       ? `Saved to ${data.file ?? 'the keys file'} on this machine (mode 600), never in the browser.`
       : 'Read only here: open SETUP on the machine running the proxy to set keys, or edit ~/.config/argus/.env there.';
     for (const k of data.keys) keyList.appendChild(keyRow(k, data.writable));
+    transfer.hidden = !(data.writable && data.transfer);
   }
 
   function keyRow(k, writable) {
@@ -153,35 +181,253 @@ export function createSetupTab({
     return row;
   }
 
-  async function saveKey(name, value) {
+  // Results of key actions show inline, beside the action, never as popups.
+  const statusLine = () => {
+    const el = h('div.ct-setup__status', { role: 'status', hidden: true });
+    const set = (text, state = '') => {
+      el.hidden = !text;
+      el.textContent = text;
+      el.dataset.state = state;
+    };
+    return { el, set };
+  };
+  const keyStatus = statusLine();
+  const say = keyStatus.set;
+  const transferStatus = statusLine();
+  const sayT = transferStatus.set;
+
+  // POST to the proxy's setup API (same origin, the app's header, JSON).
+  async function setupPost(route, payload) {
     try {
-      const r = await fetch(`${proxyBase}/setup/keys`, {
+      const r = await fetch(`${proxyBase}${route}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-argus-setup': '1' },
-        body: JSON.stringify({ keys: { [name]: value } }),
+        body: JSON.stringify(payload),
+        cache: 'no-store',
       });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        notify({
-          title: 'KEY NOT SAVED',
-          body: body.error || `HTTP ${r.status}`,
-          level: 'low',
-        });
-        return false;
-      }
-      notify({
-        title: value ? `${name} SAVED` : `${name} REMOVED`,
-        body: body.restartNeeded
-          ? 'Restart the proxy (argus web) for this one to take effect.'
-          : 'In use now. Toggle its layer off and on to load it.',
-        level: 'low',
-      });
-      return true;
+      return { ok: r.ok, body, error: body.error || `HTTP ${r.status}` };
     } catch {
-      notify({ title: 'KEY NOT SAVED', body: 'The proxy did not answer.', level: 'low' });
-      return false;
+      return { ok: false, body: {}, error: 'The proxy did not answer.' };
     }
   }
+
+  async function saveKey(name, value) {
+    const r = await setupPost('/setup/keys', { keys: { [name]: value } });
+    if (!r.ok) {
+      say(`${name} NOT SAVED: ${r.error}`, 'bad');
+      logs?.add({
+        level: 'warn',
+        source: 'setup',
+        title: `${name} NOT SAVED`,
+        body: r.error,
+      });
+      return false;
+    }
+    say(
+      `${name} ${value ? 'SAVED' : 'REMOVED'}. ${
+        r.body.restartNeeded
+          ? 'Restart the proxy (argus web) for this one to take effect.'
+          : 'In use now: toggle its layer off and on to load it.'
+      }`,
+      'ok',
+    );
+    return true;
+  }
+
+  // EXPORT / IMPORT: all set keys as one passphrase-encrypted file
+  // (proxy/lib/setup.js), for moving them to another machine's proxy, e.g.
+  // the laptop's keys onto the phone. Only offered where keys can be written.
+  const pass = (placeholder) =>
+    h('input', {
+      type: 'password',
+      autocomplete: 'new-password',
+      spellcheck: 'false',
+      placeholder,
+      'aria-label': placeholder,
+    });
+  const exportPass = pass(`Passphrase (${PASSPHRASE_MIN}+ characters)`);
+  const exportPass2 = pass('Repeat the passphrase');
+  const bundleBox = h('textarea.ct-setup__text', {
+    readonly: true,
+    rows: 4,
+    spellcheck: 'false',
+    'aria-label': 'Encrypted keys file',
+  });
+  let lastBundle = '';
+  const download = (text) => {
+    // A Blob download; the Android app's WebView cannot save one, which is
+    // why the same text is shown with COPY as well.
+    try {
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = h('a', { href: url, download: 'argus-keys.json', hidden: true });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {
+      // no download here: COPY is the way
+    }
+  };
+  const exportResult = h(
+    'div.ct-setup__result',
+    { hidden: true },
+    bundleBox,
+    h(
+      'div.ct-seg',
+      {},
+      h(
+        'button.ct-btn',
+        {
+          type: 'button',
+          onclick: async () =>
+            sayT(
+              (await copyText(lastBundle))
+                ? 'Keys file copied: paste it into IMPORT on the other device.'
+                : 'Copy is blocked here: select the text and copy it.',
+              'ok',
+            ),
+        },
+        'COPY',
+      ),
+      h(
+        'button.ct-btn',
+        { type: 'button', onclick: () => download(lastBundle) },
+        'SAVE FILE',
+      ),
+    ),
+    h(
+      'div.ct-section__note',
+      {},
+      'Encrypted (scrypt + AES-256-GCM). Keep the file and the passphrase apart: anyone with both has your keys.',
+    ),
+  );
+  async function doExport() {
+    const p = exportPass.value;
+    if ([...p].length < PASSPHRASE_MIN) {
+      sayT(`The passphrase needs at least ${PASSPHRASE_MIN} characters.`, 'bad');
+      return;
+    }
+    if (p !== exportPass2.value) {
+      sayT('The two passphrases differ.', 'bad');
+      return;
+    }
+    sayT('Encrypting...');
+    const r = await setupPost('/setup/keys/export', { passphrase: p });
+    exportPass.value = '';
+    exportPass2.value = '';
+    if (!r.ok) {
+      sayT(`NOT EXPORTED: ${r.error}`, 'bad');
+      return;
+    }
+    lastBundle = JSON.stringify(r.body.bundle);
+    bundleBox.value = lastBundle;
+    exportResult.hidden = false;
+    download(lastBundle);
+    sayT(`${keysWord(r.body.names.length)} EXPORTED: ${r.body.names.join(', ')}.`, 'ok');
+  }
+
+  const importFile = h('input.ct-setup__file', {
+    type: 'file',
+    'aria-label': 'Keys file or .env file',
+  });
+  const importBox = h('textarea.ct-setup__text', {
+    rows: 3,
+    spellcheck: 'false',
+    placeholder: 'Or paste the keys file, or .env lines (NAME=value)',
+    'aria-label': 'Keys file or .env text',
+  });
+  const importPass = pass('Passphrase (for a keys file)');
+  importFile.addEventListener('change', async () => {
+    const f = importFile.files?.[0];
+    if (!f) return;
+    if (f.size > IMPORT_MAX_BYTES) {
+      sayT('That file is too large to be a keys file.', 'bad');
+      return;
+    }
+    importBox.value = await f.text().catch(() => '');
+  });
+  async function doImport() {
+    const payload = importPayload(importBox.value);
+    if (!payload) {
+      sayT('Choose a file or paste its text first.', 'bad');
+      return;
+    }
+    if (payload.bundle && [...importPass.value].length < PASSPHRASE_MIN) {
+      sayT('Enter the passphrase the file was exported with.', 'bad');
+      return;
+    }
+    sayT('Importing...');
+    const r = await setupPost(
+      '/setup/keys/import',
+      payload.bundle ? { ...payload, passphrase: importPass.value } : payload,
+    );
+    importPass.value = '';
+    if (!r.ok) {
+      sayT(`NOT IMPORTED: ${r.error}`, 'bad');
+      return;
+    }
+    importBox.value = '';
+    importFile.value = '';
+    const skipped = r.body.ignored?.length
+      ? ` Left out: ${r.body.ignored.join(', ')}.`
+      : '';
+    sayT(
+      `${keysWord(r.body.saved.length)} IMPORTED: ${r.body.saved.join(', ')}.${skipped}${
+        r.body.restartNeeded ? ' Restart the proxy for OAuth and stream keys.' : ''
+      }`,
+      'ok',
+    );
+    loadKeys();
+  }
+
+  const exportForm = h(
+    'div.ct-setup__form',
+    { hidden: true },
+    exportPass,
+    exportPass2,
+    h('button.ct-btn', { type: 'button', onclick: doExport }, 'EXPORT'),
+    exportResult,
+  );
+  const importForm = h(
+    'div.ct-setup__form',
+    { hidden: true },
+    importFile,
+    importBox,
+    importPass,
+    h('button.ct-btn', { type: 'button', onclick: doImport }, 'IMPORT'),
+  );
+  const transferBtns = {};
+  // One form open at a time; pressing the open one's button closes it.
+  const showForm = (which) => {
+    const openExport = which === 'export' && exportForm.hidden;
+    const openImport = which === 'import' && importForm.hidden;
+    exportForm.hidden = !openExport;
+    importForm.hidden = !openImport;
+    transferBtns.export.setAttribute('aria-pressed', String(!exportForm.hidden));
+    transferBtns.import.setAttribute('aria-pressed', String(!importForm.hidden));
+  };
+  transferBtns.export = h(
+    'button.ct-btn',
+    { type: 'button', 'aria-pressed': 'false', onclick: () => showForm('export') },
+    'EXPORT KEYS',
+  );
+  transferBtns.import = h(
+    'button.ct-btn',
+    { type: 'button', 'aria-pressed': 'false', onclick: () => showForm('import') },
+    'IMPORT KEYS',
+  );
+  const logsPanel = logs ? createLogsPanel(logs) : null;
+
+  const transfer = h(
+    'div.ct-setup__transfer',
+    { hidden: true },
+    h('div.ct-field__label', {}, 'MOVE KEYS TO ANOTHER DEVICE'),
+    h('div.ct-seg', {}, transferBtns.export, transferBtns.import),
+    transferStatus.el,
+    exportForm,
+    importForm,
+  );
 
   // PROXY override, for a phone browser using a proxy on another machine.
   let stored = '';
@@ -296,6 +542,9 @@ export function createSetupTab({
     section(
       'KEYS',
       keyNote,
+      // Export / import first: the list of every key is long.
+      transfer,
+      keyStatus.el,
       keyList,
       h(
         'div.ct-section__note',
@@ -368,7 +617,9 @@ export function createSetupTab({
         h('button.ct-btn', { type: 'button', onclick: () => openKeys() }, 'KEYBOARD'),
       ),
     ),
+    // Last and collapsed: feed failures, for when something looks wrong.
+    logsPanel?.el ?? null,
   );
   loadKeys();
-  return { el, refresh: loadKeys };
+  return { el, refresh: loadKeys, logs: logsPanel };
 }

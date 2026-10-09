@@ -5,6 +5,15 @@
 // body with CORS headers. The client cannot choose the host (only the feed id),
 // and the sub-path cannot escape the feed's configured base path, so there is no
 // open-proxy / SSRF surface.
+//
+// Reliability: each attempt has the feed's own timeout (`timeoutMs`, else the
+// proxy default); a feed may list `mirrors` (other instances of the same API,
+// tried in order when one fails or times out, a failing one going last for a
+// few minutes), `retries` on the same host, and a `validate` check for a 200
+// that is not really an answer (a truncated document, an Overpass timeout).
+// When everything fails, a cached feed answers with its last good body and
+// `x-argus-stale: <age seconds>` so the client can show STALE, not an error.
+// A `produce` feed builds its body here from pinned upstream files (GDELT).
 
 import { corsHeaders } from './cors.js';
 import { readBody, sendJson } from './respond.js';
@@ -178,17 +187,102 @@ function applyPathPrefix(feed, subpath, env) {
   return prefix ? prefix + rel : rel;
 }
 
+// A base that failed (network error, timeout, 429, 5xx) goes to the back of its
+// feed's mirror list for this long, so a dead primary does not cost its whole
+// timeout on every request.
+export const MIRROR_COOLDOWN_MS = 5 * 60_000;
+
+/**
+ * The bases a request may use, in configured order: the operator's override
+ * (or the feed's own base), then, for a feed with mirrors, the feed's own base
+ * (when overridden) and each mirror. Without mirrors an override replaces the
+ * feed's base, as it always did.
+ */
+export function upstreamBases(feed, base) {
+  const list = [base.baseUrl];
+  if (feed.mirrors?.length) {
+    if (base.overridden) list.push(feed.baseUrl);
+    list.push(...feed.mirrors);
+  }
+  return [...new Set(list)];
+}
+
+/** Healthy bases first (in their order), then the ones cooling down. */
+export function orderByHealth(bases, health, now = Date.now()) {
+  if (bases.length < 2 || !health) return bases;
+  const cooling = (b) => (health.get(b) ?? 0) > now;
+  return [...bases.filter((b) => !cooling(b)), ...bases.filter(cooling)];
+}
+
+/** Read a fetch body, refusing one larger than maxBytes. */
+async function readCapped(res, maxBytes, what) {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel();
+    throw new RelayError(502, `${what}: body too large`);
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > maxBytes) throw new RelayError(502, `${what}: body too large`);
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks, size);
+}
+
+/**
+ * The fetch a `produce` feed gets: GET only, on the feed's own origin and
+ * protocol, only paths in its `upstreamPaths`, no query, no redirects, a size
+ * cap, and the request's timeout signal. Resolves to the body.
+ */
+export function pinnedFetcher(feed, signal) {
+  const base = new URL(feed.baseUrl);
+  return async (pathname, { maxBytes = 16 * 1024 * 1024 } = {}) => {
+    const u = new URL(pathname, base);
+    if (
+      u.origin !== base.origin ||
+      u.search ||
+      !matchAllow(feed.upstreamPaths ?? [], u.pathname)
+    ) {
+      throw new RelayError(502, `${feed.id}: upstream path not pinned`);
+    }
+    const r = await fetch(u, {
+      headers: { ...feed.headers },
+      signal,
+      redirect: 'manual',
+    });
+    if (r.status !== 200) {
+      await r.body?.cancel();
+      throw new RelayError(502, `${feed.id}: upstream answered ${r.status}`);
+    }
+    return readCapped(r, maxBytes, feed.id);
+  };
+}
+
+const seconds = (ms) => `${Math.round(ms / 100) / 10} s`;
+
 /**
  * Handle a /feed/<id>/... request.
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
  * @param {{ feeds: import('../feeds.js').Feed[], config: object, env?: NodeJS.ProcessEnv,
- *   cache?: ReturnType<import('./cache.js').createResponseCache> }} ctx
+ *   cache?: ReturnType<import('./cache.js').createResponseCache>,
+ *   health?: Map<string, number> }} ctx  health: base URL -> cooling-down-until (ms)
  */
 export async function handleRelay(
   req,
   res,
-  { feeds, config, tokenManagers = {}, governor = null, cache = null, env = process.env },
+  {
+    feeds,
+    config,
+    tokenManagers = {},
+    governor = null,
+    cache = null,
+    env = process.env,
+    health = null,
+  },
 ) {
   const cors = corsHeaders(req, config.cors);
   try {
@@ -239,18 +333,23 @@ export async function handleRelay(
     // query or header secrets are injected (cached feeds carry no path-prefix
     // secret) and includes the Accept header, which some APIs (LL2, TfL) use to
     // choose the format: one client asking for HTML must not change what the
-    // next client asking for JSON receives.
+    // next client asking for JSON receives. A mirror that served the answer
+    // does not change the key: it is the same API.
     const cacheCfg = cache && feed.cache && req.method === 'GET' ? feed.cache : null;
     const cacheKey = cacheCfg ? `${feed.id} ${accept} ${target.href}` : null;
     const fromCache = (maxAgeMs, label) => {
       const hit = cacheKey ? cache.get(cacheKey, maxAgeMs) : null;
       if (!hit) return false;
+      const age = Math.round(hit.ageMs / 1000);
       res.writeHead(hit.status, {
         ...cors,
         ...hit.headers,
         'content-length': hit.body.length,
         'x-argus-cache': label,
-        age: Math.round(hit.ageMs / 1000),
+        // The last good answer standing in for a failed upstream: the client
+        // marks the layer STALE (with this age) instead of failing it.
+        ...(label === 'stale' ? { 'x-argus-stale': String(age) } : {}),
+        age,
       });
       res.end(hit.body);
       return true;
@@ -263,6 +362,9 @@ export async function handleRelay(
     injectSecrets(feed, target, headers, env);
     // Static per-feed headers (e.g. a User-Agent some APIs require, like Nominatim).
     if (feed.headers) Object.assign(headers, feed.headers);
+    // A feed behind a load balancer with a bad member (CHP) asks for a new
+    // connection each time, so a retry can land on another server.
+    if (feed.freshConnection) headers['connection'] = 'close';
 
     let body;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -280,28 +382,44 @@ export async function handleRelay(
       }
     }
 
-    const runUpstream = async (bearer) => {
+    const timeoutMs = feed.timeoutMs ?? config.timeoutMs;
+
+    // One upstream request (with its own timeout) to one base.
+    const runOnce = async (attemptTarget, bearer) => {
       const outbound = bearer
         ? { ...headers, authorization: `Bearer ${bearer}` }
         : headers;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         // Redirects are followed by hand, so each hop can be checked: equipment
         // you own (localOnly) never redirects, no hop downgrades https to http,
         // and a public feed is never bounced onto this machine or the LAN.
-        let url = target;
+        let hopUrl = attemptTarget;
         let method = req.method;
         let sendBody = body && body.length ? body : undefined;
         let hopHeaders = outbound;
         for (let hop = 0; ; hop += 1) {
-          const up = await fetch(url, {
-            method,
-            headers: hopHeaders,
-            body: sendBody,
-            signal: controller.signal,
-            redirect: 'manual',
-          });
+          const send = (h) =>
+            fetch(hopUrl, {
+              method,
+              headers: h,
+              body: sendBody,
+              signal: controller.signal,
+              redirect: 'manual',
+            });
+          let up;
+          try {
+            up = await send(hopHeaders);
+          } catch (err) {
+            // A fetch that refuses a Connection header (an older undici, as
+            // in the Android app's Node 18) gets the request without it.
+            if (!hopHeaders.connection || controller.signal.aborted) throw err;
+            hopHeaders = Object.fromEntries(
+              Object.entries(hopHeaders).filter(([k]) => k !== 'connection'),
+            );
+            up = await send(hopHeaders);
+          }
           const location = REDIRECTS.has(up.status) ? up.headers.get('location') : null;
           if (!location) {
             // Read the body inside the same timeout window: a stalled body must
@@ -310,14 +428,14 @@ export async function handleRelay(
             return { up, b };
           }
           await up.body?.cancel();
-          const next = new URL(location, url);
+          const next = new URL(location, hopUrl);
           if (feed.localOnly || hop >= MAX_REDIRECTS) throw new Error('redirect refused');
           if (
             next.protocol !== 'https:' &&
-            !(next.protocol === 'http:' && url.protocol === 'http:')
+            !(next.protocol === 'http:' && hopUrl.protocol === 'http:')
           )
             throw new Error('redirect downgrade refused');
-          if (isPrivateHost(next.hostname) && !isPrivateHost(target.hostname))
+          if (isPrivateHost(next.hostname) && !isPrivateHost(attemptTarget.hostname))
             throw new Error('redirect to a private host refused');
           if (up.status === 303) {
             method = 'GET';
@@ -326,12 +444,66 @@ export async function handleRelay(
           // Credentials never follow a redirect to another origin (the
           // Bearer token, an injected key header), as fetch's own follow mode
           // also drops them.
-          if (next.origin !== url.origin) hopHeaders = withoutSecrets(hopHeaders, feed);
-          url = next;
+          if (next.origin !== hopUrl.origin)
+            hopHeaders = withoutSecrets(hopHeaders, feed);
+          hopUrl = next;
         }
       } finally {
         clearTimeout(timer);
       }
+    };
+
+    // Every base this request may use (one, unless the feed has mirrors), each
+    // tried 1 + retries times. The first carries the injected query secrets;
+    // a feed with mirrors has none (validateFeeds).
+    const bases = orderByHealth(upstreamBases(feed, base), health);
+    const attempts = [];
+    for (const b of bases) {
+      const t =
+        b === base.baseUrl
+          ? target
+          : buildUpstreamUrl({ ...feed, baseUrl: b }, subpath, url.search);
+      if (
+        feed.allowPaths &&
+        !matchAllow(feed.allowPaths, allowlistPath(feed, b, t.pathname))
+      )
+        continue;
+      for (let i = 0; i <= (feed.retries ?? 0); i += 1)
+        attempts.push({ base: b, target: t });
+    }
+
+    // Try each attempt until one answers. 429, 5xx, a network error or a
+    // timeout moves on (and cools that base down); a 200 the feed's validate()
+    // rejects moves on too. Resolves to the first good answer, else the last
+    // answer marked failed; rejects only when nothing answered at all.
+    const runAll = async (bearer) => {
+      if (feed.produce) return runProduce(feed, timeoutMs);
+      let last = null;
+      let lastErr = null;
+      for (const a of attempts) {
+        let r;
+        try {
+          r = await runOnce(a.target, bearer);
+        } catch (err) {
+          lastErr = err;
+          health?.set(a.base, Date.now() + MIRROR_COOLDOWN_MS);
+          continue;
+        }
+        const s = r.up.status;
+        if (s === 429 || s >= 500) {
+          health?.set(a.base, Date.now() + MIRROR_COOLDOWN_MS);
+          last = { ...r, failed: true, base: a.base };
+          continue;
+        }
+        if (s === 200 && feed.validate && !feed.validate(r.b, r.up.headers)) {
+          last = { ...r, failed: true, base: a.base };
+          continue;
+        }
+        health?.delete(a.base);
+        return { ...r, base: a.base };
+      }
+      if (last) return last;
+      throw lastErr ?? new Error('no upstream');
     };
 
     let bearer = null;
@@ -344,9 +516,9 @@ export async function handleRelay(
     }
 
     // Rate / budget governor (job 6): refuse before spending on a metered feed.
-    // acquire() counts the request at once, so concurrent requests cannot all
-    // pass before any is recorded; a request the upstream never answered is
-    // refunded below.
+    // acquire() counts the request at once (however many mirrors it then
+    // tries), so concurrent requests cannot all pass before any is recorded; a
+    // request the upstream never answered is refunded below.
     const gov = governor?.acquire(feed.id, target.pathname);
     if (gov && !gov.ok) {
       if (fromCache(staleMs, 'stale')) return;
@@ -356,11 +528,18 @@ export async function handleRelay(
 
     let result;
     try {
-      result = await runUpstream(bearer);
+      result = await runAll(bearer);
     } catch (err) {
       refund();
       if (fromCache(staleMs, 'stale')) return;
-      throw new RelayError(502, `upstream fetch failed: ${err.name || 'error'}`);
+      if (err instanceof RelayError) throw err;
+      const timedOut = err?.name === 'AbortError' || err?.name === 'TimeoutError';
+      throw new RelayError(
+        502,
+        timedOut
+          ? `upstream timed out after ${seconds(timeoutMs)}`
+          : `upstream fetch failed: ${err?.cause?.code || err?.name || 'error'}`,
+      );
     }
 
     // One retry with a fresh token if the upstream rejects the current one.
@@ -368,7 +547,7 @@ export async function handleRelay(
       manager.invalidate();
       try {
         bearer = await manager.getToken();
-        result = await runUpstream(bearer);
+        result = await runAll(bearer);
       } catch (err) {
         refund();
         throw new RelayError(
@@ -383,7 +562,7 @@ export async function handleRelay(
 
     const upstream = result.up;
     const buf = result.b;
-    if (cacheCfg && (upstream.status === 429 || upstream.status >= 500)) {
+    if (cacheCfg && result.failed) {
       if (fromCache(staleMs, 'stale')) return;
     }
     const kept = { ...SAFE_HEADERS };
@@ -396,11 +575,16 @@ export async function handleRelay(
     }
     const cc = upstream.headers.get('cache-control');
     if (cc) kept['cache-control'] = cc;
-    if (cacheCfg && upstream.status === 200) {
+    // Only a real answer is kept: never one the feed's validate() rejected.
+    if (cacheCfg && upstream.status === 200 && !result.failed) {
       cache.set(
         cacheKey,
         { status: 200, headers: kept, body: buf },
-        { group: feed.id, groupMax: cacheCfg.maxEntries ?? 24 },
+        {
+          group: feed.id,
+          groupMax: cacheCfg.maxEntries ?? 24,
+          groupMaxBytes: cacheCfg.maxBytes,
+        },
       );
     }
 
@@ -409,6 +593,13 @@ export async function handleRelay(
       ...kept,
       'content-length': buf.length,
       ...(cacheCfg ? { 'x-argus-cache': 'miss' } : {}),
+      // Which instance answered, when it was not the first choice (a mirror).
+      ...(result.base && result.base !== base.baseUrl
+        ? { 'x-argus-upstream': new URL(result.base).hostname }
+        : {}),
+      // A 200 the feed's check rejected (e.g. a truncated document), passed on
+      // uncached because nothing better was available.
+      ...(result.failed && upstream.status === 200 ? { 'x-argus-invalid': '1' } : {}),
     });
     res.end(buf);
   } catch (err) {
@@ -419,5 +610,30 @@ export async function handleRelay(
     }
     const status = err instanceof RelayError ? err.status : 500;
     sendJson(res, status, { error: err.message || 'relay error' }, cors);
+  }
+}
+
+/**
+ * Run a `produce` feed: it builds its body from pinned upstream files (see
+ * pinnedFetcher) within the feed's timeout. Shaped like an upstream answer so
+ * caching, staleness and headers work the same.
+ */
+async function runProduce(feed, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const out = await feed.produce({
+      fetch: pinnedFetcher(feed, controller.signal),
+      signal: controller.signal,
+    });
+    return {
+      up: {
+        status: 200,
+        headers: new Headers({ 'content-type': out.contentType || 'application/json' }),
+      },
+      b: Buffer.isBuffer(out.body) ? out.body : Buffer.from(String(out.body)),
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
