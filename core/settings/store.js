@@ -6,6 +6,7 @@
 // scale, Earth options).
 
 import { resolutionScaleFor } from '../capability/profile.js';
+import { ICON_SETTINGS_SCHEMA } from '../ui/iconPrefs.js';
 
 export const SETTINGS_KEY = 'argus.settings.v1';
 
@@ -81,6 +82,10 @@ export const SETTINGS_SCHEMA = Object.freeze({
   // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
   // NEARBY; the Layer SDK's clustering).
   merge: { def: true, values: [true, false] },
+  // Map icons (SETTINGS > ICONS, core/ui/iconPrefs.js): iconScaling ('zoom' or
+  // 'fixed'), iconSize (global %), and per icon layer iconSize.<layer> (%)
+  // and, where the layer has variants, iconVariant.<layer>.
+  ...ICON_SETTINGS_SCHEMA,
 });
 
 /** The defaults, as a fresh object. */

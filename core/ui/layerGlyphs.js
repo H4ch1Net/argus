@@ -1,6 +1,7 @@
 import { glyph } from './glyphs.js';
 import { aircraftGlyph } from './aircraftIcons.js';
 import { inkFor } from './palette.js';
+import { variantGlyph, variantOf } from './iconPrefs.js';
 
 // The marker each layer draws, as a small tinted canvas for menu tiles and
 // legends, so the menu shows exactly what the map shows.
@@ -56,9 +57,12 @@ const LAYER_GLYPH = {
   streetphotos: 'photo',
 };
 
+// Layers with icon variants (core/ui/iconPrefs.js) show their default one.
 function source(key) {
   const g = LAYER_GLYPH[key] ?? 'node';
-  return Array.isArray(g) ? aircraftGlyph(g[1]).image : glyph(g).image;
+  return Array.isArray(g)
+    ? aircraftGlyph(g[1]).image
+    : glyph(variantGlyph(variantOf(key), g)).image;
 }
 
 /** A canvas of a layer's marker tinted with its ink (or a given colour). */
