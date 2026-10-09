@@ -154,7 +154,7 @@ test('photo: the nearest street photo card with its Mapillary link', async () =>
   const c = capture();
   assert.equal(await runCli('photo', ['51.5,-0.12'], { ...c.io, backend }), 0);
   const text = c.out.join('\n');
-  assert.match(text, /STREET PHOTO/);
+  assert.match(text, /PHOTO 090° E/);
   assert.match(text, /Facing\s+090° E/);
   assert.match(text, /mapillary\.com\/app\/\?pKey=987654321/);
 });

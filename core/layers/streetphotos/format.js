@@ -37,10 +37,12 @@ export function describeStreetPhoto(n, { distanceM = null } = {}) {
   rows.push(['Image', m.imageId]);
   return {
     id: n.id,
-    title: m.demo ? 'STREET PHOTO (DEMO)' : 'STREET PHOTO',
+    // Short enough for a tracking label: what way it looks.
+    title:
+      `${m.demo ? 'DEMO ' : ''}PHOTO ${compassText(m.compass).replace('unknown', '')}`.trim(),
     subtitle: m.demo
-      ? 'demo point: no Mapillary token on the proxy'
-      : `Mapillary, ${capturedText(m.capturedAt).slice(0, 10)}`,
+      ? 'street photo, demo point: no Mapillary token on the proxy'
+      : `street photo, Mapillary, ${capturedText(m.capturedAt).slice(0, 10)}`,
     rows,
     image: m.image ? { url: m.image, alt: 'Street-level photo from Mapillary' } : null,
     links: m.demo

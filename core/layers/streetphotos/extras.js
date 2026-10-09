@@ -10,6 +10,24 @@ import { describeStreetPhoto } from './format.js';
 // outcome of a search with nothing found shows as a card row, never a popup.
 
 const MAX_ALT_M = 3000; // aircraft at cruise and satellites have no street
+// Layers whose positions are not a place on a street: geolocated IPs, country
+// centroids, collector cities, storm centres, cable routes, query outputs.
+const NOT_A_PLACE = new Set([
+  'streetphotos',
+  'osint',
+  'shodan',
+  'tor',
+  'bgp',
+  'threats',
+  'gdelt',
+  'radio',
+  'cyclones',
+  'cyclonecones',
+  'cyclonetracks',
+  'cables',
+  'satellites',
+  'constellations',
+]);
 
 /**
  * @param {{ tiles: { tile: Function }|null, manager: object,
@@ -53,6 +71,7 @@ export function createStreetPhotoExtras({ tiles, manager, plot, select, time }) 
         id: n.id,
         kind: 'streetphoto',
         value: 'STREET PHOTO',
+        normalized: n,
         position: { longitude: n.position.longitude, latitude: n.position.latitude },
         card: describeStreetPhoto(n, { distanceM: best.distanceM }),
       });
@@ -73,7 +92,7 @@ export function createStreetPhotoExtras({ tiles, manager, plot, select, time }) 
       ];
     },
     actions(target, rec, ctx) {
-      if (!tiles || rec.key === 'streetphotos' || rec.key === 'osint') return [];
+      if (!tiles || NOT_A_PLACE.has(rec.key)) return [];
       const ll = where(target);
       if (!ll || ll.alt > MAX_ALT_M) return [];
       const busy = state.get(`${rec.key}:${target.id}`) === 'busy';

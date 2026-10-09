@@ -107,7 +107,7 @@ test('the card: photo, capture time, facing, licence and a link, no person', () 
   assert.equal(n.id, 'mly-1234567890123456');
   assert.equal(n.type, 'streetphoto');
   const card = describeStreetPhoto(n, { distanceM: 42.4 });
-  assert.equal(card.title, 'STREET PHOTO');
+  assert.equal(card.title, 'PHOTO 132° SE');
   const rows = Object.fromEntries(card.rows);
   assert.equal(rows.Captured, '2024-06-01 14:05 UTC');
   assert.equal(rows.Facing, '132° SE');
@@ -171,7 +171,7 @@ test('the demo stand-in: deterministic sequences labelled DEMO', async () => {
   assert.ok(a.images.length >= 30);
   assert.deepEqual(a.images, b.images);
   const card = describeStreetPhoto(streetPhotoToNormalized(a.images[0]));
-  assert.equal(card.title, 'STREET PHOTO (DEMO)');
+  assert.match(card.title, /^DEMO PHOTO \d{3}° [NESW]{1,2}$/);
   assert.equal(card.image, null);
   const near = await findNearestStreetPhoto(
     createStreetPhotoMockTiles(),

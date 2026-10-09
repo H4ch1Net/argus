@@ -59,6 +59,9 @@ export function createOsintPlotter(viewer) {
       return {
         entity: rec.entity,
         cardModel: rec.result.card,
+        // A result may carry the record it shows (a street photo), so the card
+        // gets its DEMO / LIVE tag and extras from the record itself.
+        normalized: rec.result.normalized,
         mover: false,
         getHistoryFixes: () => [],
       };
