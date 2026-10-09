@@ -9,9 +9,9 @@
  * @param {{ maxEntries?: number, maxBytes?: number, now?: () => number }} [opts]
  */
 export function createResponseCache({
-  // Room for tile-sized static answers (Overpass) beside the live feeds; the
-  // byte cap below is what bounds memory.
-  maxEntries = 600,
+  // Room for tile-sized static answers (Overpass, per 0.1 degree tile) beside
+  // the live feeds; the byte cap below is what bounds memory.
+  maxEntries = 3000,
   maxBytes = 48 * 1024 * 1024,
   now = () => Date.now(),
 } = {}) {

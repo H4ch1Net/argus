@@ -37,6 +37,9 @@
 // @property {string[]} [mirrors]       other https instances of the same API, tried in order
 //                                      after a network error, timeout, 429 or 5xx (no secrets)
 // @property {number} [retries]         extra attempts on the same base after a failure
+// @property {{ concurrency: number, maxWaitMs?: number, maxQueued?: number }} [queue]
+//                                      at most `concurrency` upstream at once; the rest wait
+//                                      in order (and for governor room) instead of a 429
 // @property {boolean} [freshConnection]  a new connection per attempt (a bad load-balancer member)
 // @property {(body: Buffer, headers: Headers) => boolean} [validate]  false: a 200 that is not
 //                                      a real answer (tried elsewhere, never cached)
@@ -171,10 +174,18 @@ export const feeds = [
     // order is OVERPASS_URL (if set), the main instance, then two public
     // mirrors that answer the same GET ?data= interface: VK Maps (current data)
     // and kumi.systems (live-tested Oct 2026: its data was months old, so it
-    // goes last). A mirror that failed waits 5 minutes at the back. The mapped
-    // things (cameras, readers, landmarks, signals) barely change, so an
-    // answer is kept 12 hours and may stand in for a week when every instance
-    // fails; each attempt gets 35 s (the queries ask for [timeout:25]).
+    // goes last). An instance that failed is skipped for 5 minutes, and one
+    // request tries each instance at most once. The mapped things (cameras,
+    // readers, landmarks, signals) barely change, so an answer is kept 12
+    // hours and may stand in for a week when every instance fails; each
+    // attempt gets 35 s (the queries ask for [timeout:25]).
+    // Budget: the static layers ask per 0.1 degree tile, so a first view with
+    // several on is a burst of dozens of tiles (later views come from the
+    // tile memos and this cache). The burst is queued, not refused: two
+    // requests upstream at a time (overpass-api.de gives an address two
+    // slots), at most 60 a minute, each waiting up to 3 minutes; identical
+    // requests share one call; at most 6,000 a day, well under the main
+    // instance's "safe below 10,000 queries a day" guidance.
     id: 'overpass',
     baseUrl: 'https://overpass-api.de/api',
     baseUrlEnv: 'OVERPASS_URL',
@@ -185,8 +196,19 @@ export const feeds = [
     headers: UA,
     timeoutMs: 35_000,
     validate: overpassAnswered,
-    governor: { ratePerMinute: 20 },
-    cache: { ttlMs: 12 * HOUR, staleMs: 7 * 24 * HOUR, maxEntries: 300, maxBytes: 20e6 },
+    queue: { concurrency: 2, maxWaitMs: 3 * MINUTE, maxQueued: 500 },
+    governor: {
+      ratePerMinute: 60,
+      creditBudget: 6000,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: {
+      ttlMs: 12 * HOUR,
+      staleMs: 7 * 24 * HOUR,
+      maxEntries: 2000,
+      maxBytes: 24e6,
+    },
   },
   {
     // Shodan (exposed-device awareness). Verified Aug 2026: /host/count with

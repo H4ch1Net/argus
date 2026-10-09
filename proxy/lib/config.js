@@ -70,6 +70,8 @@ export function validateFeeds(feeds) {
       throw new Error(`feed ${f.id}: produce must be a function on a GET-only feed`);
     if (f.timeoutMs != null && !(f.timeoutMs > 0))
       throw new Error(`feed ${f.id} has an invalid timeoutMs`);
+    if (f.queue && !(Number.isInteger(f.queue.concurrency) && f.queue.concurrency >= 1))
+      throw new Error(`feed ${f.id} has an invalid queue`);
   }
   return feeds;
 }

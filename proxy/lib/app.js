@@ -4,7 +4,7 @@
 import { handleSetup } from './setup.js';
 import { sendJson } from './respond.js';
 import { handlePreflight } from './cors.js';
-import { handleRelay, resolveBaseUrl } from './relay.js';
+import { createRelayRuntime, handleRelay, resolveBaseUrl } from './relay.js';
 import { createResponseCache } from './cache.js';
 import { handleGoogleTiles } from './tiles.js';
 
@@ -33,9 +33,10 @@ export function createRequestHandler({
   streams = null,
   cache = createResponseCache(),
 }) {
-  // Upstream bases that failed lately (base URL -> cooling down until), so a
-  // feed with mirrors tries a working one first (lib/relay.js).
-  const health = new Map();
+  // What the relay keeps between requests (lib/relay.js): bases that failed
+  // lately (skipped for a while), identical requests in flight (shared), and
+  // the queue of each feed that sends only a few requests at a time.
+  const runtime = createRelayRuntime();
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://proxy.local');
@@ -81,7 +82,7 @@ export function createRequestHandler({
           tokenManagers,
           governor,
           cache,
-          health,
+          runtime,
         });
         return;
       }

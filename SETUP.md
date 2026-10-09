@@ -327,8 +327,11 @@ identify themselves (Argus sends a descriptive User-Agent). The proxy tries
 `OVERPASS_URL` (if set), then overpass-api.de, then the VK Maps and
 kumi.systems mirrors, moving on after a 429, a 5xx, a timeout or a query the
 server gave up on, and keeps each answer 12 hours (mapped cameras and
-landmarks barely change). If OSM layers still fail, point `OVERPASS_URL` at an
-instance you run.
+landmarks barely change). A first view with several OSM layers on is a burst
+of small tile queries: the proxy sends two at a time (at most 60 a minute and
+6,000 a day) and holds the rest for up to 3 minutes, so tiles fill in over a
+little while instead of failing. If OSM layers still fail, point
+`OVERPASS_URL` at an instance you run.
 
 ### Free key required
 
