@@ -176,7 +176,13 @@ export const feeds = [
     // order is OVERPASS_URL (if set), the main instance, then two public
     // mirrors that answer the same GET ?data= interface: VK Maps (current data)
     // and kumi.systems (live-tested Oct 2026: its data was months old, so it
-    // goes last). An instance that failed is skipped for 5 minutes, and one
+    // goes last). Checked again on Oct 9 2026: all three come and go (the main
+    // instance gives one address two slots, VK answered 504 or timed out
+    // about half the time, kumi.systems answered 500 on every path, its
+    // status page included, hours after answering node queries), and no
+    // other public instance answered, so the list stands; the app shows a
+    // busy Overpass as one calm log line and asks again (core/ui/feedLog.js).
+    // An instance that failed is skipped for 5 minutes, and one
     // request tries each instance at most once. The mapped things (cameras,
     // readers, landmarks, signals) barely change, so an answer is kept 12
     // hours and may stand in for a week when every instance fails; each

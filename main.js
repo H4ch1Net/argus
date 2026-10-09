@@ -643,6 +643,7 @@ async function setupScene(app, splash) {
         return createWazeSource({
           proxyClient: c,
           local: Boolean(health && feedConfigured(health, 'waze-local')),
+          log, // one entry when Waze refuses (403), then 30 min of quiet
         });
       },
       mock: () =>
@@ -776,6 +777,9 @@ async function setupScene(app, splash) {
       key: 'fires',
       group: 'Earth & weather',
       label: 'Fires',
+      // NASA FIRMS needs its free MAP_KEY on the proxy (FIRMS_MAP_KEY): hidden
+      // until it is set, rather than an error every poll.
+      requires: 'firms',
       loadDef: () =>
         import('./core/layers/fires/definition.js').then((m) => m.firesDefinition),
       proxy: (c) => (q, s) =>
@@ -1702,34 +1706,16 @@ async function setupScene(app, splash) {
   setPreset(activePreset);
 
   // Feed failures go to LOGS, never a popup (the menu row turns ERR or STALE
-  // too); a feed that recovers is logged as well. Repeats fold into a count.
-  const feedState = new Map(); // layer key -> 'ok' | 'stale' | 'error'
+  // too), kept light (core/ui/feedLog.js): an error every time (repeats fold
+  // into a count), a busy source or a stale copy once, and a recovery only
+  // after one of those and only on a real answer.
+  const { feedLogEntry } = await import('./core/ui/feedLog.js');
+  const feedState = new Map(); // layer key -> the state last logged
   manager.subscribeStatus((key, s) => {
-    const state = s?.state === 'ok' && s.stale != null ? 'stale' : s?.state;
-    const was = feedState.get(key);
-    feedState.set(key, state);
     const label = (manager.list().find((l) => l.key === key)?.label ?? key).toUpperCase();
-    if (state === 'error')
-      log({
-        level: 'error',
-        source: key,
-        title: `${label} FEED ERROR`,
-        body: s.message || 'The feed did not answer.',
-      });
-    else if (state === 'stale' && was !== 'stale')
-      log({
-        level: 'warn',
-        source: key,
-        title: `${label} STALE`,
-        body: String(s.note ?? '').replace(/^STALE: /, ''),
-      });
-    else if (state === 'ok' && (was === 'error' || was === 'stale'))
-      log({
-        level: 'info',
-        source: key,
-        title: `${label} BACK`,
-        body: `${s.count ?? 0} items.`,
-      });
+    const { state, entry } = feedLogEntry(feedState.get(key), s, label, key);
+    feedState.set(key, state);
+    if (entry) log(entry);
   });
 
   // ------------------------------------------------------------- view menu
