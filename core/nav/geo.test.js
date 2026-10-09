@@ -12,6 +12,7 @@ import {
   pointAlong,
   nearestVertex,
   lineBBox,
+  chunkLine,
 } from './geo.js';
 
 test('distances, bearings and destinations agree with each other', () => {
@@ -83,6 +84,28 @@ test('snapToLine finds the closest point, its along distance and offset', () => 
   const w = snapToLine(line, cum, 0.0092, 0.004, { from: 0, to: 1 }, {});
   assert.equal(w.index, 0);
   assert.ok(w.offM > 400);
+});
+
+test('chunkLine cuts a line into joined pieces, long segments included', () => {
+  const line = [
+    [0, 0],
+    [0, 0.009], // 1 km north
+    [0.009, 0.009], // 1 km east
+  ];
+  const cum = cumulative(line);
+  const pieces = chunkLine(line, cum, 250);
+  assert.equal(pieces.length, 9); // 2,001 m in pieces of at most 250 m
+  assert.equal(pieces[0].from, 0);
+  assert.ok(Math.abs(pieces.at(-1).to - cum[2]) < 1e-6);
+  for (let k = 1; k < pieces.length; k += 1) {
+    assert.deepEqual(pieces[k].path[0], pieces[k - 1].path.at(-1), 'joined');
+    assert.ok(pieces[k].path.length >= 2);
+  }
+  // The piece across the corner keeps the corner vertex.
+  const corner = pieces.find((p) => p.from < cum[1] && p.to > cum[1]);
+  assert.ok(corner.path.some((q) => q[0] === 0 && q[1] === 0.009));
+  assert.equal(chunkLine(line, cum, 1, 5).length, 5, 'capped');
+  assert.deepEqual(chunkLine([[0, 0]], new Float64Array(1)), []);
 });
 
 test('pointAlong walks the line with the segment bearing, clamped at the ends', () => {

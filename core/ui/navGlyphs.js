@@ -69,10 +69,12 @@ export function drawManeuver(g, size, m) {
   const w = Math.max(3, s * 0.11);
   const c = s / 2;
   const bottom = s * 0.92;
-  const mid = s * 0.56;
-  const len = s * 0.3;
   const type = m?.type ?? 'continue';
   const ang = (angleFor(m?.modifier) * Math.PI) / 180;
+  // Sharp turns bend higher so the way back down fits the box.
+  const sharp = Math.abs(ang) > Math.PI / 2 + 0.01;
+  const mid = sharp ? s * 0.42 : s * 0.56;
+  const len = sharp ? s * 0.3 : s * 0.25;
   g.fillStyle = INK;
 
   if (type === 'reroute') {
@@ -121,10 +123,14 @@ export function drawManeuver(g, size, m) {
   }
 
   if (type === 'roundabout' || type === 'rotary') {
-    const r = s * 0.17;
-    const cy = s * 0.42;
+    // The ring in grey, the way round in white (the short way, which reads
+    // at banner size whichever side the traffic drives), the exit number in
+    // the middle.
+    const r = s * 0.22;
+    const cy = s * 0.46;
+    const lw = Math.max(2, w * 0.62);
     g.strokeStyle = GHOST;
-    g.lineWidth = Math.max(2, w * 0.55);
+    g.lineWidth = Math.max(1.5, w * 0.32);
     g.beginPath();
     g.arc(c, cy, r, 0, Math.PI * 2);
     g.stroke();
@@ -135,17 +141,24 @@ export function drawManeuver(g, size, m) {
         [c, cy + r],
       ],
       INK,
-      w,
+      lw,
     );
-    const out = Number.isFinite(ang) ? ang : 0;
+    // A U-turn leaves just beside the way in, not on top of it.
+    const out = m?.modifier === 'uturn' ? -2.8 : Number.isFinite(ang) ? ang : 0;
     const ex = c + Math.sin(out) * r;
     const ey = cy - Math.cos(out) * r;
-    const tx = c + Math.sin(out) * (r + len * 0.9);
-    const ty = cy - Math.cos(out) * (r + len * 0.9);
-    // Round the ring from the entry to the exit (anticlockwise driving shown
-    // as the short way round, which reads well at banner size).
+    // As far out as the box allows in that direction, leaving room for the head.
+    const dx = Math.sin(out);
+    const dy = -Math.cos(out);
+    const room = Math.min(
+      Math.abs(dx) > 1e-3 ? (dx > 0 ? s - ex : ex) / Math.abs(dx) : Infinity,
+      Math.abs(dy) > 1e-3 ? (dy < 0 ? ey : s - ey) / Math.abs(dy) : Infinity,
+    );
+    const reach = Math.max(2, Math.min(len * 0.62, room - lw * 1.6 - 2));
+    const tx = c + Math.sin(out) * (r + reach);
+    const ty = cy - Math.cos(out) * (r + reach);
     g.strokeStyle = INK;
-    g.lineWidth = w;
+    g.lineWidth = lw;
     g.beginPath();
     g.arc(c, cy, r, Math.PI / 2, out - Math.PI / 2, out > 0);
     g.stroke();
@@ -156,12 +169,12 @@ export function drawManeuver(g, size, m) {
         [tx, ty],
       ],
       INK,
-      w,
+      lw,
     );
-    arrowHead(g, tx, ty, out, w * 1.5);
+    arrowHead(g, tx, ty, out, lw * 1.6);
     if (Number.isInteger(m?.exit)) {
       g.fillStyle = INK;
-      g.font = `700 ${Math.round(s * 0.2)}px 'JetBrains Mono', ui-monospace, monospace`;
+      g.font = `700 ${Math.round(r * 0.95)}px 'JetBrains Mono', ui-monospace, monospace`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.fillText(String(m.exit), c, cy + 1);

@@ -326,6 +326,16 @@
   min-height: 32px;
 }
 
+/* ---------- TOOLS > ROUTE rows: LABEL value [ME] [MAP] [TGT] ---------- */
+.ct-tool__pt.ct-nav__pt {
+  grid-template-columns: 4.5ch minmax(0, 1fr) auto auto auto;
+}
+.ct-nav__pt .ct-tool__val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- map menu (long press / right click) ---------- */
 .ct-nav__ctx {
   position: fixed;

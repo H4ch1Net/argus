@@ -1,70 +1,28 @@
 import * as Cesium from 'cesium';
-import { createGroundBatch } from '../layers/surveillance/groundBatch.js';
 import { acquireContinuousRender, releaseContinuousRender } from '../scene/renderMode.js';
 import { destinationImage, puckImage } from '../ui/navGlyphs.js';
 import { angleDiff, cumulative, lineBBox, pointAlong } from './geo.js';
+import { createRouteLines } from './routeLines.js';
 
 // The navigator on the globe (browser only; the terminal never imports it):
 // the planned routes and the one being driven as ground lines (bright ahead,
 // grey behind, TomTom jams in red, alternatives dim), the destination marker,
 // the vehicle puck, and the follow camera (heading up, tilted, looking ahead).
 //
-// Cost: the lines are one GroundPolylinePrimitive rebuilt only when the route
-// changes, the user picks another alternative, or the vehicle has gone 200 m
-// or a step since the last split (core/layers/surveillance/groundBatch.js:
-// built in workers, swapped in when ready, so it never flickers). The follow
-// camera runs in preRender at the paced frame rate (core/scene/renderMode.js)
-// with scratch objects only: nothing is allocated per frame.
+// Cost: the line geometry is built only when the routes change (a plan, a
+// reroute: core/nav/routeLines.js); progress, the chosen alternative and the
+// start of the drive only recolour pieces of it. The follow camera runs in
+// preRender at the paced frame rate (core/scene/renderMode.js) with scratch
+// objects only: nothing is allocated per frame.
 
 const AHEAD = Cesium.Color.WHITE;
 const BEHIND = Cesium.Color.fromCssColorString('#7a7a7a').withAlpha(0.9);
 const ALT = Cesium.Color.fromCssColorString('#c3c3c3').withAlpha(0.45);
 const JAM = Cesium.Color.fromCssColorString('#fc3e38');
-const REBUILD_M = 200;
+const NONE = Cesium.Color.TRANSPARENT;
 const ENTRY_S = 1.2;
 const PITCH = Cesium.Math.toRadians(-38);
 const M_PER_DEG = 111_320;
-
-const flat = (pts) => {
-  const out = new Array(pts.length * 2);
-  for (let i = 0; i < pts.length; i += 1) {
-    out[i * 2] = pts[i][0];
-    out[i * 2 + 1] = pts[i][1];
-  }
-  return out;
-};
-
-/** Lines for the ground batch, or a PolylineCollection where ground lines are unsupported. */
-function createLines(scene, collect) {
-  let supported = false;
-  try {
-    supported = Cesium.GroundPolylinePrimitive?.isSupported?.(scene) === true;
-  } catch {
-    supported = false;
-  }
-  if (supported) {
-    const batch = createGroundBatch(scene, { collect, debounceMs: 30 });
-    return { markDirty: () => batch.markDirty(), destroy: () => batch.destroy() };
-  }
-  // Fallback: plain lines 15 m up (they may dip under steep terrain).
-  const coll = scene.primitives.add(new Cesium.PolylineCollection());
-  return {
-    markDirty() {
-      coll.removeAll();
-      for (const l of collect().lines ?? []) {
-        coll.add({
-          positions: Cesium.Cartesian3.fromDegreesArrayHeights(
-            l.path.flatMap((v, i) => (i % 2 ? [v, 15] : [v])),
-          ),
-          width: l.width,
-          material: Cesium.Material.fromType('Color', { color: l.color }),
-        });
-      }
-      scene.requestRender();
-    },
-    destroy: () => scene.primitives.remove(coll),
-  };
-}
 
 /**
  * @param {import('cesium').Viewer} viewer
@@ -82,56 +40,25 @@ export function createNavView(
   const cam = viewer.camera;
   let state = nav.state;
   let route = null;
-  let routes = null;
+  let routes = null; // the drawn set (built once per set)
   let cum = null;
-  let splitAlong = 0;
-  let splitStep = -1;
 
   // --- lines ---------------------------------------------------------------------
-  function piecesFrom(line, startIdx, startPt, color, width, out) {
-    // From startPt along line[startIdx + 1 ..], split where TomTom marks traffic.
-    const sections = route?.traffic ?? [];
-    const jamAt = (i) => sections.some((s) => i >= s.from && i < s.to);
-    let cur = [startPt];
-    let curJam = jamAt(startIdx);
-    for (let i = startIdx + 1; i < line.length; i += 1) {
-      cur.push(line[i]);
-      const j = jamAt(i);
-      if (j !== curJam && i < line.length - 1) {
-        if (cur.length > 1)
-          out.push({ path: flat(cur), color: curJam ? JAM : color, width });
-        cur = [line[i]];
-        curJam = j;
-      }
-    }
-    if (cur.length > 1) out.push({ path: flat(cur), color: curJam ? JAM : color, width });
+  const lines = createRouteLines(scene);
+  const jamAt = (r, piece) =>
+    (r?.traffic ?? []).some((s) => piece.index >= s.from && piece.index < s.to);
+  const driving = () =>
+    state.status === 'navigating' ||
+    state.status === 'rerouting' ||
+    state.status === 'arrived';
+  function colorOf(ri, piece) {
+    const r = routes?.[ri];
+    if (!r || state.status === 'idle') return NONE;
+    if (!driving()) return r === route ? (jamAt(r, piece) ? JAM : AHEAD) : ALT;
+    if (r !== route) return NONE;
+    if (piece.to <= fixAlong) return BEHIND;
+    return jamAt(r, piece) ? JAM : AHEAD;
   }
-
-  const splitScratch = {};
-  function collect() {
-    const lines = [];
-    if (!route) return { lines };
-    const line = route.geometry;
-    if (state.status === 'previewing' || state.status === 'planning') {
-      for (const r of routes ?? []) {
-        if (r !== route) lines.push({ path: flat(r.geometry), color: ALT, width: 4 });
-      }
-      piecesFrom(line, 0, line[0], AHEAD, 6, lines);
-      return { lines };
-    }
-    const p = pointAlong(line, cum, splitAlong, splitScratch);
-    const at = [p.lon, p.lat];
-    if (splitAlong > 1) {
-      lines.push({
-        path: flat([...line.slice(0, p.index + 1), at]),
-        color: BEHIND,
-        width: 6,
-      });
-    }
-    piecesFrom(line, p.index, at, AHEAD, 7, lines);
-    return { lines };
-  }
-  const lines = createLines(scene, collect);
 
   // --- markers -------------------------------------------------------------------
   const billboards = scene.primitives.add(new Cesium.BillboardCollection({ scene }));
@@ -301,23 +228,22 @@ export function createNavView(
   function onState(s) {
     const prev = state;
     state = s;
-    const nextRoutes = s.routes ?? (s.route ? [s.route] : null);
-    const nextRoute = s.route ?? null;
-    let dirty = false;
-    if (nextRoute !== route || nextRoutes !== routes || prev.status !== s.status) {
-      if (nextRoute !== route) {
-        cum = nextRoute ? cumulative(nextRoute.geometry) : null;
-        splitAlong = 0;
-        splitStep = -1;
-        view.set = false;
-      }
-      route = nextRoute;
+    const nextRoutes =
+      s.status === 'idle' ? null : (s.routes ?? (s.route ? [s.route] : null));
+    const nextRoute = s.status === 'idle' ? null : (s.route ?? null);
+    if (nextRoute !== route) {
+      cum = nextRoute ? cumulative(nextRoute.geometry) : null;
+      fixAlong = 0;
+    }
+    route = nextRoute;
+    // New geometry only for a new set of routes (a plan, a reroute).
+    if (nextRoutes !== routes) {
       routes = nextRoutes;
-      dirty = true;
+      lines.build(routes ?? []);
     }
     const d = s.destination;
     destMark.show = Boolean(d) && s.status !== 'idle';
-    if (d && (prev.destination !== d || dirty)) {
+    if (d && prev.destination !== d) {
       destMark.position = Cesium.Cartesian3.fromDegrees(d.lon, d.lat);
     }
     const pr = s.progress;
@@ -329,11 +255,6 @@ export function createNavView(
       fixAlong = pr.alongM ?? fixAlong;
       fixAt = performance.now();
       fixSpeed = Number(nav.lastFix?.speed) || 0;
-      if (pr.stepIndex !== splitStep || Math.abs(fixAlong - splitAlong) > REBUILD_M) {
-        splitStep = pr.stepIndex;
-        splitAlong = fixAlong;
-        dirty = true;
-      }
       if (!following) placePuck(pr.snapped.lat, pr.snapped.lon, nav.lastFix?.heading);
     }
     if (
@@ -346,7 +267,7 @@ export function createNavView(
       setFollow(false);
       puck.show = false;
     }
-    if (dirty) lines.markDirty();
+    lines.paint(colorOf);
     scene.requestRender();
   }
   const unsubscribe = nav.subscribe(onState);

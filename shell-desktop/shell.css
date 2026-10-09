@@ -132,6 +132,10 @@
   width: min(440px, calc(100vw - 2 * (var(--panel-w) + 3 * var(--hud-gap))));
   min-width: 300px;
 }
+/* Notices start below the WHERE TO bar, which they would otherwise cover. */
+.argus-navtop:not(:empty) ~ .argus-notify {
+  top: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in) + 46px);
+}
 .argus-navbottom {
   bottom: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
   width: min(560px, calc(100vw - 2 * (var(--panel-w) + 3 * var(--hud-gap))));

@@ -218,6 +218,41 @@ export function pointAlong(line, cum, along, out = {}, hint = 0) {
   return out;
 }
 
+/**
+ * Cut a line into consecutive pieces about `chunkM` metres long (the cuts
+ * interpolated, so a long straight segment is cut too), at most `maxChunks`
+ * pieces (longer pieces on a long line). Each piece: { from, to } metres along
+ * the line, `path` [lon, lat][] (at least 2 points) and `index`, the vertex
+ * index of its start.
+ */
+export function chunkLine(line, cum, chunkM = 100, maxChunks = 300) {
+  const n = line.length;
+  if (n < 2) return [];
+  const total = cum[n - 1];
+  if (!(total > 0)) return [];
+  const count = Math.max(1, Math.min(maxChunks, Math.ceil(total / chunkM)));
+  const step = total / count;
+  const out = [];
+  const at = {};
+  let i = 0;
+  for (let k = 0; k < count; k += 1) {
+    const from = k * step;
+    const to = k === count - 1 ? total : (k + 1) * step;
+    const a = pointAlong(line, cum, from, at, i);
+    const path = [[a.lon, a.lat]];
+    const index = a.index;
+    i = a.index;
+    while (i + 1 < n && cum[i + 1] < to) {
+      i += 1;
+      path.push([line[i][0], line[i][1]]);
+    }
+    const b = pointAlong(line, cum, to, at, i);
+    path.push([b.lon, b.lat]);
+    out.push({ from, to, path, index });
+  }
+  return out;
+}
+
 /** [west, south, east, north] of a [lon, lat] line, or null when empty. */
 export function lineBBox(line) {
   if (!line?.length) return null;

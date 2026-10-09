@@ -894,7 +894,7 @@ export function createNavPanel({
     return section(
       'ROUTE',
       h(
-        'div.ct-tool__pt',
+        'div.ct-tool__pt.ct-nav__pt',
         {},
         h('span.ct-muted', {}, 'FROM'),
         fromText,
@@ -903,7 +903,7 @@ export function createNavPanel({
         btn('TGT', () => originFromTarget(), 'From the selected target'),
       ),
       h(
-        'div.ct-tool__pt',
+        'div.ct-tool__pt.ct-nav__pt',
         {},
         h('span.ct-muted', {}, 'TO'),
         toText,
