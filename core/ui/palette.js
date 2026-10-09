@@ -73,6 +73,10 @@ export const LAYER_INK = Object.freeze({
   terminator: INK.slate,
   tor: INK.teal,
   gdelt: INK.dimmer,
+  // Simulated traffic (gray vehicles; roads tint by congestion) and street
+  // photos (Mapillary).
+  simtraffic: INK.gray,
+  streetphotos: INK.pale,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

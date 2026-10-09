@@ -50,6 +50,8 @@ const LAYER_GLYPH = {
   terminator: 'half',
   tor: 'exit',
   gdelt: 'news',
+  simtraffic: 'vehicle',
+  streetphotos: 'photo',
 };
 
 function source(key) {

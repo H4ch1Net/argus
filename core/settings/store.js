@@ -42,6 +42,25 @@ export const SETTINGS_SCHEMA = Object.freeze({
   atmosphere: { def: true, values: [true, false] },
   stars: { def: true, values: [true, false] },
   exaggeration: { def: 1, values: [1, 1.5, 2, 3] },
+  // Shodan snapshot and host sample (VIEW > SHODAN; ids as in
+  // core/layers/shodan/snapshots.js), and the TomTom flow readout (VIEW > ROAD FLOW).
+  shodanSnapshot: {
+    def: 'web',
+    values: [
+      'web',
+      'rdp',
+      'vnc',
+      'telnet',
+      'smb',
+      'databases',
+      'mqtt',
+      'modbus',
+      's7',
+      'bacnet',
+    ],
+  },
+  shodanSample: { def: false, values: [true, false] },
+  flowReadout: { def: false, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

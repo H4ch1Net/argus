@@ -4,6 +4,7 @@ import {
   parseAsOverview,
   firstForwardIpv4,
 } from './lookup.js';
+import { createInternetDbLookup, internetDbRows, isIp } from './internetdb.js';
 
 // Asset correlation (Pillar 3): show ONE asset across several passive sources at
 // once, the composite infrastructure picture. This is the "triangulation" the plan
@@ -11,8 +12,9 @@ import {
 // a person and never multi-point geo scatter (public geo is too coarse to be
 // meaningful, so relationships are shown as sourced facts, not scattered dots).
 //
-// Sources: RIPEstat (network-info, as-overview, announced-prefixes, geo, dns-chain)
-// and, when configured, a credit-free Shodan single-host lookup for exposure.
+// Sources: RIPEstat (network-info, as-overview, announced-prefixes, geo, dns-chain),
+// Shodan InternetDB (keyless: ports, CVEs, tags, hostnames, software) and, when
+// configured, a credit-free Shodan single-host lookup (adds the operator).
 // Certificate Transparency joins in the CT/BGP stage. All reads of already-public
 // indexes; nothing is sent at a host; inputs are assets, never people.
 
@@ -42,7 +44,10 @@ export function parseShodanHost(json) {
   };
 }
 
-export function createCorrelator({ proxyClient }) {
+export function createCorrelator({
+  proxyClient,
+  internetDb = createInternetDbLookup(proxyClient),
+}) {
   // baseUrl already ends in /data, so the sub-path must not repeat it (see lookup.js).
   const ripe = (call, resource, signal) =>
     proxyClient.getJson('ripestat', `/${call}/data.json`, {
@@ -78,14 +83,19 @@ export function createCorrelator({ proxyClient }) {
     const asn =
       asset.kind === 'asn' ? asset.value : net?.asns?.[0] ? `AS${net.asns[0]}` : null;
 
-    const [asJson, prefixesJson, shodanJson] = await Promise.all([
+    const hostIp = asset.kind !== 'asn' && isIp(resource) ? resource : null;
+    const [asJson, prefixesJson, shodanJson, exposure] = await Promise.all([
       asn ? ripe('as-overview', asn, signal).catch(() => null) : null,
       asn ? ripe('announced-prefixes', asn, signal).catch(() => null) : null,
-      asset.kind !== 'asn'
+      hostIp
         ? proxyClient
-            .getJson('shodan', `/shodan/host/${resource}`, { signal })
+            .getJson('shodan', `/shodan/host/${hostIp}`, { signal })
             .catch(() => null)
         : null,
+      // undefined: not asked or failed; null: InternetDB has nothing indexed.
+      hostIp && internetDb
+        ? internetDb(hostIp, signal).catch(() => undefined)
+        : undefined,
     ]);
     const as = asJson ? parseAsOverview(asJson) : null;
     const shodan = shodanJson ? parseShodanHost(shodanJson) : null;
@@ -107,7 +117,14 @@ export function createCorrelator({ proxyClient }) {
       });
     }
 
-    if (shodan) {
+    // Exposure: InternetDB answers for every IP (keyless); the keyed Shodan
+    // host lookup adds what InternetDB lacks (the operator), and stands in
+    // for it when InternetDB did not answer.
+    if (exposure !== undefined) {
+      const rows = internetDbRows(exposure);
+      if (shodan?.org) rows.push(['Org', shodan.org]);
+      sections.push({ title: 'Exposure (InternetDB)', rows });
+    } else if (shodan) {
       const rows = [];
       if (shodan.ports.length)
         rows.push(['Open ports', shodan.ports.slice(0, 14).join(', ')]);
@@ -119,7 +136,11 @@ export function createCorrelator({ proxyClient }) {
       if (rows.length) sections.push({ title: 'Exposure (Shodan)', rows });
     }
 
-    const sources = ['RIPEstat', ...(shodan ? ['Shodan'] : [])];
+    const sources = [
+      'RIPEstat',
+      ...(exposure !== undefined ? ['InternetDB'] : []),
+      ...(shodan ? ['Shodan'] : []),
+    ];
     const id = `corr:${asset.kind}:${asset.value}`;
     const place = geo ? [geo.city, geo.country].filter(Boolean).join(', ') : '';
     const topRows = [];
