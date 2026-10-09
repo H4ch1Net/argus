@@ -203,11 +203,13 @@ export function createCameraControls(viewer) {
      * Fly to fit a box (degrees; west > east crosses the antimeridian), keeping
      * the heading and at most a moderate tilt. A tiny box (contacts stacked on
      * one spot) gets a minimum size that still lands low enough to draw every
-     * contact apart (below the merge height).
+     * contact apart: 0.005 degrees padded is a sphere of about 530 m, which
+     * Cesium frames from about 2 km even on a portrait phone (under the 3 km
+     * merge height).
      */
     fitBounds(
       { west, south, east, north },
-      { pad = 0.35, minSpanDeg = 0.01, duration = 1.2 } = {},
+      { pad = 0.35, minSpanDeg = 0.005, duration = 1.2 } = {},
     ) {
       if (![west, south, east, north].every(Number.isFinite)) return;
       pre();

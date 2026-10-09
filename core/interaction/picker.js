@@ -37,6 +37,8 @@ export function createPicker(viewer, { onPick, accept, intercept, onZoom }) {
   let multi = false; // two or more pointers were down during this gesture
   const taps = createTapSequencer();
   let pendingEmpty = null; // a deferred "tapped nothing"
+  let firstTarget = null; // what the first tap of the sequence picked
+  let zoomedIn = false; // its second tap zoomed in (a third one undoes that)
 
   const onPointerDown = (e) => {
     // A press whose release never arrived (lost outside the page) is forgotten.
@@ -90,15 +92,19 @@ export function createPicker(viewer, { onPick, accept, intercept, onZoom }) {
       : 1;
     if (count === 2) {
       cancelEmpty(); // a double tap on the map keeps the current target
-      onZoom(2, pos, { chain: false });
+      // The first tap already flies into a group: let that flight be the zoom.
+      zoomedIn = !firstTarget?.argusCluster;
+      if (zoomedIn) onZoom(2, pos, { chain: false });
       return;
     }
     if (count === 3) {
-      onZoom(0.5, pos, { chain: true });
+      onZoom(0.5, pos, { chain: zoomedIn });
       return;
     }
     const radius = toleranceFor(start.pointerType).pickRadiusPx;
     const target = pickAt(scene, pos, radius, accept);
+    firstTarget = target;
+    zoomedIn = false;
     cancelEmpty();
     if (target || !gestures) {
       onPick(target, pos);

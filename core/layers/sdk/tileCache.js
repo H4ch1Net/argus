@@ -14,9 +14,10 @@ export const TILE_DEFAULTS = Object.freeze({
   ttlMs: 6 * 60 * 60 * 1000,
   maxTiles: 32,
   // A view needing more tiles than this is too broad: nothing new is fetched
-  // ("zoom in to load"), cached tiles still show. 7 x 7 half-degree tiles
-  // cover the 3 degree view the Overpass layers loaded before they were tiled.
-  maxView: 49,
+  // ("zoom in to load"), cached tiles still show. Every tile is a request and
+  // the proxy runs Overpass two at a time, so a view costs at most 16 (a two
+  // degree view of half-degree tiles).
+  maxView: 16,
   concurrency: 2, // tiles in flight at once (Overpass allows few per client)
   retryMs: 60_000, // a failed tile is not asked again sooner than this
 });

@@ -79,6 +79,30 @@ const DEFAULT_INTERVAL_MS = 15_000;
 const DEFAULT_HISTORY = 60;
 const DEFAULT_MAX_ENTITIES = 2000;
 
+// Tile requests in flight across every tile-cached layer of the page. The
+// Overpass layers share one budget at the proxy (two upstream at a time, 60 a
+// minute, queued): with several on, each view's nearest tiles go first, a few
+// at a time, layer after layer.
+const TILE_SLOTS = 3;
+let tileSlotsBusy = 0;
+const tileSlotWaiters = new Set(); // pump functions waiting for a free slot
+function takeTileSlot(pump) {
+  if (tileSlotsBusy >= TILE_SLOTS) {
+    tileSlotWaiters.add(pump);
+    return false;
+  }
+  tileSlotsBusy += 1;
+  return true;
+}
+function releaseTileSlot() {
+  tileSlotsBusy = Math.max(0, tileSlotsBusy - 1);
+  for (const pump of [...tileSlotWaiters]) {
+    if (tileSlotsBusy >= TILE_SLOTS) break;
+    tileSlotWaiters.delete(pump);
+    pump();
+  }
+}
+
 /**
  * @param {import('cesium').Viewer} viewer
  * @param {object} def LayerDefinition
@@ -682,6 +706,8 @@ export function createLayer(viewer, def, ctx) {
   let showTimer = null;
   let tilesFetched = 0; // requests sent (dev stats)
 
+  let backoffUntil = 0; // the upstream said "too many": no new tiles until then
+
   function pollTiles(reload) {
     lastPollAt = Date.now();
     const { bbox } = computeViewportQuery(viewer);
@@ -692,19 +718,30 @@ export function createLayer(viewer, def, ctx) {
     tileFailures = 0;
     const want = broad ? [] : tilesForView(bbox, tileCfg.tileDeg);
     for (const t of want) tiles.touch(t.key); // in view: evicted last
-    tileQueue = want.filter(
-      (t) =>
-        !tileFlights.has(t.key) &&
-        (reload || (!tiles.isFresh(t.key) && !tiles.isCoolingDown(t.key))),
-    );
+    if (reload) backoffUntil = 0;
+    tileQueue =
+      Date.now() < backoffUntil
+        ? []
+        : want.filter(
+            (t) =>
+              !tileFlights.has(t.key) &&
+              (reload || (!tiles.isFresh(t.key) && !tiles.isCoolingDown(t.key))),
+          );
     for (const t of tileQueue) t.reload = reload;
+    // A definition that picks what to draw by the view (def.select, e.g. the
+    // nearest to the vehicle) needs the records again for every view.
+    if (def.select) shownTiles = '';
     showTiles();
     pumpTiles();
     reportTiles();
   }
 
+  // Nearest first, at most tileCfg.concurrency of this layer's tiles and
+  // TILE_SLOTS of all layers' tiles in flight (the Overpass layers share one
+  // small budget at the proxy).
   function pumpTiles() {
     while (running && tileFlights.size < tileCfg.concurrency && tileQueue.length) {
+      if (!takeTileSlot(pumpTiles)) return;
       fetchTile(tileQueue.shift());
     }
   }
@@ -718,13 +755,20 @@ export function createLayer(viewer, def, ctx) {
       tilesFetched += 1;
       const raw = await ctx.source(query, controller.signal);
       if (controller.signal.aborted) return;
+      // Kept even when the layer was switched off meanwhile: drawn next time.
       tiles.set(t.key, { bbox: t.bbox, raw, list: def.normalize(raw) });
-      if (!showTimer) showTimer = setTimeout(showTiles, 120); // batch arrivals
+      if (running && !showTimer) showTimer = setTimeout(showTiles, 120); // batch arrivals
     } catch (err) {
       if (err?.name === 'AbortError' || controller.signal.aborted) return;
       tiles.fail(t.key);
       tileFailures += 1;
       tileError = String(err?.message || err);
+      if (err?.status === 429 || err?.status === 503) {
+        // Over the budget: drop the rest of this view's queue and rest a while
+        // (cached tiles stay drawn; the next camera stop after it asks again).
+        tileQueue = [];
+        backoffUntil = Date.now() + 30_000;
+      }
       // No popup (feed failures go to the menu row and the log), and the tile
       // is not asked again for a minute.
       console.warn(`[argus] ${def.id}: tile ${t.key} failed: ${tileError}`);
@@ -736,6 +780,7 @@ export function createLayer(viewer, def, ctx) {
       });
     } finally {
       if (tileFlights.get(t.key) === controller) tileFlights.delete(t.key);
+      releaseTileSlot();
       pumpTiles();
       reportTiles();
     }
@@ -796,10 +841,17 @@ export function createLayer(viewer, def, ctx) {
     });
   }
 
-  function abortTiles() {
-    for (const c of tileFlights.values()) c.abort();
-    tileFlights.clear();
+  // Paused or stopped: ask for nothing more. Tiles already in flight are not
+  // cancelled: the proxy queues Overpass requests (and drops a client that
+  // hangs up), so they finish into the cache for the next time. Only a
+  // destroyed layer aborts them.
+  function stopTiles({ abort = false } = {}) {
+    if (abort) {
+      for (const c of tileFlights.values()) c.abort();
+      tileFlights.clear();
+    }
     tileQueue = [];
+    tileSlotWaiters.delete(pumpTiles);
     clearTimeout(showTimer);
     showTimer = null;
   }
@@ -844,7 +896,7 @@ export function createLayer(viewer, def, ctx) {
       timer = null;
     }
     aborter?.abort();
-    if (tileCfg) abortTiles();
+    if (tileCfg) stopTiles();
   }
   function resumePolling() {
     if (!running || timer) return;
@@ -1005,6 +1057,7 @@ export function createLayer(viewer, def, ctx) {
     },
     destroy() {
       this.stop();
+      if (tileCfg) stopTiles({ abort: true });
       removePreRender?.();
       clearTimeout(clusterTimer);
       for (const rec of records.values()) rec.dispose?.();
