@@ -15,13 +15,15 @@ lamp colours.
      globe (Cesium evaluates `t^0.2` on squared distance, `czm_nearFarScalar`;
      checked in the 1.140 build), so there are two curves per layer: its own
      (unchanged, used for FIXED and when high) and a close-up curve rising from
-     1x at 5 km to 3x at 100 m (2.56x at 150 m, 2.42x at 250 m, 2.28x at 400 m,
-     1.95x at 1 km, 1.61x at 2 km).
+     1x at 8 km to 3x at 100 m (2.64x at 150 m, 2.52x at 250 m, 2.40x at 400 m,
+     2.13x at 1 km, 1.85x at 2 km, 1.48x at 4 km). Integration moved the far
+     end from 5 km to 8 km so icons in the car's follow view (1.8 to 6.5 km up)
+     also grow; the harness pixel sizes further down were measured with 5 km.
    - The close-up curve applies while the camera is below 30 km (back above
      40 km). At the swap every icon in view is at least the camera height away,
-     and both curves are equal from 5 km to 150 km, so the swap is invisible.
+     and both curves are equal from 8 km to 150 km, so the swap is invisible.
      It rewrites each billboard's curve once.
-   - Far away icons are never bigger than before (tested: from 5 km out the
+   - Far away icons are never bigger than before (tested: from 8 km out the
      close-up curve equals the layer's own).
    - Layers with their own curve (transit, bikeshare) get a close-up curve built
      on theirs (`zoomCurve(base)`).
@@ -86,7 +88,7 @@ lamp colours.
 ## Tests
 
 - `core/ui/iconPrefs.test.js` (15): Cesium curve formula, close-up values at the
-  owner's heights, no growth from 5 km out, seamless swap, hysteresis, simtraffic
+  owner's heights, no growth from 8 km out, seamless swap, hysteresis, simtraffic
   curve, size/variant look, every variant glyph exists and the surveillance
   families cover every kind, every icon layer registered in main.js with an ink,
   density steps, size stepper, schema validation of bad values, export/import
