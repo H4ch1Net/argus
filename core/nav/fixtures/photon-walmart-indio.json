@@ -1,0 +1,192 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 1467501515,
+        "osm_key": "amenity",
+        "osm_value": "fuel",
+        "type": "house",
+        "name": "Walmart",
+        "street": "Crossley Road",
+        "city": "Palm Springs",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92263",
+        "countrycode": "US",
+        "extent": [-116.4848701, 33.8143486, -116.4846611, 33.8142458]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.484766, 33.81432]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 1473763006,
+        "osm_key": "amenity",
+        "osm_value": "fuel",
+        "type": "house",
+        "name": "Walmart",
+        "street": "Commonwealth Avenue",
+        "city": "San Jacinto",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92644",
+        "countrycode": "US",
+        "extent": [-116.9574632, 33.7690826, -116.9569882, 33.7689238]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.9572257, 33.7690162]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 162056364,
+        "osm_key": "shop",
+        "osm_value": "supermarket",
+        "type": "house",
+        "housenumber": "83053",
+        "name": "Walmart Neighborhood Market",
+        "street": "Avenue 48",
+        "city": "Coachella",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92236",
+        "countrycode": "US",
+        "extent": [-116.2156309, 33.6990884, -116.214623, 33.698554]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2151857, 33.698776]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 294440364,
+        "osm_key": "shop",
+        "osm_value": "supermarket",
+        "type": "house",
+        "housenumber": "82491",
+        "name": "Walmart Supercenter",
+        "street": "Avenue 42",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US",
+        "extent": [-116.2302692, 33.7407871, -116.2283227, 33.7396813]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2292172, 33.7401277]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "N",
+        "osm_id": 10017039895,
+        "osm_key": "shop",
+        "osm_value": "garden_centre",
+        "type": "house",
+        "housenumber": "82491",
+        "name": "Walmart Garden Center",
+        "street": "Avenue 42",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2299329, 33.7404661]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "N",
+        "osm_id": 10017039896,
+        "osm_key": "amenity",
+        "osm_value": "pharmacy",
+        "type": "house",
+        "housenumber": "82491",
+        "name": "Walmart Pharmacy",
+        "street": "Avenue 42",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2285354, 33.740481]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "N",
+        "osm_id": 1620345458,
+        "osm_key": "shop",
+        "osm_value": "supermarket",
+        "type": "house",
+        "housenumber": "79295",
+        "name": "Walmart Supercenter",
+        "street": "US Highway 111",
+        "city": "La Quinta",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92253",
+        "countrycode": "US"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.281073, 33.703645]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 552384946,
+        "osm_key": "shop",
+        "osm_value": "supermarket",
+        "type": "house",
+        "housenumber": "44100",
+        "name": "Walmart Neighborhood Market",
+        "street": "Jefferson Street",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "92201",
+        "countrycode": "US",
+        "extent": [-116.2668679, 33.7288935, -116.2663655, 33.72825]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2666168, 33.7286583]
+      }
+    }
+  ]
+}

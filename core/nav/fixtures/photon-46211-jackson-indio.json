@@ -1,0 +1,93 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 206773643,
+        "osm_key": "highway",
+        "osm_value": "secondary",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Coachella",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92201",
+        "countrycode": "US",
+        "extent": [-116.2164509, 33.7003114, -116.2164423, 33.6997235]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2164503, 33.7000175]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 147160973,
+        "osm_key": "highway",
+        "osm_value": "secondary",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US",
+        "extent": [-116.2165501, 33.7388388, -116.2165432, 33.7382547]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2165466, 33.7385468]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 225178260,
+        "osm_key": "highway",
+        "osm_value": "tertiary",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US",
+        "extent": [-116.2166692, 33.7520545, -116.2166283, 33.75129]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2166446, 33.7516723]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 225178258,
+        "osm_key": "highway",
+        "osm_value": "unclassified",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92203",
+        "countrycode": "US",
+        "extent": [-116.21668, 33.7561984, -116.2166716, 33.7559106]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.2166758, 33.7560545]
+      }
+    }
+  ]
+}

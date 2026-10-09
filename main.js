@@ -1568,8 +1568,14 @@ async function setupScene(app, splash) {
   // Global search / fly-to (P15) + OSINT query console (P16): query active layers
   // (contacts) and place names (geocoder); a query that parses as a network asset
   // (IP/ASN/domain) is passively looked up, geolocated, enriched, and plotted.
+  // Place search leans towards the user (core/search/rank.js): their position
+  // (a recent fix, else the last known one), else the middle of the view.
+  const searchNear = () => {
+    const f = app.selfPosition?.get?.() ?? app.selfPosition?.lastKnown?.();
+    return f ? { lat: f.lat, lon: f.lon } : osm.middle();
+  };
   const geocode = proxyClient
-    ? createGeocoder(proxyClient)
+    ? createGeocoder(proxyClient, { near: searchNear })
     : dev
       ? (await import('./core/search/mockGeocoder.js')).createMockGeocoder()
       : null;
@@ -2534,11 +2540,7 @@ async function setupScene(app, splash) {
       fixes: createFixSource({ selfPosition: () => app.selfPosition ?? null }),
       shell: app.shell,
       settings: app.settings,
-      near: () =>
-        sketchMod.windowToLatLon(app.viewer, {
-          x: cv.clientWidth / 2,
-          y: cv.clientHeight / 2,
-        }),
+      near: searchNear,
       armTap,
       targetPoint: navTarget,
       flyAlong: navFlyAlong,

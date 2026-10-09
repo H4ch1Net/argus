@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 28718228,
+        "osm_key": "building",
+        "osm_value": "yes",
+        "type": "house",
+        "name": "Skyline Arches",
+        "street": "Purple People Bridge Way",
+        "locality": "Newport on the Levee",
+        "city": "Newport",
+        "county": "Campbell",
+        "state": "Kentucky",
+        "country": "United States",
+        "postcode": "45202",
+        "countrycode": "US",
+        "extent": [-84.4996097, 39.100271, -84.4992379, 39.0998384]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.4994323, 39.1000444]
+      }
+    }
+  ]
+}

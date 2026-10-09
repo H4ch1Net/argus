@@ -159,6 +159,57 @@ function noRepeats(q) {
   return new Set(keys).size === keys.length;
 }
 
+// --- Addresses (US Census Bureau Geocoder) and where the user is (Photon reverse)
+// One line of address text: 3 to 200 characters, no control characters
+// (spelled out: the phone's Node has no Unicode property data).
+const ADDRESS_LINE = (v) =>
+  typeof v === 'string' &&
+  v.trim().length >= 3 &&
+  v.length <= 200 &&
+  // eslint-disable-next-line no-control-regex
+  !/[\u0000-\u001f\u007f-\u009f]/.test(v);
+const DEG1 = /^-?\d{1,3}(?:\.\d)?$/;
+
+// --- Nominatim (proxy/feeds.js): the keys Argus sends, each pinned -------------
+// Search: q, JSON, a limit, address details, a bias box (never bounded).
+// Reverse: a point, JSON, a zoom, address details, the answer's language.
+const VIEWBOX = (v) => {
+  const n = String(v).split(',');
+  return (
+    n.length === 4 &&
+    n.every((x) => DEGREES.test(x)) &&
+    Math.abs(Number(n[0])) <= 180 &&
+    Math.abs(Number(n[2])) <= 180 &&
+    Math.abs(Number(n[1])) <= 90 &&
+    Math.abs(Number(n[3])) <= 90
+  );
+};
+const NOMINATIM_SEARCH = {
+  q: (v) => v.trim().length > 0 && v.length <= 200,
+  format: ['json', 'jsonv2'],
+  limit: /^(?:[1-9]|10)$/,
+  addressdetails: ['0', '1'],
+  viewbox: VIEWBOX,
+};
+const NOMINATIM_REVERSE = {
+  lat: (v) => DEGREES.test(v) && Math.abs(Number(v)) <= 90,
+  lon: (v) => DEGREES.test(v) && Math.abs(Number(v)) <= 180,
+  format: ['json', 'jsonv2'],
+  zoom: /^(?:\d|1[0-8])$/,
+  addressdetails: ['0', '1'],
+  'accept-language': /^[a-z]{2}(?:-[A-Za-z]{2})?$/,
+};
+
+/** Nominatim queries: a search (q required) or a reverse (lat and lon required). */
+export function nominatimQueryOk(q) {
+  if (q.has('q')) {
+    const { q: text, ...rest } = NOMINATIM_SEARCH;
+    return pinnedQuery({ q: text }, rest)(q);
+  }
+  const { lat, lon, ...rest } = NOMINATIM_REVERSE;
+  return pinnedQuery({ lat, lon }, rest)(q);
+}
+
 /** @type {import('../feeds.js').Feed[]} */
 export const feeds = [
   {
@@ -212,6 +263,56 @@ export const feeds = [
     headers: UA,
     governor: { ratePerMinute: 30 },
     cache: { ttlMs: HOUR, staleMs: 24 * HOUR },
+  },
+  {
+    // Where the user is, as an address names it (Photon's reverse geocoder,
+    // same komoot instance and terms as 'photon'), so a bare street address
+    // can be looked up in the user's state (core/search/region.js).
+    // Live-tested Oct 2026: /reverse?lat=33.7&lon=-116.2&limit=1 answered a
+    // street in Coachella, California, US. Pinned to one rounded point and one
+    // answer; the client asks once per ~10 km square per session, and the
+    // answers are cached a day.
+    id: 'photon-reverse',
+    baseUrl: 'https://photon.komoot.io',
+    methods: ['GET'],
+    allowPaths: [exactPath('/reverse')],
+    allowQuery: (q) =>
+      pinnedQuery({ lat: DEG1, lon: DEG1, limit: '1' })(q) &&
+      Math.abs(Number(q.get('lat'))) <= 90 &&
+      Math.abs(Number(q.get('lon'))) <= 180,
+    headers: UA,
+    governor: { ratePerMinute: 10 },
+    cache: { ttlMs: 24 * HOUR, staleMs: 7 * 24 * HOUR, maxEntries: 64 },
+  },
+  {
+    // US street addresses (U.S. Census Bureau Geocoder, onelineaddress on the
+    // current public address ranges). Keyless; a US Government work, public
+    // domain. Photon (OSM) often lacks the house number, so a numbered US
+    // address asks here too (core/search/address.js), with the user's state
+    // appended when the query names none. Live-tested Oct 2026: "46211
+    // Jackson street, CA" answered 46211 JACKSON ST, INDIO, CA, 92201 at
+    // 33.71306, -116.21643; without a state, nothing. Pinned to that one
+    // endpoint and query shape (the address, the benchmark, JSON); addresses
+    // never change quickly, so answers are cached a day, and a governor keeps
+    // typing polite (the client asks only for a house number and a street).
+    id: 'census-geocoder',
+    baseUrl: 'https://geocoding.geo.census.gov/geocoder',
+    methods: ['GET'],
+    allowPaths: [exactPath('/geocoder/locations/onelineaddress')],
+    allowQuery: pinnedQuery({
+      address: ADDRESS_LINE,
+      benchmark: 'Public_AR_Current',
+      format: 'json',
+    }),
+    headers: { ...UA, accept: 'application/json' },
+    timeoutMs: 15_000,
+    governor: {
+      ratePerMinute: 20,
+      creditBudget: 1000,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: { ttlMs: 24 * HOUR, staleMs: 7 * 24 * HOUR, maxEntries: 300, maxBytes: 4e6 },
   },
   {
     // Directions (Valhalla on the FOSSGIS servers, valhalla1.openstreetmap.de):
