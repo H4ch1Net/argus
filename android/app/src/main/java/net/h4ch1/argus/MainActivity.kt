@@ -4,12 +4,18 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -28,12 +34,16 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import java.util.Locale
 
 /**
  * The phone app: a full-screen WebView on the globe served by the proxy on
  * this phone (http://127.0.0.1:<port>/, the same app `npm start` serves), with
  * a native boot screen until the proxy answers. Location goes through the
- * Android permission; nothing here holds or sees a key.
+ * Android permission; nothing here holds or sees a key. While the page asks
+ * for it (GEO, follow-me, navigation) and the app is in front, the phone's own
+ * GPS is pushed into the page (window.argusHost.location), which is faster
+ * and more precise than the WebView's geolocation.
  */
 class MainActivity : Activity() {
     private lateinit var root: FrameLayout
@@ -44,6 +54,9 @@ class MainActivity : Activity() {
     private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var immersive = true
+    private var phoneLocation: PhoneLocationFeed? = null
+    private var wantLocation = false // the page asked for the native feed
+    private var resumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +132,9 @@ class MainActivity : Activity() {
 
     private fun load(port: Int) {
         val wv = webView ?: createWebView().also { webView = it }
+        // A fresh page asks for the location feed again when it needs it.
+        wantLocation = false
+        phoneLocation?.stop()
         loadedPort = port
         wv.loadUrl("http://127.0.0.1:$port/")
     }
@@ -237,10 +253,78 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_LOCATION) return
+        if (requestCode != REQ_LOCATION && requestCode != REQ_NATIVE_LOCATION) return
         val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
-        pendingGeo?.let { (origin, callback) -> callback.invoke(origin, granted, false) }
-        pendingGeo = null
+        if (requestCode == REQ_LOCATION) {
+            pendingGeo?.let { (origin, callback) -> callback.invoke(origin, granted, false) }
+            pendingGeo = null
+        }
+        if (granted) {
+            // Starts here, or in onResume when the dialog paused the activity.
+            startNativeLocation(askPermission = false)
+        } else if (requestCode == REQ_NATIVE_LOCATION) {
+            wantLocation = false
+            pushLocationStatus("denied")
+        }
+    }
+
+    // ------------------------------------------------------- native location
+
+    /** Open the phone's GPS feed for the page, asking for the permission if needed. */
+    private fun startNativeLocation(askPermission: Boolean) {
+        if (!wantLocation || !resumed) return
+        if (!hasLocationPermission()) {
+            if (askPermission) {
+                requestPermissions(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                    REQ_NATIVE_LOCATION,
+                )
+            } else {
+                // Revoked in the system settings: say so once; the page asks again.
+                wantLocation = false
+                pushLocationStatus("denied")
+            }
+            return
+        }
+        val feed = phoneLocation ?: PhoneLocationFeed(this) { pushFix(it) }.also { phoneLocation = it }
+        when (feed.start()) {
+            PhoneLocationFeed.Started.OK -> Unit
+            PhoneLocationFeed.Started.OFF -> pushLocationStatus("off")
+            PhoneLocationFeed.Started.NONE -> pushLocationStatus("unavailable")
+        }
+    }
+
+    /** One fix into the page: degrees, heading, m/s, metres, its epoch time, the provider. */
+    private fun pushFix(fix: Location) {
+        val wv = webView ?: return
+        // The fix's age from the monotonic clock, so a GPS time and a phone
+        // clock that disagree cannot make a fresh fix look old (or the reverse).
+        val ageMs = (SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000L
+        val time = System.currentTimeMillis() - ageMs.coerceAtLeast(0L)
+        val heading = if (fix.hasBearing()) num(fix.bearing.toDouble()) else "null"
+        val speed = if (fix.hasSpeed()) num(fix.speed.toDouble()) else "null"
+        val accuracy = if (fix.hasAccuracy()) num(fix.accuracy.toDouble()) else "null"
+        val provider = if (fix.provider == LocationManager.GPS_PROVIDER) "gps" else "network"
+        val lat = String.format(Locale.ROOT, "%.7f", fix.latitude)
+        val lon = String.format(Locale.ROOT, "%.7f", fix.longitude)
+        wv.evaluateJavascript(
+            "window.argusHost&&window.argusHost.location&&" +
+                "window.argusHost.location($lat,$lon,$heading,$speed,$accuracy,$time,'$provider')",
+            null,
+        )
+    }
+
+    /** denied | off | unavailable, for the page's GEO state. */
+    private fun pushLocationStatus(status: String) {
+        val wv = webView ?: return
+        wv.evaluateJavascript(
+            "window.argusHost&&window.argusHost.locationStatus&&" +
+                "window.argusHost.locationStatus('$status')",
+            null,
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -286,17 +370,24 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         // Per-WebView pause only: pauseTimers() is process-wide and would also
         // freeze the Android Auto map.
         webView?.onResume()
+        if (wantLocation) startNativeLocation(askPermission = false)
     }
 
     override fun onPause() {
+        resumed = false
+        // No GPS for the phone page in the background (the car map has its own feed).
+        phoneLocation?.stop()
         webView?.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
+        phoneLocation?.stop()
+        phoneLocation = null
         unobserve?.invoke()
         unobserve = null
         webView?.let {
@@ -340,6 +431,24 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun version(): String = BuildConfig.VERSION_NAME
+
+        /**
+         * The page needs a position (GEO, follow-me, navigation): push the
+         * phone's GPS into window.argusHost.location about once a second while
+         * the app is in front. Asks for the permission when it is missing.
+         */
+        @JavascriptInterface
+        fun startLocation() = runOnUiThread {
+            wantLocation = true
+            startNativeLocation(askPermission = true)
+        }
+
+        /** The page no longer needs a position: the GPS goes off (battery). */
+        @JavascriptInterface
+        fun stopLocation() = runOnUiThread {
+            wantLocation = false
+            phoneLocation?.stop()
+        }
     }
 
     companion object {
@@ -347,9 +456,14 @@ class MainActivity : Activity() {
         private const val MATCH = FrameLayout.LayoutParams.MATCH_PARENT
         private const val REQ_LOCATION = 1
         private const val REQ_FILE = 2
+        private const val REQ_NATIVE_LOCATION = 3
         const val ACTION_SETTINGS = "net.h4ch1.argus.action.SETTINGS"
         const val ACTION_RESTART = "net.h4ch1.argus.action.RESTART"
         const val ACTION_FULLSCREEN = "net.h4ch1.argus.action.FULLSCREEN"
+
+        /** A number for a JS call: two decimals, or null when not finite. */
+        private fun num(v: Double): String =
+            if (v.isFinite()) String.format(Locale.ROOT, "%.2f", v) else "null"
 
         /**
          * Android WebView has no Screen Wake Lock API, so cockpit mode's
@@ -387,4 +501,90 @@ class MainActivity : Activity() {
 })();
 """
     }
+}
+
+/**
+ * The phone's location for the page, from the platform LocationManager (no
+ * Google Play services), the way the car map's CarLocationFeed reads it: GPS
+ * once a second, the network provider until GPS has a fix, and the newest last
+ * known fix at once so GEO does not wait for the GPS.
+ */
+internal class PhoneLocationFeed(
+    context: Context,
+    private val onFix: (Location) -> Unit,
+) : LocationListener {
+    enum class Started { OK, OFF, NONE }
+
+    private val manager = context.applicationContext.getSystemService(LocationManager::class.java)
+    private var running = false
+    private var lastGpsAt = 0L
+
+    /** OK, OFF (location is switched off in the phone's settings) or NONE (no provider). */
+    @SuppressLint("MissingPermission")
+    fun start(): Started {
+        val lm = manager ?: return Started.NONE
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { it in lm.allProviders }
+        if (providers.isEmpty()) return Started.NONE
+        if (!running) {
+            var any = false
+            for (p in providers) {
+                try {
+                    lm.requestLocationUpdates(p, 1000L, 0f, this, Looper.getMainLooper())
+                    any = true
+                } catch (e: SecurityException) {
+                    Log.w("Argus", "location $p refused", e)
+                } catch (e: IllegalArgumentException) {
+                    Log.w("Argus", "location $p unavailable", e)
+                }
+            }
+            if (!any) return Started.NONE
+            running = true
+            // The newest fix the phone already has, so the page does not wait.
+            providers
+                .mapNotNull {
+                    try {
+                        lm.getLastKnownLocation(it)
+                    } catch (_: SecurityException) {
+                        null
+                    } catch (_: IllegalArgumentException) {
+                        null
+                    }
+                }
+                .maxByOrNull { it.elapsedRealtimeNanos }
+                ?.let(onFix)
+        }
+        val enabled = providers.any {
+            try {
+                lm.isProviderEnabled(it)
+            } catch (_: IllegalArgumentException) {
+                false
+            }
+        }
+        return if (enabled) Started.OK else Started.OFF
+    }
+
+    fun stop() {
+        if (!running) return
+        running = false
+        manager?.removeUpdates(this)
+    }
+
+    override fun onLocationChanged(location: Location) {
+        val now = SystemClock.elapsedRealtime()
+        if (location.provider == LocationManager.GPS_PROVIDER) {
+            lastGpsAt = now
+        } else if (now - lastGpsAt < 10_000) {
+            return // GPS is flowing: skip the coarser fixes
+        }
+        onFix(location)
+    }
+
+    // Abstract before API 30: implemented so older Android never hits them missing.
+    @Deprecated("Deprecated in Java")
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+    override fun onProviderEnabled(provider: String) = Unit
+
+    override fun onProviderDisabled(provider: String) = Unit
 }
