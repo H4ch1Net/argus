@@ -1,14 +1,19 @@
-// Place geocoding for global search fly-to. The chain, first answer wins:
+// Place geocoding for global search fly-to. The chain:
 //   1. the bundled offline places (core/search/places.js): an exact name,
 //      "name, country" or alias answers with no request at all;
-//   2. Photon (komoot) through the proxy feed 'photon', biased to the view;
-//   3. OSM Nominatim through the proxy feed 'nominatim', the last resort.
-// Offline prefix matches lead the network results. parseNominatim is pure and
-// tested; createGeocoder wires the chain to the proxy client. Inputs are
-// places, never people.
+//   2. Photon (komoot) through the proxy feed 'photon', biased to `near`
+//      (the user, else the view centre);
+//   3. for a numbered street address, the address geocoders beside it
+//      (./address.js: US Census, else Nominatim around the user);
+//   4. OSM Nominatim through the proxy feed 'nominatim', the last resort.
+// The network answers are ranked local first (./rank.js), and offline prefix
+// matches lead them. parseNominatim is pure and tested; createGeocoder wires
+// the chain to the proxy client. Inputs are places, never people.
 
 import { searchPlaces, normalizePlaceName } from './places.js';
 import { PHOTON_FEED, PHOTON_PATH, photonParams, parsePhoton } from './photon.js';
+import { lookupAddress, parseAddress } from './address.js';
+import { rankPlaces } from './rank.js';
 
 export function parseNominatim(json) {
   const arr = Array.isArray(json) ? json : [];
@@ -63,9 +68,18 @@ export function createGeocoder(
 
     let network = [];
     let failure = null;
+    const bias = validNear(typeof near === 'function' ? near() : near);
+    // A numbered street address: the address geocoders, beside Photon.
+    const addresses = parseAddress(q)
+      ? lookupAddress(proxyClient, q, { near: bias, signal })
+          .then((list) => list.map(toResult))
+          .catch((err) => {
+            if (signal?.aborted) throw err;
+            return [];
+          })
+      : Promise.resolve([]);
     if (photon) {
       try {
-        const bias = typeof near === 'function' ? near() : near;
         network = parsePhoton(
           await proxyClient.getJson(PHOTON_FEED, PHOTON_PATH, {
             params: photonParams(q, bias, limit),
@@ -90,8 +104,45 @@ export function createGeocoder(
         failure = err;
       }
     }
+    network = rankLabels(q, [...(await addresses), ...network], bias);
     // Nothing anywhere and a feed failed: say why rather than "no results".
     if (!network.length && !offline.length && failure) throw failure;
     return mergePlaces(offline, network, limit);
   };
+}
+
+function validNear(near) {
+  const lat = Number(near?.lat ?? near?.latitude);
+  const lon = Number(near?.lon ?? near?.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90
+    ? { lat, lon }
+    : null;
+}
+
+/** An address Place (./address.js) as a geocoder result. */
+const toResult = (p) => ({
+  name: [p.name, p.detail].filter(Boolean).join(', '),
+  latitude: p.lat,
+  longitude: p.lon,
+  kind: p.kind ?? null,
+  source: p.id?.split(':')[0] ?? 'address',
+});
+
+/**
+ * Rank geocoder results local first: each one-line label is scored as its
+ * name (before the first comma) and where it is (the rest).
+ */
+export function rankLabels(query, results, near) {
+  const split = results.map((r) => {
+    const [name, ...rest] = String(r.name).split(',');
+    return {
+      r,
+      name: name.trim(),
+      detail: rest.join(','),
+      kind: r.kind,
+      lat: r.latitude,
+      lon: r.longitude,
+    };
+  });
+  return rankPlaces(query, split, { near }).map((x) => x.r);
 }

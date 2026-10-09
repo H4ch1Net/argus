@@ -76,18 +76,6 @@ export function createTapSequencer({
 }
 
 /**
- * Cesium's zoom factor that makes a two-finger pinch track the fingers.
- * Cesium moves the camera by zoomFactor x distance x (a quarter of the change
- * in finger spacing) / canvas height each frame; following the fingers means
- * moving by distance x (change in spacing) / spacing, so the factor is
- * 4 x height / spacing. Clamped so very close or very wide fingers stay sane.
- */
-export function pinchZoomFactor(spacingPx, canvasHeightPx, { min = 3, max = 40 } = {}) {
-  if (!(spacingPx > 0) || !(canvasHeightPx > 0)) return min;
-  return Math.min(max, Math.max(min, (4 * canvasHeightPx) / spacingPx));
-}
-
-/**
  * The zoom for one ctrl+wheel event (a trackpad pinch: Chrome, Edge and
  * Firefox send pinches as wheel events with ctrlKey, deltaY = -100 x the log
  * of the scale step). Returns the factor to divide the camera distance by:

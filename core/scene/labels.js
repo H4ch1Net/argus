@@ -1,14 +1,19 @@
 import * as Cesium from 'cesium';
-import { applyTone } from './imagery.js';
+import { vectorProvider } from './imagery.js';
 
-// Map label overlays: place names and borders, and roads with street names, as
-// keyless Esri reference tile layers drawn above the basemap and every raster
-// overlay. Place labels follow the basemap: the dark canvas has its own
-// light-on-dark reference layer, imagery and streets use Boundaries and Places.
+// Map label overlays: place names and borders, and roads with street names,
+// drawn above the basemap and every raster overlay. With the proxy they are
+// the ctOS vector labels (core/scene/vector/render.js: white monospace on a
+// dark keyline, over any basemap, sharp at any zoom); without it, keyless Esri
+// reference tiles toned to ctOS grays (their road labels are yellow as served).
 // Offline city names (no network at all) are drawn by the tracking overlay
 // from the bundled list instead; see core/scene/trackingOverlay.js.
 
 const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services';
+// Esri labels in ctOS grays: no colour, lifted so the yellow road names and
+// the gray place names both read as white-ish text.
+const ESRI_LABEL_TONE = { saturation: 0, brightness: 1.5, contrast: 1.1, gamma: 1 };
+
 const SERVICES = {
   places: (basemap) =>
     basemap === 'dark'
@@ -41,25 +46,26 @@ export function createLabelsController(viewer, { imagery }) {
   function sync() {
     const basemap = imagery.current();
     for (const kind of Object.keys(on)) {
-      const want = on[kind] ? SERVICES[kind](basemap) : null;
+      const vector = on[kind] && vectorProvider(kind) ? `vector:${kind}` : null;
+      const want = on[kind] ? (vector ?? SERVICES[kind](basemap)) : null;
       const have = active.get(kind);
       if (have && have.url !== want) {
         if (layers.contains(have.layer)) layers.remove(have.layer, true);
         active.delete(kind);
       }
       if (want && !active.has(kind)) {
-        const layer = Cesium.ImageryLayer.fromProviderAsync(
-          Cesium.ArcGisMapServerImageryProvider.fromUrl(want, {
-            enablePickFeatures: false,
-          }),
-          {},
-        );
+        const layer = vector
+          ? new Cesium.ImageryLayer(vectorProvider(kind), {})
+          : Cesium.ImageryLayer.fromProviderAsync(
+              Cesium.ArcGisMapServerImageryProvider.fromUrl(want, {
+                enablePickFeatures: false,
+              }),
+              {},
+            );
+        if (!vector) Object.assign(layer, ESRI_LABEL_TONE);
         layers.add(layer);
         active.set(kind, { layer, url: want });
       }
-      const a = active.get(kind);
-      // Over the dark canvas the reference labels are already gray.
-      if (a) applyTone(a.layer, imagery.mono() && basemap !== 'dark');
     }
     raise();
     viewer.scene.requestRender();
@@ -74,6 +80,14 @@ export function createLabelsController(viewer, { imagery }) {
 
   return {
     get: (kind) => Boolean(on[kind]),
+    /** Rebuild the overlays (the vector basemap came or went). */
+    refresh() {
+      for (const [kind, a] of active) {
+        if (layers.contains(a.layer)) layers.remove(a.layer, true);
+        active.delete(kind);
+      }
+      sync();
+    },
     set(kind, value) {
       if (!(kind in on)) return;
       on[kind] = Boolean(value);

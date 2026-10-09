@@ -85,3 +85,16 @@ export const LAYER_INK = Object.freeze({
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */
 export const inkFor = (key) => LAYER_INK[key] ?? INK.gray;
+
+/**
+ * The lamps of the colour traffic-signal glyph (SETTINGS > ICONS, signals):
+ * the one marker drawn in its own colours, since red, amber and green are the
+ * state a signal shows. The palette's error red and success green toned
+ * down a step to sit with the grays, and the amber the simulated traffic
+ * uses for a crawl (core/layers/simtraffic).
+ */
+export const SIGNAL_LAMPS = Object.freeze({
+  red: '#e8574f',
+  amber: '#e3a857',
+  green: '#4fd69c',
+});

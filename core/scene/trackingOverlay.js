@@ -161,6 +161,8 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
         total += 1;
         if (hub && target === hub.target) {
           hubN = n;
+          // Icons grow with zoom (SETTINGS > ICONS): the frame keeps clear of it.
+          hub.iconPx = layer.iconPx?.(target, scene.camera.positionWC) ?? 0;
           return;
         }
         if (hubWorld) {
@@ -212,6 +214,7 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       b.key = c.key;
       b.sx = c.p.x;
       b.sy = c.p.y;
+      b.iconPx = c.layer.iconPx?.(c.target, scene.camera.positionWC) ?? 0;
       b.id = idFor(c.target);
       b.label = i < nLabels ? (labelFor?.(c.target) ?? null) : null;
     });
@@ -367,7 +370,13 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
       b.showLabel = claim(x, y, x + g.measureText(b.label).width + 6, y + 13);
     }
   }
-  const boxSize = (b) => (b.key === 'flights' || b.key === 'military' ? 26 : 20);
+  // A box frames its icon: the usual size, or wider when the icon has grown
+  // (scale with zoom, a larger size setting).
+  const boxSize = (b) =>
+    Math.max(
+      b.key === 'flights' || b.key === 'military' ? 26 : 20,
+      Math.round(b.iconPx ?? 0) + 6,
+    );
 
   function drawMesh() {
     g.save();
@@ -458,7 +467,7 @@ export function createTrackingOverlay(viewer, { getLayers, places = [], labelFor
     const c = following ? INK.success : INK.white;
     const x = Math.round(hub.x) + 0.5;
     const y = Math.round(hub.y) + 0.5;
-    const r = 19;
+    const r = Math.max(19, Math.round((hub.iconPx ?? 0) / 2) + 6);
     const arm = 8;
     g.save();
     // Spine edges to the nearest contacts, each carrying a packet.

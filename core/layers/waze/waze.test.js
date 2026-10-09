@@ -10,7 +10,13 @@ import {
   wazeLabel,
 } from './parse.js';
 import { describeWaze, wazeGlyph, reportedAgo } from './format.js';
-import { createWazeSource, createWazeMockSource } from './source.js';
+import {
+  createWazeSource,
+  createWazeMockSource,
+  createRefusalGate,
+  WAZE_REFUSED_MS,
+  WAZE_REFUSED_NOTE,
+} from './source.js';
 
 const T = Date.UTC(2026, 9, 9, 12, 0, 0);
 
@@ -237,4 +243,47 @@ test('the source asks the live map, or your waze-server when configured', async 
   assert.equal(calls.length, 2, 'no request without a view');
   const demo = await createWazeMockSource()({ bbox });
   assert.equal(parseWaze(demo.json).length, 11);
+});
+
+test('a 403 from the live map: one log entry, then quiet for 30 min or until RELOAD', async () => {
+  let t = 1_000_000;
+  const gate = createRefusalGate({ now: () => t });
+  const logs = [];
+  let calls = 0;
+  let answer = () =>
+    Promise.reject(Object.assign(new Error('proxy waze responded 403'), { status: 403 }));
+  const proxyClient = {
+    getJson: async () => {
+      calls += 1;
+      return answer();
+    },
+  };
+  const src = createWazeSource({ proxyClient, gate, log: (e) => logs.push(e) });
+  const bbox = { lomin: -116.3, lamin: 33.68, lomax: -116.15, lamax: 33.78 };
+  const first = await src({ bbox });
+  // A quiet, empty answer with the reason, not an error.
+  assert.deepEqual(first.json, { alerts: [], jams: [] });
+  assert.equal(first.via, 'refused');
+  assert.equal(first.note, WAZE_REFUSED_NOTE);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].title, 'WAZE REFUSED');
+  assert.match(logs[0].body, /LOCAL_WAZE_URL/);
+  // Polls meanwhile do not ask.
+  t += WAZE_REFUSED_MS - 1;
+  await src({ bbox });
+  assert.equal(calls, 1);
+  // After the hold it asks once more; refused again, it says so again (the
+  // log store folds the repeat into the same line's count).
+  t += 2;
+  await src({ bbox });
+  assert.equal(calls, 2);
+  assert.equal(logs.length, 2);
+  // RELOAD asks at once; an answer brings the layer back.
+  answer = async () => ({ alerts: [], jams: [] });
+  const back = await src({ bbox, reload: true });
+  assert.equal(calls, 3);
+  assert.equal(back.via, 'live');
+  // Other failures are errors as before (the layer row and LOGS say so).
+  answer = () => Promise.reject(Object.assign(new Error('502'), { status: 502 }));
+  await assert.rejects(src({ bbox }), /502/);
 });

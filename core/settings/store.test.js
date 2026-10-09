@@ -9,6 +9,7 @@ import {
   formatAltitude,
   formatSpeed,
   SETTINGS_KEY,
+  SETTINGS_REV_KEY,
 } from './store.js';
 
 const memory = () => {
@@ -66,10 +67,13 @@ test('export and import round-trip; foreign files are refused', () => {
 test('profile overrides leave auto values to the tier', () => {
   assert.deepEqual(profileOverrides(defaultSettings()), {});
   assert.deepEqual(
-    profileOverrides({ ...defaultSettings(), fps: 60, resolution: 1.5, detail: 'high' }),
+    profileOverrides(
+      { ...defaultSettings(), fps: 60, resolution: 1.5, detail: 'high' },
+      3,
+    ),
     {
       targetFrameRate: 60,
-      resolutionScale: 1.5,
+      resolutionScale: 0.5, // 1.5 rendered px per CSS px on a 3x panel
       maximumScreenSpaceError: 1.33,
     },
   );
@@ -79,6 +83,31 @@ test('merge nearby is on by default and takes only on or off', () => {
   assert.equal(defaultSettings().merge, true);
   assert.equal(validateSettings({ merge: false }).merge, false);
   assert.equal(validateSettings({ merge: 'no' }).merge, true);
+});
+
+test('start in: where I left by default; an older saved default moves over once', () => {
+  assert.equal(defaultSettings().startView, 'last');
+  // Saved before the change: every key was written, the old default included.
+  const st = memory();
+  st.raw.set(
+    SETTINGS_KEY,
+    JSON.stringify({ ...defaultSettings(), startView: 'default' }),
+  );
+  const a = createSettingsStore(st);
+  assert.equal(a.get('startView'), 'last');
+  assert.equal(JSON.parse(st.raw.get(SETTINGS_KEY)).startView, 'last');
+  assert.equal(st.raw.get(SETTINGS_REV_KEY), '2');
+  // A choice made after the move sticks across launches.
+  a.set('startView', 'default');
+  assert.equal(createSettingsStore(st).get('startView'), 'default');
+  // Around me was never a default: it stays.
+  const b = memory();
+  b.raw.set(SETTINGS_KEY, JSON.stringify({ startView: 'aroundme' }));
+  assert.equal(createSettingsStore(b).get('startView'), 'aroundme');
+  // A fresh device stores nothing but the mark.
+  const c = memory();
+  assert.equal(createSettingsStore(c).get('startView'), 'last');
+  assert.equal(c.raw.has(SETTINGS_KEY), false);
 });
 
 test('units format distances, altitudes and speeds', () => {

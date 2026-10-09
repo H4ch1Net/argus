@@ -2,7 +2,7 @@ import * as Cesium from 'cesium';
 import { createRingBuffer } from './ringBuffer.js';
 import { interpolateInto, median, moverPositionInto, smoothInto } from './interpolate.js';
 import { computeViewportQuery, viewportShift } from './viewport.js';
-import { getRenderer, isPrimitiveRenderType } from './renderers.js';
+import { getRenderer, isPrimitiveRenderType, baseCurve } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
 import { createFieldLayer } from './fieldLayer.js';
 import { layerInk } from './colors.js';
@@ -24,6 +24,7 @@ import {
   mergeTileRecords,
 } from './tileCache.js';
 import { clusterGlyph } from '../../ui/glyphs.js';
+import { iconPolicy, curveAt } from '../../ui/iconPrefs.js';
 import {
   acquireContinuousRender,
   releaseContinuousRender,
@@ -164,6 +165,36 @@ export function createLayer(viewer, def, ctx) {
   const ds = primitive ? null : new Cesium.CustomDataSource(def.id);
   if (ds) viewer.dataSources.add(ds);
 
+  // Icon size and variant (SETTINGS > ICONS, core/ui/iconPrefs.js): the scene's
+  // icon policy says how this layer's billboards draw now (size multiplier,
+  // variant glyphs, and the distance curve: the layer's own, or the close-up
+  // one while scaling with zoom near the ground). A change of policy restyles
+  // every billboard once (restyle(), from the frame loop), never per frame.
+  const icons = primitive ? iconPolicy(scene) : null;
+  const iconKey = ctx.key ?? def.id;
+  const ownCurve = primitive ? baseCurve(def.render) : null;
+  let look = null;
+  let lookVersion = -1;
+  function makeLook() {
+    const l = icons.look(iconKey, ownCurve);
+    const c = l.curve;
+    // Reuse the NearFarScalar while the curve is the same: billboards compare
+    // it by identity and skip the write.
+    l.scalar =
+      look?.scalar &&
+      look.scalar.near === c.near &&
+      look.scalar.nearValue === c.nearValue &&
+      look.scalar.far === c.far &&
+      look.scalar.farValue === c.farValue
+        ? look.scalar
+        : c === ownCurve
+          ? ownCurve
+          : new Cesium.NearFarScalar(c.near, c.nearValue, c.far, c.farValue);
+    lookVersion = icons.version;
+    return l;
+  }
+  if (icons) look = makeLook();
+
   /** @type {Map<string, object>} */
   const records = new Map();
   let running = false;
@@ -295,7 +326,13 @@ export function createLayer(viewer, def, ctx) {
       };
       records.set(normalized.id, rec);
       if (primitive) {
-        rec.billboard = renderer.create(collection, rec.target, normalized, def.render);
+        rec.billboard = renderer.create(
+          collection,
+          rec.target,
+          normalized,
+          def.render,
+          look,
+        );
       } else {
         rec.entity = ds.entities.add({ id: normalized.id });
         // A tap on the drawn line picks the Entity; the picker maps it back to
@@ -314,7 +351,7 @@ export function createLayer(viewer, def, ctx) {
     rec.normalized = normalized;
     rec.cached = null; // new elements: recompute the position
     rec.lastSeen = batchTimeMs; // for push-mode staleness removal
-    if (primitive) renderer.update(rec.billboard, normalized, def.render);
+    if (primitive) renderer.update(rec.billboard, normalized, def.render, look);
     else renderer.update(rec.entity, normalized, def.render);
     if (def.interpolate) rec.vel = velocityOf(normalized);
     // Compute-position layers keep no fix history (position is a function of time).
@@ -422,8 +459,16 @@ export function createLayer(viewer, def, ctx) {
     if (rec.billboard.show !== show) rec.billboard.show = show;
   }
 
+  /** The icon settings changed (or the zoom regime): restyle every billboard. */
+  function restyle() {
+    look = makeLook();
+    for (const rec of records.values())
+      renderer.update(rec.billboard, rec.normalized, def.render, look);
+  }
+
   function onPreRender() {
     if (!running || !shown || !primitive) return;
+    if (icons.version !== lookVersion) restyle();
     const camera = scene.camera;
     const cam = camera.positionWC;
     const cameraMoved = !Cesium.Cartesian3.equalsEpsilon(cam, lastCamera, 0, 1);
@@ -753,7 +798,8 @@ export function createLayer(viewer, def, ctx) {
       // An optional hint beside the count (e.g. "zoom in to load"), shared with
       // the terminal shell's statusNote.
       const note = def.statusNote?.(query, raw) || undefined;
-      ctx.onStatus?.({ state: 'ok', count: records.size, query, note });
+      // answered: a real answer came back (main.js logs a recovery only then).
+      ctx.onStatus?.({ state: 'ok', count: records.size, query, note, answered: true });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       ctx.onStatus?.({
@@ -778,7 +824,10 @@ export function createLayer(viewer, def, ctx) {
   const tileFlights = new Map(); // key -> AbortController
   let tileView = null; // { bbox, broad }
   let tileFailures = 0; // in the current view
+  let tileAnswers = 0; // in the current view
   let tileError = '';
+  let tileStatus = null; // the HTTP status of the last failure, if any
+  let tileRetry = null; // a busy source: look again once its tiles cool down
   let shownTiles = '';
   let showTimer = null;
   let tilesFetched = 0; // requests sent (dev stats)
@@ -801,6 +850,7 @@ export function createLayer(viewer, def, ctx) {
         : tilesForView(bbox, tileCfg.tileDeg).slice(0, tileCfg.maxView);
     tileView = { bbox, broad, partial: broad && want.length > 0 };
     tileFailures = 0;
+    tileAnswers = 0;
     for (const t of want) tiles.touch(t.key); // in view: evicted last
     if (reload) backoffUntil = 0;
     tileQueue =
@@ -841,12 +891,22 @@ export function createLayer(viewer, def, ctx) {
       if (controller.signal.aborted) return;
       // Kept even when the layer was switched off meanwhile: drawn next time.
       tiles.set(t.key, { bbox: t.bbox, raw, list: def.normalize(raw) });
+      tileAnswers += 1;
       if (running && !showTimer) showTimer = setTimeout(showTiles, 120); // batch arrivals
     } catch (err) {
       if (err?.name === 'AbortError' || controller.signal.aborted) return;
       tiles.fail(t.key);
       tileFailures += 1;
       tileError = String(err?.message || err);
+      tileStatus = Number(err?.status) || null;
+      // A busy or failing source (429, 5xx, a timeout): the failed tiles are
+      // asked again once they cool down, even if the camera stays put.
+      if (!tileRetry && (!tileStatus || tileStatus === 429 || tileStatus >= 500)) {
+        tileRetry = setTimeout(() => {
+          tileRetry = null;
+          if (running && !document.hidden) pollTiles(false);
+        }, tileCfg.retryMs + 1000);
+      }
       if (err?.status === 429 || err?.status === 503) {
         // Over the budget: drop the rest of this view's queue and rest a while
         // (cached tiles stay drawn; the next camera stop after it asks again).
@@ -906,7 +966,7 @@ export function createLayer(viewer, def, ctx) {
       return;
     }
     if (!records.size && tileFailures && tileError) {
-      ctx.onStatus?.({ state: 'error', message: tileError });
+      ctx.onStatus?.({ state: 'error', message: tileError, status: tileStatus });
       return;
     }
     const note = tileView?.partial
@@ -926,6 +986,7 @@ export function createLayer(viewer, def, ctx) {
       query: { bbox: tileView?.bbox },
       note,
       pending,
+      answered: tileAnswers > 0,
     });
   }
 
@@ -942,6 +1003,8 @@ export function createLayer(viewer, def, ctx) {
     tileSlotWaiters.delete(pumpTiles);
     clearTimeout(showTimer);
     showTimer = null;
+    clearTimeout(tileRetry);
+    tileRetry = null;
   }
 
   // Push mode: incremental updates arrive over a stream (e.g. AIS). Entities are
@@ -1209,6 +1272,17 @@ export function createLayer(viewer, def, ctx) {
       else suppressed.delete(id);
       dirty = true;
       scene.requestRender();
+    },
+    /**
+     * How wide (CSS px) a contact's icon draws now, seen from a camera at
+     * cameraWC (its size setting and distance curve), so the selection
+     * overlay can frame it; 0 when not drawn as an icon.
+     */
+    iconPx(target, cameraWC) {
+      const rec = records.get(target?.id);
+      const px = rec?.billboard?._argusPx;
+      if (!px || !rec.written || !look || !cameraWC) return 0;
+      return px * curveAt(look.curve, Cesium.Cartesian3.distance(cameraWC, rec.world));
     },
     /** Visit every contact the layer holds (in view or not). */
     forEachRecord(fn) {

@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import { arcSamples } from './greatCircle.js';
 import { glyph, imageGlyph } from '../../ui/glyphs.js';
+import { glyphDensity } from '../../ui/iconPrefs.js';
 
 // renderType dispatch. One interface renders every layer, so there is never a
 // parallel subsystem per the contract.
@@ -34,25 +35,60 @@ export const isPrimitiveRenderType = (t) => PRIMITIVE_TYPES.has(t);
 const POINT_SCALE = new Cesium.NearFarScalar(1.5e5, 1.0, 1.6e7, 0.5);
 const BILLBOARD_SCALE = new Cesium.NearFarScalar(1.5e5, 1.0, 1.6e7, 0.55);
 
+/**
+ * A layer's own distance curve: its render.scaleByDistance, else the default
+ * of its renderType. The icon settings (core/ui/iconPrefs.js) build the
+ * scale-with-zoom curve on top of it.
+ */
+export const baseCurve = (render) =>
+  render.scaleByDistance ??
+  (render.renderType === RenderType.BILLBOARD ? BILLBOARD_SCALE : POINT_SCALE);
+
 function setGlyph(b, g) {
   if (b._argusGlyph === g.id) return;
   b.setImage(g.id, g.image);
   b._argusGlyph = g.id;
 }
 
-function addBillboard(collection, target, render, defaults) {
-  return collection.add({
+// Untinted glyphs (drawn in their own colours) take white at the style's alpha.
+const whites = new Map();
+function whiteAt(alpha = 1) {
+  let c = whites.get(alpha);
+  if (!c) {
+    c = Cesium.Color.WHITE.withAlpha(alpha);
+    whites.set(alpha, c);
+  }
+  return c;
+}
+
+/**
+ * The icon settings of the layer (createLayer's look: size multiplier,
+ * distance curve as a NearFarScalar in look.scalar, variant glyph names and
+ * the largest on-screen factor). Applied on create and on every restyle; the
+ * curve is written only when it changed (each write re-uploads the vertex).
+ */
+function applyLook(b, look) {
+  if (look && b._argusCurve !== look.scalar) {
+    b.scaleByDistance = look.scalar;
+    b._argusCurve = look.scalar;
+  }
+}
+
+function addBillboard(collection, target, render, defaults, look) {
+  const b = collection.add({
     position: Cesium.Cartesian3.ZERO,
     show: false, // shown by the layer's frame loop once positioned and in view
     id: target,
     // Horizon culling is done by the layer, so glyphs never z-fight the ground.
     disableDepthTestDistance: Number.POSITIVE_INFINITY,
-    scaleByDistance: render.scaleByDistance ?? defaults.scale,
+    scaleByDistance: look?.scalar ?? render.scaleByDistance ?? defaults.scale,
     translucencyByDistance: render.translucencyByDistance,
     alignedAxis: Cesium.Cartesian3.ZERO, // rotation is screen space
     verticalOrigin: Cesium.VerticalOrigin.CENTER,
     horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
   });
+  if (look) b._argusCurve = look.scalar;
+  return b;
 }
 
 // Heading-up glyphs (aircraft, vessels) align their "up" to local north at the
@@ -82,32 +118,47 @@ function orient(b, normalized, style) {
 const renderers = {
   // A ctOS marker glyph (node, square, diamond, ...) tinted per entity, sized
   // from pixelSize. style(n) -> { glyph?, color, pixelSize?, headingDeg? }.
+  // look (optional): the layer's icon settings (see applyLook): the variant's
+  // glyph, the size multiplier, a denser canvas for icons that grow.
   point: {
-    create: (collection, target, normalized, render) =>
-      addBillboard(collection, target, render, { scale: POINT_SCALE }),
-    update(b, normalized, render) {
+    create: (collection, target, normalized, render, look) =>
+      addBillboard(collection, target, render, { scale: POINT_SCALE }, look),
+    update(b, normalized, render, look) {
       const style = render.style ? render.style(normalized) : {};
-      const g = glyph(style.glyph ?? render.glyph ?? 'node');
+      const name = style.glyph ?? render.glyph ?? 'node';
+      const px = style.pixelSize ?? render.pixelSize ?? 8;
+      const g = look
+        ? glyph(look.glyphName(name), glyphDensity(px * look.maxScale))
+        : glyph(name);
       setGlyph(b, g);
-      b.color = style.color ?? Cesium.Color.WHITE;
-      b.scale = (style.pixelSize ?? render.pixelSize ?? 8) / g.px;
+      b.color = g.untinted
+        ? whiteAt(style.color?.alpha ?? 1)
+        : (style.color ?? Cesium.Color.WHITE);
+      const size = px * (look?.size ?? 1);
+      b.scale = size / g.px;
+      b._argusPx = size;
       orient(b, normalized, style);
+      applyLook(b, look);
     },
   },
 
   // An image glyph (aircraft silhouettes, vessel hulls). style(n) -> { image
   // (a glyph object or a canvas), color?, pixelSize? or scale?, headingDeg? }.
   billboard: {
-    create: (collection, target, normalized, render) =>
-      addBillboard(collection, target, render, { scale: BILLBOARD_SCALE }),
-    update(b, normalized, render) {
+    create: (collection, target, normalized, render, look) =>
+      addBillboard(collection, target, render, { scale: BILLBOARD_SCALE }, look),
+    update(b, normalized, render, look) {
       const style = render.style ? render.style(normalized) : {};
       const g = style.image !== undefined ? imageGlyph(style.image) : null;
       if (g) setGlyph(b, g);
       const px = style.pixelSize ?? render.pixelSize;
-      b.scale = px && g ? px / g.px : (style.scale ?? render.scale ?? 0.7);
+      const scale = px && g ? px / g.px : (style.scale ?? render.scale ?? 0.7);
+      b.scale = scale * (look?.size ?? 1);
+      if (g) b._argusImagePx = g.px;
+      b._argusPx = b.scale * (b._argusImagePx ?? 32); // nominal CSS px across
       if (style.color !== undefined) b.color = style.color;
       orient(b, normalized, style);
+      applyLook(b, look);
     },
   },
 

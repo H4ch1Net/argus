@@ -206,8 +206,9 @@ test('search: places through the navigator, TomTom when keyed', async () => {
   const places = await nav.search('ferry building', {
     near: { lat: 37.78, lon: -122.41 },
   });
-  assert.equal(places[0].name, 'Ferry Building Marketplace');
-  assert.ok(places.some((p) => p.name === 'Ferry Building'));
+  // Both providers answer; the exact name ranks first (core/search/rank.js).
+  assert.equal(places[0].name, 'Ferry Building');
+  assert.ok(places.some((p) => p.name === 'Ferry Building Marketplace'));
   assert.ok(places.length <= 8);
   const nav2 = createNavigator({ proxyClient: proxy, hasFeed: () => false });
   await nav2.search('ferry building');

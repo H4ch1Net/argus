@@ -367,3 +367,152 @@
   outline: 1px solid var(--textPrimary);
   outline-offset: 2px;
 }
+
+/* ICONS page (core/ui/iconSettings.js): per-layer rows with a live preview,
+   a size stepper and the variant tiles (the self-icon tile look). Its list
+   is long, so the dialog must scroll inside: the backdrop's one grid row
+   takes the viewport's height, so the panel's max-height (100%) resolves
+   against it instead of growing the row to the content. */
+.ct-settings__backdrop {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.ct-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ct-icons__bar {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.ct-icons__bar .ct-switch {
+  flex: 1 1 auto;
+}
+
+.ct-icons__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ct-icons__list[hidden] {
+  display: none;
+}
+
+.ct-icons__group {
+  padding: 10px 0 2px;
+  color: var(--textSecondary);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.ct-icons__row {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--backgroundBright);
+}
+
+.ct-icons__preview {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--backgroundBright);
+  background: var(--background);
+}
+
+.ct-icons__preview canvas {
+  display: block;
+}
+
+.ct-icons__name {
+  min-width: 0;
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.ct-icons__size {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ct-icons__step {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.ct-icons__step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ct-icons__value {
+  min-width: 40px;
+  color: var(--textPrimary);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-icons__variants {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4px;
+}
+
+.ct-iconvar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px 2px 5px;
+  border: 1px solid var(--textSecondary);
+  background: var(--background);
+  color: var(--textPrimaryDim);
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.ct-iconvar:hover {
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
+}
+
+.ct-iconvar__art {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+}
+
+.ct-iconvar__art canvas {
+  display: block;
+}
+
+.ct-iconvar[aria-checked='true'] {
+  border-color: var(--ctosGray);
+  background: var(--backgroundBright);
+  color: var(--textPrimary);
+  box-shadow: inset 0 -2px 0 var(--success);
+}
+
+.ct-iconvar:focus-visible {
+  outline: 1px solid var(--textPrimary);
+  outline-offset: 2px;
+}

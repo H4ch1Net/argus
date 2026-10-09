@@ -1,12 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  isTap,
-  toleranceFor,
-  createTapSequencer,
-  pinchZoomFactor,
-  wheelPinchFactor,
-} from './gestures.js';
+import { isTap, toleranceFor, createTapSequencer, wheelPinchFactor } from './gestures.js';
 
 test('a small, quick press is a tap', () => {
   assert.equal(isTap({ dx: 2, dy: 2, dtMs: 120 }), true);
@@ -65,16 +59,6 @@ test('reset forgets the sequence (a tool took the tap)', () => {
   s.tap({ t: 0, x: 0, y: 0 });
   s.reset();
   assert.equal(s.tap({ t: 50, x: 0, y: 0 }), 1);
-});
-
-test('the pinch zoom factor follows the finger spacing', () => {
-  // Fingers 400 px apart on an 800 px canvas: factor 8, so Cesium moves the
-  // camera by distance x spacing change / spacing, as the fingers do.
-  assert.equal(pinchZoomFactor(400, 800), 8);
-  assert.ok(pinchZoomFactor(100, 800) > pinchZoomFactor(400, 800));
-  assert.equal(pinchZoomFactor(1, 800), 40);
-  assert.equal(pinchZoomFactor(5000, 800), 3);
-  assert.equal(pinchZoomFactor(0, 800), 3);
 });
 
 test('a trackpad pinch step zooms by the scale it reports', () => {

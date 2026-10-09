@@ -10,6 +10,7 @@ import {
   searchDestinations,
   reverseName,
 } from './search.js';
+import { resetRegionMemo } from '../search/region.js';
 
 const fixture = (name) =>
   JSON.parse(fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
@@ -158,4 +159,95 @@ test('reverseName: a short name for a dropped pin, null when nothing answers', a
     null,
   );
   assert.equal(await reverseName(null, 1, 1), null);
+});
+
+// --- local first: the owner's report, with the real answers (Oct 2026) -------
+
+/** Replays the saved real answers by feed; records what was asked. */
+function replay(answers) {
+  const asked = [];
+  return {
+    asked,
+    getJson: async (feed, path, opts) => {
+      asked.push({ feed, path, params: opts?.params });
+      const a = answers[feed];
+      if (a instanceof Error) throw a;
+      if (a === undefined) throw new Error(`unexpected feed ${feed}`);
+      return a;
+    },
+  };
+}
+const INDIO = { lat: 33.72, lon: -116.21 };
+const near = (p, q, km) =>
+  haversineKm(p.lat, p.lon, q.lat, q.lon) < km
+    ? true
+    : `${p.name} is ${haversineKm(p.lat, p.lon, q.lat, q.lon).toFixed(1)} km away`;
+const haversineKm = (a, b, c, d) => {
+  const r = Math.PI / 180;
+  const h =
+    Math.sin(((c - a) * r) / 2) ** 2 +
+    Math.cos(a * r) * Math.cos(c * r) * Math.sin(((d - b) * r) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+
+test('"46211 Jackson street" near Indio finds the address in Indio first', async () => {
+  resetRegionMemo();
+  const client = replay({
+    photon: fixture('photon-46211-jackson-indio.json'),
+    'photon-reverse': fixture('photon-reverse-indio.json'),
+    'census-geocoder': fixture('census-46211-jackson-ca.json'),
+  });
+  const out = await searchDestinations(client, '46211 Jackson street', { near: INDIO });
+  assert.equal(out[0].name, '46211 Jackson St');
+  assert.equal(out[0].detail, 'Indio, CA 92201');
+  assert.equal(near(out[0], { lat: 33.7131, lon: -116.2164 }, 0.2), true);
+  for (const p of out.slice(1)) assert.equal(near(p, INDIO, 30), true); // the local streets
+  for (const p of out) assert.deepEqual(Object.keys(p).sort(), PLACE_KEYS);
+  // Photon biased to the user, the region once, Census with the state; no Nominatim.
+  assert.deepEqual(client.asked.map((a) => a.feed).sort(), [
+    'census-geocoder',
+    'photon',
+    'photon-reverse',
+  ]);
+  assert.equal(
+    client.asked.find((a) => a.feed === 'census-geocoder').params.address,
+    '46211 Jackson street, California',
+  );
+  // Asked again nearby: the region is remembered.
+  client.asked.length = 0;
+  await searchDestinations(client, '46211 Jackson street', { near: INDIO });
+  assert.equal(
+    client.asked.some((a) => a.feed === 'photon-reverse'),
+    false,
+  );
+});
+
+test('US addresses from Photon lead with the house number', () => {
+  const [, , coachella] = photonPlaces(fixture('photon-walmart-indio.json'));
+  assert.equal(coachella.name, 'Walmart Neighborhood Market');
+  assert.match(coachella.detail, /^83053 Avenue 48, Coachella/);
+});
+
+test('the report: biased to a view over Cincinnati, Photon answers Cincinnati', async () => {
+  // What the phone saw: the search leaned on a view centre in the Ohio
+  // valley, not on the user (core/ui/navPanel.js and the launcher now lean on
+  // the user's position, else the last known one). With that bias the
+  // answers stay local to it, and a house number nobody has is not invented.
+  resetRegionMemo();
+  const client = replay({
+    photon: fixture('photon-jackson-cincinnati.json'),
+    'photon-reverse': fixture('photon-reverse-cincinnati.json'),
+    'census-geocoder': fixture('census-46211-jackson-ky.json'),
+    nominatim: fixture('nominatim-46211-jackson-cincinnati.json'),
+  });
+  const cincinnati = { lat: 39.1, lon: -84.5 };
+  const out = await searchDestinations(client, '46211 Jackson street', {
+    near: cincinnati,
+  });
+  assert.match(out[0].name, /^Jackson Street$/);
+  assert.equal(near(out[0], cincinnati, 15), true);
+  assert.equal(
+    client.asked.find((a) => a.feed === 'census-geocoder').params.address,
+    '46211 Jackson street, Kentucky',
+  );
 });

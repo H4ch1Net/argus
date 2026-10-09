@@ -17,7 +17,9 @@ import { createThermalLadder } from '../capability/thermalLadder.js';
 export function attachThermalLadder(viewer, { rungs, onChange }) {
   const ladder = createThermalLadder({
     // Read live: cockpit mode raises the cap to 60 fps, which tightens the budget.
-    getTargetFrameRate: () => viewer.targetFrameRate,
+    // A two-finger gesture lifts the cap for its duration only (argusBudgetFps,
+    // core/interaction/cameraInput.js): the budget stays the ambient one then.
+    getTargetFrameRate: () => viewer.argusBudgetFps ?? viewer.targetFrameRate,
     labels: ['full quality', ...rungs.map((r) => r.label)],
   });
   let last = null;

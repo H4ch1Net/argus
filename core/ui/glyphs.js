@@ -7,17 +7,19 @@
 // Browser only (canvas). Layer definitions use it; the terminal shell never
 // imports it.
 
+import { SIGNAL_LAMPS } from './palette.js';
+
 const DENSITY = 2; // canvas pixels per CSS pixel, for crisp edges on hiDPI
 
 const INK = '#ffffff';
 const KEYLINE = 'rgba(14,14,14,0.92)'; // ctOS ground, so glyphs stay legible on bright imagery
 
-function canvas(px) {
+function canvas(px, density = DENSITY) {
   const c = document.createElement('canvas');
-  c.width = px * DENSITY;
-  c.height = px * DENSITY;
+  c.width = px * density;
+  c.height = px * density;
   const g = c.getContext('2d');
-  g.scale(DENSITY, DENSITY);
+  g.scale(density, density);
   g.lineJoin = 'miter';
   g.lineCap = 'butt';
   return { c, g };
@@ -866,22 +868,277 @@ const OSM_SHAPES = {
 };
 for (const [name, draw] of Object.entries(OSM_SHAPES)) SHAPES[name] ??= draw;
 
+// --- Icon variants (SETTINGS > ICONS, core/ui/iconPrefs.js) --------------------
+// Alternatives a layer can draw instead of its usual glyph: traffic signals,
+// road vehicles (heading up, the layer turns them), and two families for the
+// surveillance kinds. All keep the idiom: keyline ground, white ink, squares.
+
+/** Three lamps in a column, top one lit (alpha steps, the layer tints them). */
+function lampColumn(g, x, y, w, h, gap) {
+  g.fillStyle = INK;
+  for (const [i, a] of [
+    [0, 1],
+    [1, 0.6],
+    [2, 0.32],
+  ]) {
+    g.globalAlpha = a;
+    g.fillRect(x, y + i * (h + gap), w, h);
+  }
+  g.globalAlpha = 1;
+}
+
+/** A solid shape with a keyline edge: the outline stroked dark, filled white. */
+function solidShape(g, pts, key = 2.2) {
+  path(g, pts);
+  g.strokeStyle = KEYLINE;
+  g.lineWidth = key;
+  g.stroke();
+  g.fillStyle = INK;
+  g.fill();
+}
+
+const VARIANT_SHAPES = {
+  // The signal head with a white housing and its lamps in their own colours
+  // (red, amber, green, from the palette): drawn untinted, so the layer ink
+  // never washes the lamps out.
+  'signal-color': (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(3.5, 0.5, 9, 15);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(4.7, 1.7, 6.6, 12.6);
+    g.fillStyle = SIGNAL_LAMPS.red;
+    g.fillRect(6.1, 3.1, 3.8, 2.8);
+    g.fillStyle = SIGNAL_LAMPS.amber;
+    g.fillRect(6.1, 6.6, 3.8, 2.8);
+    g.fillStyle = SIGNAL_LAMPS.green;
+    g.fillRect(6.1, 10.1, 3.8, 2.8);
+  },
+  // A signal head hanging from a mast arm: reads as a traffic light from afar.
+  'signal-arm': (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(0.8, 0.8, 3.4, 14.8);
+    g.fillRect(0.8, 0.8, 10.6, 3.4);
+    g.fillRect(8.4, 3, 7, 12.6);
+    g.fillStyle = INK;
+    g.fillRect(1.9, 1.9, 1.2, 12.8);
+    g.fillRect(1.9, 1.9, 8, 1.2);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.2;
+    g.strokeRect(9.4, 4, 5, 10.6);
+    lampColumn(g, 10.7, 5.3, 2.4, 2.2, 0.75);
+  },
+  // The ctOS node square holding a lamp column: the quietest signal.
+  'signal-node': (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 1, px - 2, px - 2);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.5;
+    g.strokeRect(2.25, 2.25, px - 4.5, px - 4.5);
+    lampColumn(g, 6.4, 4.3, 3.2, 2.1, 0.55);
+  },
+  // A car in plan view, bonnet up: chamfered body, dark windscreen and rear
+  // window, so a queue of them reads as traffic, not dots.
+  'car-top': (g) => {
+    solidShape(g, [
+      [6.2, 1],
+      [9.8, 1],
+      [11.6, 2.8],
+      [11.6, 13.4],
+      [10.2, 15],
+      [5.8, 15],
+      [4.4, 13.4],
+      [4.4, 2.8],
+    ]);
+    g.fillStyle = KEYLINE;
+    path(g, [
+      [6.1, 4.5],
+      [9.9, 4.5],
+      [10.7, 7],
+      [5.3, 7],
+    ]);
+    g.fill();
+    path(g, [
+      [5.5, 11.2],
+      [10.5, 11.2],
+      [9.8, 12.8],
+      [6.2, 12.8],
+    ]);
+    g.fill();
+  },
+  // A navigation arrowhead: heading first, at any size.
+  'car-arrow': (g) =>
+    solidShape(
+      g,
+      [
+        [8, 1.2],
+        [13.6, 14.6],
+        [8, 11.2],
+        [2.4, 14.6],
+      ],
+      2.4,
+    ),
+  // A block with a caret cut out toward the front: a vehicle as a box.
+  'car-box': (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(3.4, 0.8, 9.2, 14.4);
+    g.fillStyle = INK;
+    g.fillRect(4.7, 2.1, 6.6, 11.8);
+    g.fillStyle = KEYLINE;
+    path(g, [
+      [8, 3.3],
+      [10.2, 6.4],
+      [5.8, 6.4],
+    ]);
+    g.fill();
+  },
+};
+for (const [name, draw] of Object.entries(VARIANT_SHAPES)) SHAPES[name] ??= draw;
+
+// Surveillance kinds as pictograms in the middle of a frame (fg the mark,
+// bg the ground under it, for cut-outs): the 'svb' family puts them inside
+// ctOS camera brackets, the 'svs' family knocks them out of a solid badge.
+const PICTO = {
+  // A number plate with three characters: an ALPR reader.
+  alpr: (g, fg, bg) => {
+    g.fillStyle = fg;
+    g.fillRect(4.3, 6, 7.4, 4);
+    g.fillStyle = bg;
+    for (const x of [5.3, 7.4, 9.5]) g.fillRect(x, 7.3, 1.2, 1.4);
+  },
+  // A sensor with sound marks either side: an acoustic sensor.
+  acoustic: (g, fg) => {
+    g.fillStyle = fg;
+    g.fillRect(6.8, 6.8, 2.4, 2.4);
+    g.strokeStyle = fg;
+    g.lineWidth = 1.2;
+    g.beginPath();
+    g.moveTo(5.6, 5.2);
+    g.lineTo(4.5, 8);
+    g.lineTo(5.6, 10.8);
+    g.moveTo(10.4, 5.2);
+    g.lineTo(11.5, 8);
+    g.lineTo(10.4, 10.8);
+    g.stroke();
+  },
+  // A signal head: a red-light camera.
+  redlight: (g, fg, bg) => {
+    g.fillStyle = fg;
+    g.fillRect(6.1, 4.4, 3.8, 7.2);
+    g.fillStyle = bg;
+    for (const y of [5.3, 7.3, 9.3]) g.fillRect(7.2, y, 1.6, 1.3);
+  },
+  // Two chevrons: a speed camera.
+  speedcam: (g, fg) => {
+    g.strokeStyle = fg;
+    g.lineWidth = 1.4;
+    g.beginPath();
+    for (const x of [4.6, 8.2]) {
+      g.moveTo(x, 5);
+      g.lineTo(x + 2.8, 8);
+      g.lineTo(x, 11);
+    }
+    g.stroke();
+  },
+  // A bullet camera, lens right.
+  'cam-fixed': (g, fg) => {
+    g.fillStyle = fg;
+    g.fillRect(4.3, 6.2, 5.8, 3.4);
+    g.fillRect(10.1, 6.8, 1.6, 2.2);
+    g.fillRect(5.6, 9.6, 1.2, 1.8);
+  },
+  // A dome with its lens.
+  'cam-dome': (g, fg, bg) => {
+    g.fillStyle = fg;
+    poly(g, [
+      [4.5, 5.8],
+      [11.5, 5.8],
+      [11.5, 7.6],
+      [9.8, 10.6],
+      [6.2, 10.6],
+      [4.5, 7.6],
+    ]);
+    g.fillStyle = bg;
+    g.fillRect(7.2, 7.3, 1.6, 1.6);
+  },
+  // A small dome between pan arrows.
+  'cam-ptz': (g, fg) => {
+    g.fillStyle = fg;
+    poly(g, [
+      [6.2, 6.2],
+      [9.8, 6.2],
+      [9.8, 8],
+      [8.9, 9.8],
+      [7.1, 9.8],
+      [6.2, 8],
+    ]);
+    poly(g, [
+      [4.2, 8],
+      [5.6, 6.6],
+      [5.6, 9.4],
+    ]);
+    poly(g, [
+      [11.8, 8],
+      [10.4, 6.6],
+      [10.4, 9.4],
+    ]);
+  },
+  // A sentry box under its roof.
+  guardpost: (g, fg, bg) => {
+    g.fillStyle = fg;
+    poly(g, [
+      [4.3, 7.4],
+      [8, 4.3],
+      [11.7, 7.4],
+    ]);
+    g.fillRect(5.2, 7.4, 5.6, 4.2);
+    g.fillStyle = bg;
+    g.fillRect(6.6, 8.4, 2.8, 1.4);
+  },
+};
+for (const [name, mark] of Object.entries(PICTO)) {
+  SHAPES[`svb-${name}`] ??= (g, px) => {
+    camBrackets(g, px);
+    mark(g, INK, KEYLINE);
+  };
+  SHAPES[`svs-${name}`] ??= (g, px) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 1, px - 2, px - 2);
+    g.fillStyle = INK;
+    g.fillRect(2.2, 2.2, px - 4.4, px - 4.4);
+    mark(g, KEYLINE, INK);
+  };
+}
+
+// Glyphs drawn in their own colours: the layer's ink must not tint them
+// (renderers draw them white, keeping only the style's alpha).
+const UNTINTED = new Set(['signal-color']);
+
 export const GLYPH_NAMES = Object.keys(SHAPES);
 
 const cache = new Map();
 
 /**
- * A marker glyph by name: { id, image, px } where px is its nominal size (a
- * billboard scale of pixelSize / px draws it pixelSize across).
+ * A marker glyph by name: { id, image, px, untinted } where px is its canvas
+ * size (a billboard scale of pixelSize / px draws it pixelSize across) and
+ * untinted marks a glyph in its own colours. density: canvas pixels per CSS
+ * pixel, 2 by default; icons that grow up close ask for 3 or 4
+ * (core/ui/iconPrefs.js glyphDensity), each density cached under its own id.
  */
-export function glyph(name) {
-  if (cache.has(name)) return cache.get(name);
+export function glyph(name, density = DENSITY) {
+  const key = density === DENSITY ? name : `${name}@${density}`;
+  if (cache.has(key)) return cache.get(key);
   const draw = SHAPES[name] ?? SHAPES.node;
   const px = 16;
-  const { c, g } = canvas(px);
+  const { c, g } = canvas(px, density);
   draw(g, px);
-  const out = { id: `argus-glyph-${name}`, image: c, px: px * DENSITY };
-  cache.set(name, out);
+  const out = {
+    id: `argus-glyph-${key}`,
+    image: c,
+    px: px * density,
+    untinted: UNTINTED.has(name),
+  };
+  cache.set(key, out);
   return out;
 }
 

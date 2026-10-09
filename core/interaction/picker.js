@@ -3,8 +3,9 @@ import { isTap, toleranceFor, createTapSequencer, MULTI_TAP_GAP_MS } from './ges
 import { choosePick, entityPickClass, PICK_POINT } from './pickPriority.js';
 
 // Taps on the globe, built on Pointer Events (the repo standard: one unified
-// pointer stream, never separate mouse/touch/pen bindings). Drags and pinches
-// fall through to Cesium's camera controls untouched; only taps act here.
+// pointer stream, never separate mouse/touch/pen bindings). Drags fall through
+// to Cesium's camera controls and two-finger gestures to ./cameraInput.js;
+// only taps act here (never during or after a multi-touch gesture).
 //
 // One tap selects what is under it at once (no wait for a possible second
 // tap). Two taps zoom in about the tapped point, three zoom out; a tap on empty

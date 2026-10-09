@@ -1,4 +1,11 @@
 import * as Cesium from 'cesium';
+import {
+  orbitPose,
+  slidePose,
+  elevationOf,
+  levelAxis,
+  maxTiltElevation,
+} from '../interaction/twoFinger.js';
 
 // Camera controls exposed by core: "set camera to X" / "home". Sensors
 // (geolocation, orientation) are shell inputs, not core (master plan 3.2): the
@@ -8,6 +15,10 @@ import * as Cesium from 'cesium';
 // this from the Earth's centre.
 const ZOOM_MIN_RANGE_M = 40;
 const ZOOM_MAX_DISTANCE_M = 5e7;
+
+/** The camera's height envelope (also Cesium's own zoom limits, cameraInput.js). */
+export const CAMERA_MIN_HEIGHT_M = 20;
+export const CAMERA_MAX_HEIGHT_M = 4.5e7;
 
 export function createCameraControls(viewer) {
   // Called before every move made through these controls (the orbit stops).
@@ -56,6 +67,36 @@ export function createCameraControls(viewer) {
       !viewer.trackedEntity && (!t || Cesium.Matrix4.equals(t, Cesium.Matrix4.IDENTITY))
     );
   }
+
+  // ------------------------------------------------- two-finger gestures
+  // Touch gestures (core/interaction/cameraInput.js) move the camera through
+  // pivotAt / zoomAbout / rotateAbout / tiltAbout once per frame, at once (no
+  // animation), rigidly about a world point: the ground under the fingers, or
+  // the target the camera follows. Each keeps that point under its pixel. The
+  // pose math is pure (core/interaction/twoFinger.js).
+  const ellipsoid = () => scene.globe?.ellipsoid ?? Cesium.Ellipsoid.WGS84;
+  const toC3 = (p) => new Cesium.Cartesian3(p.x, p.y, p.z);
+  function poseNow() {
+    const c = viewer.camera;
+    return {
+      position: Cesium.Cartesian3.clone(c.positionWC),
+      direction: Cesium.Cartesian3.clone(c.directionWC),
+      up: Cesium.Cartesian3.clone(c.upWC),
+    };
+  }
+  function setPose(p) {
+    viewer.camera.setView({
+      destination: toC3(p.position),
+      orientation: { direction: toC3(p.direction), up: toC3(p.up) },
+    });
+    scene.requestRender();
+  }
+  function heightOf(p) {
+    const c = ellipsoid().cartesianToCartographic(toC3(p));
+    return c ? c.height : -Infinity;
+  }
+  const normalAt = (p) =>
+    ellipsoid().geodeticSurfaceNormal(toC3(p), new Cesium.Cartesian3());
 
   function slideTo(destination, duration) {
     const camera = viewer.camera;
@@ -197,6 +238,96 @@ export function createCameraControls(viewer) {
         );
       }
       slideTo(dest, duration);
+    },
+
+    /** A two-finger gesture starts moving the camera: stop the orbit, a zoom, a flight. */
+    beginGesture() {
+      pre();
+      viewer.camera.cancelFlight?.();
+    },
+
+    /**
+     * The world point a gesture at a window position (CSS px) turns and zooms
+     * about: the target the camera follows (it stays the centre), else the
+     * ground under the position, else the ground in the middle of the screen;
+     * undefined over open sky.
+     */
+    pivotAt(pos) {
+      const t = viewer.camera.transform;
+      if (t && !Cesium.Matrix4.equals(t, Cesium.Matrix4.IDENTITY)) {
+        return Cesium.Matrix4.getTranslation(t, new Cesium.Cartesian3());
+      }
+      const canvas = scene.canvas;
+      return (
+        (pos ? groundAt(pos.x, pos.y) : undefined) ??
+        groundAt(canvas.clientWidth / 2, canvas.clientHeight / 2)
+      );
+    },
+
+    /**
+     * Zoom about a world point at once: factor 2 halves the distance to it.
+     * The point keeps its pixel. Without a point (sky under the fingers) the
+     * camera slides toward the Earth's centre. Stays within the height
+     * envelope; returns the factor applied.
+     */
+    zoomAbout(point, factor) {
+      if (!(factor > 0) || factor === 1) return 1;
+      const p0 = poseNow();
+      const pivot = point ?? Cesium.Cartesian3.ZERO;
+      const d = Cesium.Cartesian3.distance(p0.position, pivot);
+      if (!(d > 0)) return 1;
+      let k = 1 / factor;
+      if (point && factor > 1) k = Math.max(k, Math.min(1, ZOOM_MIN_RANGE_M / d));
+      // In: not under the lowest height; out: not past the highest.
+      const ok = (kk) => {
+        const h = heightOf(slidePose(p0, pivot, kk).position);
+        return factor > 1 ? h >= CAMERA_MIN_HEIGHT_M : h <= CAMERA_MAX_HEIGHT_M;
+      };
+      if (!ok(k)) {
+        if (!ok(1)) return 1;
+        let lo = 1;
+        let hi = k;
+        for (let i = 0; i < 24; i += 1) {
+          const m = (lo + hi) / 2;
+          if (ok(m)) lo = m;
+          else hi = m;
+        }
+        k = lo;
+      }
+      if (k === 1) return 1;
+      setPose(slidePose(p0, pivot, k));
+      return 1 / k;
+    },
+
+    /**
+     * Turn the camera about the vertical through a world point, at once:
+     * positive angles turn the map clockwise on screen (the heading drops).
+     */
+    rotateAbout(point, angle) {
+      if (!point || !angle) return;
+      setPose(orbitPose(poseNow(), point, normalAt(point), angle));
+    },
+
+    /**
+     * Tilt about a level axis through a world point, at once: positive angles
+     * look further toward the horizon. Never past straight down, nor shallower
+     * than maxTiltElevation for the camera's height (a view that is already
+     * shallower may only steepen). Returns the angle applied.
+     */
+    tiltAbout(point, angle) {
+      if (!point || !angle) return 0;
+      const p0 = poseNow();
+      const n = normalAt(point);
+      const e0 = elevationOf(p0.direction, n);
+      const hi = Math.max(e0, maxTiltElevation(heightOf(p0.position)));
+      const applied = Math.min(hi, Math.max(-Math.PI / 2, e0 + angle)) - e0;
+      if (Math.abs(applied) < 1e-7) return 0;
+      const axis = levelAxis(p0.direction, p0.up, n);
+      if (!axis) return 0;
+      const next = orbitPose(p0, point, axis, applied);
+      if (heightOf(next.position) < CAMERA_MIN_HEIGHT_M) return 0;
+      setPose(next);
+      return applied;
     },
 
     /**

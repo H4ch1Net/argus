@@ -5,14 +5,21 @@
 // resolution, globe detail) and live (units, clock, coordinates, interface
 // scale, Earth options).
 
+import { resolutionScaleFor } from '../capability/profile.js';
+import { ICON_SETTINGS_SCHEMA } from '../ui/iconPrefs.js';
+
 export const SETTINGS_KEY = 'argus.settings.v1';
+/** Marks a stored record as migrated to this revision of the defaults. */
+export const SETTINGS_REV_KEY = 'argus.settings.rev';
+export const SETTINGS_REV = '2';
 
 /** Each setting: its default and the values it may take. */
 export const SETTINGS_SCHEMA = Object.freeze({
   // Performance (read at boot; a tier change reloads the page).
   tier: { def: 'auto', values: ['auto', 'minimal', 'balanced', 'full'] },
   fps: { def: 'auto', values: ['auto', 20, 30, 60] },
-  resolution: { def: 'auto', values: ['auto', 0.75, 1, 1.25, 1.5] },
+  // Rendered pixels per CSS pixel ('native': the panel's own density).
+  resolution: { def: 'auto', values: ['auto', 1, 1.5, 2, 2.5, 'native'] },
   detail: { def: 'standard', values: ['low', 'standard', 'high'] },
   dataSaver: { def: false, values: [true, false] },
   // Interface.
@@ -21,7 +28,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
   coords: { def: 'dec', values: ['dec', 'dms', 'mgrs'] },
   uiScale: { def: 100, values: [90, 100, 115, 130] },
   reducedMotion: { def: false, values: [true, false] },
-  startView: { def: 'default', values: ['default', 'last', 'aroundme'] },
+  // Where a launch starts: where you left off (core/share/session.js), the
+  // default view, or Around Me.
+  startView: { def: 'last', values: ['last', 'default', 'aroundme'] },
   // The user's own map marker (core/ui/selfIcons.js SELF_ICONS, same order).
   selfIcon: {
     def: 'chevron',
@@ -78,6 +87,10 @@ export const SETTINGS_SCHEMA = Object.freeze({
   // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
   // NEARBY; the Layer SDK's clustering).
   merge: { def: true, values: [true, false] },
+  // Map icons (SETTINGS > ICONS, core/ui/iconPrefs.js): iconScaling ('zoom' or
+  // 'fixed'), iconSize (global %), and per icon layer iconSize.<layer> (%)
+  // and, where the layer has variants, iconVariant.<layer>.
+  ...ICON_SETTINGS_SCHEMA,
 });
 
 /** The defaults, as a fresh object. */
@@ -114,6 +127,20 @@ export function createSettingsStore(storage) {
       // private mode or full storage: the setting still applies this session
     }
   };
+  // "Start in" became "where you left off" by default (round 7). A record
+  // saved before that holds the old default 'default' explicitly (every save
+  // writes every key), so a record without this revision mark takes the new
+  // default once; a choice made after that sticks.
+  try {
+    if (storage && storage.getItem(SETTINGS_REV_KEY) !== SETTINGS_REV) {
+      const saved = storage.getItem(SETTINGS_KEY);
+      if (state.startView === 'default') state = { ...state, startView: 'last' };
+      storage.setItem(SETTINGS_REV_KEY, SETTINGS_REV);
+      if (saved) persist();
+    }
+  } catch {
+    // storage blocked: the defaults apply
+  }
   return {
     get: (key) => state[key],
     all: () => ({ ...state }),
@@ -166,10 +193,11 @@ export function createSettingsStore(storage) {
  * Profile overrides from the settings: what bootGlobe applies on top of the
  * tier's quality profile. 'auto' leaves the tier's own value.
  */
-export function profileOverrides(s) {
+export function profileOverrides(s, dpr = 1) {
   const out = {};
   if (s.fps !== 'auto') out.targetFrameRate = s.fps;
-  if (s.resolution !== 'auto') out.resolutionScale = s.resolution;
+  if (s.resolution !== 'auto')
+    out.resolutionScale = resolutionScaleFor(s.resolution, dpr);
   out.maximumScreenSpaceError = { low: 4, standard: undefined, high: 1.33 }[s.detail];
   if (out.maximumScreenSpaceError === undefined) delete out.maximumScreenSpaceError;
   return out;

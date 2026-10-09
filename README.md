@@ -15,12 +15,13 @@ version, all from one shared data engine, dressed in a ctOS-style interface.
 Voice control and anything that identifies or acts on people or hosts are
 deliberately left out (see [Guardrails](#guardrails)).
 
-**Testing status.** The latest round (the ctOS interface, the faster renderer,
-and the last of the reference's features) was built with no network access:
-nothing ran against real Cesium or a live feed, and every new upstream is
-marked "per the reference implementation, not live-tested here". The interface
-was checked in a stub-Cesium harness with headless screenshots, and the pure
-logic by unit tests. What is verified, and how, is in
+**Testing status.** Most rounds were built with no network access and checked
+in a stub-Cesium harness with headless screenshots, plus unit tests for the pure
+logic; upstreams added then are marked "per the reference implementation, not
+live-tested here". Round 7 (the vector basemap, icon sizes, gestures, session
+memory, local-first search) ran on real CesiumJS in headless Chromium (software
+WebGL) with the real proxy and live feeds; nothing has run on the phone's GPU
+or in a car from here. What is verified, and how, is in
 **[docs/AUDIT.md](docs/AUDIT.md)**.
 
 ## Run it
@@ -117,24 +118,27 @@ browser. SETUP > KEYS moves them between devices as a passphrase-encrypted file
 | BGP activity                      | RIPE RIS Live via the proxy websocket                                             | none                  | Pulses at the route collector that saw each update                                                                                               |
 | CT firehose                       | CertStream-compatible aggregator                                                  | none                  | Issuance ticker; set `CT_STREAM_URL` if the public server is silent                                                                              |
 | OSINT console                     | RIPEstat (+ Shodan host data when keyed)                                          | none                  | `query` / `correlate` an IP, domain, or ASN: routing, registry, geo, exposure                                                                    |
-| Search and navigation             | Bundled places (~430), Photon, Nominatim; OSRM, Valhalla (FOSSGIS); OSM signals   | TomTom optional       | WHERE TO: drive, walk or bike, avoid highways, signals, turn by turn, reroute; TomTom traffic                                                    |
+| Search and navigation             | Bundled places (~430), Photon, US Census geocoder, Nominatim; OSRM, Valhalla      | TomTom optional       | Ranked near you first; WHERE TO: drive, walk or bike, avoid highways, signals, turn by turn, reroute; TomTom traffic                             |
 | Cockpit briefing (desktop)        | Nominatim, Open-Meteo, Google News RSS, GDELT                                     | none                  | Nearest contacts, headlines and weather for the place below, each credited                                                                       |
 | CCTV projection, threat arcs      | none verified                                                                     | n/a                   | Simulated, labelled DEMO in the UI                                                                                                               |
-| Globe                             | Esri dark canvas, imagery and elevation, OSM streets, Esri label tiles            | none                  | Google Photorealistic 3D Tiles optional (`GOOGLE_MAPS_API_KEY`)                                                                                  |
+| Globe                             | OpenFreeMap vector tiles (OSM), Esri imagery and elevation, OSM streets           | none                  | DARK and street names drawn in ctOS style to zoom 21; Esri dark canvas as the fallback; Google Photorealistic 3D Tiles optional                  |
 
 How this compares with the reference project, layer by layer, and what was left
 out on purpose: **[docs/COMPARISON.md](docs/COMPARISON.md)**.
 
 ## The interface
 
-There are no screenshots of the globe in this repository yet (it has not been
-run against real Cesium; see the testing status above), so in words: the
-interface follows a ctOS design system. Everything is set in JetBrains Mono
+There are no screenshots of the globe in this repository yet (it has only run
+on real Cesium in a headless browser; see the testing status above), so in
+words: the interface follows a ctOS design system. Everything is set in JetBrains Mono
 (or a system monospace when it is not installed) with square corners, corner-bracket frames, grays and the Mono Glow teals and
 mint; green and red only ever mean a state (live, locked, error, hazard). The
 map uses the same palette: a silhouette per aircraft class and a ctOS glyph
 per layer (hull, vehicle, satellite node, diamond, bracket, pulse and so on),
-on a dark mono basemap. Close up, aircraft become 3D models of their class.
+on the DARK basemap: OpenStreetMap vector tiles drawn in the same palette
+(near-black ground, roads at their real width, building footprints, white
+street names on a dark keyline), sharp down to street level. Close up,
+aircraft become 3D models of their class.
 
 - **Desktop**: a 37px bar across the top (the ARGUS lockup, preset cells NEAR,
   SKY, WATCH, HAZ, ENV, NET, the FPS and OBJ meters, SEARCH, the LIVE / DEMO feed
@@ -157,8 +161,9 @@ on a dark mono basemap. Close up, aircraft become 3D models of their class.
   target glides into view above the sheet. PROJECT on a traffic camera places
   its published still in 3D at the end of its frustum, with a gizmo to adjust
   the pose.
-- **VIEW**: basemap (DARK, SAT, STREETS, RELIEF offline) and MONO; LABELS (city
-  names offline, places + borders, street names); tracking density and the
+- **VIEW**: basemap (DARK, the ctOS vector map; SAT, STREETS, RELIEF offline) and
+  MONO; LABELS (city names offline, places + borders, street names, all in ctOS
+  white); tracking density and the
   viewport frame; terrain; 3D MODELS (close aircraft as glTF models of their
   class, on by default on the desktop); Starlink dense (desktop); weather history; sensor
   looks (NVG, FLIR, Noir on every tier with shaders; Snow, CRT, sharpen and
@@ -187,6 +192,17 @@ on a dark mono basemap. Close up, aircraft become 3D models of their class.
 - **Your position**: GEO jumps to the last known place at once and refines it;
   a second press follows you. Pick the marker (chevron, ctOS triangle, diamond,
   car, crosshair, dot, beam) in SETUP.
+- **Icons** (SETTINGS > ICONS): SCALE WITH ZOOM (the default: icons grow up to 3x
+  as you close in on a street, and keep their size farther out) or FIXED; a size
+  for all icons; PER-LAYER ICONS with a size and a ctOS variant for each layer
+  (traffic lights in colour, head, mast or node; cars, arrows or boxes for
+  simulated traffic; device, bracket or badge for surveillance; and more).
+- **It reopens where you left it**: the view, layers, looks, labels, target and
+  the active preset are saved as you go and restored at launch (SETTINGS > Start
+  in: where I left, the default view, or around me). A shared link still wins.
+- **Search is local first**: places and addresses near you (or the view) rank
+  above same-named ones far away, and US house numbers go to the Census
+  geocoder with your state filled in.
 - Notifications slide in top right (mako style), and only for things you asked
   about: feeds that could not be reached go to SETUP > LOGS instead. Search is a
   rofi-style launcher, the terminal is a kitty-style window, and a short boot
@@ -213,7 +229,8 @@ on a dark mono basemap. Close up, aircraft become 3D models of their class.
 | `D`                      | Tracking box density (off, low, med, high)                                       |
 | `V`                      | Clean view: hide the interface (the UI chip brings it back)                      |
 | `?`                      | The list of shortcuts                                                            |
-| Wheel, pinch, + / -      | Zoom; left-drag rotates; right- or middle-drag, or two fingers, tilt             |
+| Wheel, pinch, + / -      | Zoom; left-drag rotates; right- or middle-drag tilts                             |
+| Two fingers (touch)      | Pinch zooms, twist rotates, both up or down tilts; each starts past a dead zone  |
 | N, TLT, whole Earth, GEO | North up, straight down or oblique, the whole Earth, your position               |
 
 The phone build is reduced by design: explicit resolution scale, 30 fps ambient

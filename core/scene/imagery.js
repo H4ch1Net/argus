@@ -41,7 +41,12 @@ const GIBS_BLACK_MARBLE = `${GIBS}/VIIRS_Black_Marble/default/2016-01-01/GoogleM
 const OPENTOPOMAP = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
 
 export const IMAGERY_SOURCES = [
-  { id: 'dark', label: 'Dark', title: 'Esri World Dark Gray Canvas' },
+  {
+    id: 'dark',
+    label: 'Dark',
+    title:
+      'ctOS dark map: OpenStreetMap vector tiles (OpenFreeMap), sharp to street level',
+  },
   {
     id: 'satellite',
     label: 'Sat',
@@ -83,9 +88,32 @@ export function createBaseImageryLayer() {
   );
 }
 
+// The ctOS vector basemap (core/scene/vector/): set by main once the proxy
+// is known. With it, "dark" is drawn from OpenStreetMap vector tiles, sharp
+// to street level with buildings; without it (no proxy, a dev mock), the Esri
+// dark canvas below, which stops at about zoom 16.
+let vectorBasemap = null;
+let VectorProvider = null;
+/**
+ * @param {ReturnType<import('./vector/client.js').createVectorBasemap>|null} basemap
+ * @param {typeof import('./vector/provider.js').VectorTileImageryProvider} [Provider]
+ */
+export function setVectorBasemap(basemap, Provider) {
+  vectorBasemap = basemap;
+  if (Provider) VectorProvider = Provider;
+}
+/** The vector basemap's provider of one kind, or null without it. */
+export function vectorProvider(kind) {
+  return vectorBasemap && VectorProvider
+    ? new VectorProvider({ basemap: vectorBasemap, kind })
+    : null;
+}
+
 /** Build an imagery layer for one of IMAGERY_SOURCES. */
 export function createImageryLayer(source) {
   if (source === 'dark') {
+    const vector = vectorProvider('base');
+    if (vector) return new Cesium.ImageryLayer(vector, {});
     return Cesium.ImageryLayer.fromProviderAsync(
       Cesium.ArcGisMapServerImageryProvider.fromUrl(ESRI_DARK_GRAY, {
         enablePickFeatures: false,
@@ -176,6 +204,12 @@ export function createImageryController(viewer, { mono = true } = {}) {
       tone();
       listeners.forEach((fn) => fn(current));
       viewer.scene.requestRender();
+    },
+    /** Rebuild the current base layer (e.g. after the vector basemap failed). */
+    reload() {
+      const source = current;
+      current = null;
+      this.set(source);
     },
     mono: () => monoOn,
     setMono(on) {
