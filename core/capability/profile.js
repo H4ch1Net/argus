@@ -3,13 +3,29 @@
 // This is the single place that encodes the mobile-constraints rules from the
 // master plan (6.1): set resolutionScale explicitly (do not follow
 // devicePixelRatio), cap targetFrameRate, and use requestRenderMode. Higher
-// tiers unlock upward. It also caps tile caches (CLAUDE.md): photoreal 3D tiles
+// tiers unlock upward.
+//
+// Resolution is stated as rendered pixels per CSS pixel. With
+// useBrowserRecommendedResolution off, Cesium renders at devicePixelRatio x
+// resolutionScale, so the scale is that target over the device's ratio
+// (resolutionScaleFor). A QHD+ phone reports about 3.5: a scale of 1.25 there
+// meant 4.4 rendered pixels per CSS pixel, more than the panel itself. It also caps tile caches (CLAUDE.md): photoreal 3D tiles
 // fill whatever memory they are given, which on a phone means the OS reclaims
 // the GPU (context loss) or kills the tab.
 
 const MiB = 1024 * 1024;
 
 import { Tier } from './tier.js';
+
+/**
+ * Cesium's resolutionScale for a target of rendered pixels per CSS pixel
+ * (never above the panel's own density). 'native' renders at the panel's.
+ */
+export function resolutionScaleFor(pixelsPerPoint, dpr) {
+  const d = dpr > 0 ? dpr : 1;
+  if (pixelsPerPoint === 'native') return 1;
+  return Math.min(Math.max(0.5, Number(pixelsPerPoint) || 1), d) / d;
+}
 
 /**
  * @param {string} tier - one of Tier.*
@@ -31,11 +47,10 @@ export function qualityProfileForTier(tier, caps) {
     case Tier.FULL:
       return {
         ...base,
-        // Render at 1:1 CSS pixels even on hiDPI panels: a 2x scale quadruples
-        // the fill cost for little visible gain on a globe, and was the single
-        // biggest drain on laptops with integrated graphics. (The UI itself
-        // stays sharp; only the WebGL canvas is affected.)
-        resolutionScale: Math.min(dpr, 1.25),
+        // Up to 2 rendered pixels per CSS pixel: sharp glyphs and map tiles
+        // (drawn at 2x) on hiDPI laptops, without the fill cost of a 3x panel.
+        pixelsPerPoint: Math.min(dpr, 2),
+        resolutionScale: resolutionScaleFor(Math.min(dpr, 2), dpr),
         targetFrameRate: 60,
         // Screen-space error: lower is sharper terrain/tiles.
         maximumScreenSpaceError: 2,
@@ -53,9 +68,12 @@ export function qualityProfileForTier(tier, caps) {
     case Tier.BALANCED:
       return {
         ...base,
-        // ~1.0-1.5 effective; upscaling is near-invisible at arm's length on a
-        // 6.9" panel. Nudge up slightly on very high-DPI screens.
-        resolutionScale: dpr >= 3 ? 1.25 : 1.0,
+        // 2 rendered pixels per CSS pixel at most: the map tiles are drawn at
+        // 2x, so a 3.5x QHD+ panel gains little above it, and it is a third of
+        // the fill of rendering at the panel's full density (the thermal
+        // budget). SETUP > resolution can go to native.
+        pixelsPerPoint: Math.min(dpr, 2),
+        resolutionScale: resolutionScaleFor(Math.min(dpr, 2), dpr),
         // 30 ambient; cockpit mode raises this to 60.
         targetFrameRate: 30,
         maximumScreenSpaceError: 2,
@@ -69,7 +87,8 @@ export function qualityProfileForTier(tier, caps) {
     default:
       return {
         ...base,
-        resolutionScale: 1.0,
+        pixelsPerPoint: Math.min(dpr, 1.5),
+        resolutionScale: resolutionScaleFor(Math.min(dpr, 1.5), dpr),
         targetFrameRate: 30,
         maximumScreenSpaceError: 4,
         msaaSamples: 1,

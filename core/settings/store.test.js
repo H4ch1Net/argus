@@ -66,10 +66,13 @@ test('export and import round-trip; foreign files are refused', () => {
 test('profile overrides leave auto values to the tier', () => {
   assert.deepEqual(profileOverrides(defaultSettings()), {});
   assert.deepEqual(
-    profileOverrides({ ...defaultSettings(), fps: 60, resolution: 1.5, detail: 'high' }),
+    profileOverrides(
+      { ...defaultSettings(), fps: 60, resolution: 1.5, detail: 'high' },
+      3,
+    ),
     {
       targetFrameRate: 60,
-      resolutionScale: 1.5,
+      resolutionScale: 0.5, // 1.5 rendered px per CSS px on a 3x panel
       maximumScreenSpaceError: 1.33,
     },
   );

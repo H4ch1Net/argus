@@ -67,10 +67,11 @@ export function createSettingsPanel({ settings, tier, notify }) {
         'resolution',
         choice('resolution', 'Resolution', [
           opt('auto', 'Auto'),
-          opt(0.75, '0.75'),
-          opt(1, '1.0'),
-          opt(1.25, '1.25'),
-          opt(1.5, '1.5'),
+          opt(1, '1x'),
+          opt(1.5, '1.5x'),
+          opt(2, '2x'),
+          opt(2.5, '2.5x'),
+          opt('native', 'Max'),
         ]),
       ),
       keep(
@@ -90,7 +91,7 @@ export function createSettingsPanel({ settings, tier, notify }) {
         ),
       ),
       note(
-        'Lower frame rate and resolution keep a phone cool; detail trades tiles for sharpness.',
+        "Resolution is rendered pixels per screen point (Max: the panel's own). Lower frame rate and resolution keep a phone cool; detail trades tiles for sharpness.",
       ),
     ),
     ui: h(

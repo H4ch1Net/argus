@@ -85,7 +85,7 @@ async function main() {
     const settings = createSettingsStore(storage);
     const app = await mountShell(root, {
       tier: settings.get('tier'),
-      profile: profileOverrides(settings.all()),
+      profile: profileOverrides(settings.all(), window.devicePixelRatio || 1),
     });
     app.settings = settings;
     // The user's own position (core/geo/selfPosition.js): one model for every
@@ -1741,6 +1741,33 @@ async function setupScene(app, splash) {
   const metered = Boolean(app.capabilities?.network?.metered);
   const capable = app.tier !== 'minimal' && !metered;
 
+  // The ctOS vector basemap (core/scene/vector/): "dark" and the label
+  // overlays drawn from OpenStreetMap vector tiles through the proxy, sharp to
+  // street level with buildings. Without it (no proxy, or the tile set cannot
+  // be reached) they fall back to the Esri dark canvas and reference labels.
+  let vectorFailed = null; // set once imagery and labels exist
+  if (proxyClient && (!health || feedConfigured(health, 'openfreemap-tiles'))) {
+    const [{ createVectorBasemap }, { VectorTileImageryProvider }, { setVectorBasemap }] =
+      await Promise.all([
+        import('./core/scene/vector/client.js'),
+        import('./core/scene/vector/provider.js'),
+        import('./core/scene/imagery.js'),
+      ]);
+    const basemap = createVectorBasemap({ proxyClient });
+    setVectorBasemap(basemap, VectorTileImageryProvider);
+    app.basemap = basemap;
+    basemap.ready.catch((err) => {
+      log({
+        level: 'warn',
+        source: 'basemap',
+        title: 'DARK MAP UNAVAILABLE',
+        body: `${err?.message || err}; using the Esri dark canvas instead`,
+      });
+      setVectorBasemap(null);
+      vectorFailed?.();
+    });
+  }
+
   // Capable, unmetered devices start on the dark canvas (the ctOS look, and
   // light on tiles); metered or minimal devices keep the offline relief.
   const imagery = createImageryController(app.viewer, { mono: true });
@@ -1750,6 +1777,10 @@ async function setupScene(app, splash) {
   else if (savedImagery !== 'auto') imagery.set(savedImagery);
   else if (capable) imagery.set('dark');
   const labels = createLabelsController(app.viewer, { imagery });
+  vectorFailed = () => {
+    if (imagery.current() === 'dark') imagery.reload();
+    labels.refresh();
+  };
 
   const terrain = createTerrainController(app.viewer, {
     proxyBase: proxyBase || null,
@@ -2297,12 +2328,15 @@ async function setupScene(app, splash) {
 
   // SETTINGS (a dialog: the bar's SET cell, SETUP, or the comma key) and the
   // SETUP tab. Settings apply live where they can; the tier needs a reload.
-  const [{ createSettingsPanel }, { createSetupTab }, { qualityProfileForTier }] =
-    await Promise.all([
-      import('./core/ui/settingsPanel.js'),
-      import('./core/ui/setupTab.js'),
-      import('./core/capability/profile.js'),
-    ]);
+  const [
+    { createSettingsPanel },
+    { createSetupTab },
+    { qualityProfileForTier, resolutionScaleFor },
+  ] = await Promise.all([
+    import('./core/ui/settingsPanel.js'),
+    import('./core/ui/setupTab.js'),
+    import('./core/capability/profile.js'),
+  ]);
   const settingsPanel = createSettingsPanel({
     settings: app.settings,
     tier: app.tier,
@@ -2316,7 +2350,10 @@ async function setupScene(app, splash) {
     if (key === 'fps') {
       v.targetFrameRate = value === 'auto' ? tierProfile.targetFrameRate : value;
     } else if (key === 'resolution') {
-      v.resolutionScale = value === 'auto' ? tierProfile.resolutionScale : value;
+      v.resolutionScale =
+        value === 'auto'
+          ? tierProfile.resolutionScale
+          : resolutionScaleFor(value, window.devicePixelRatio || 1);
     } else if (key === 'detail') {
       earth.setDetail(value);
     } else if (key === 'uiScale') {

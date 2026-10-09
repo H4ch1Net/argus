@@ -914,6 +914,17 @@ export const CREDITS = [
     attribution: 'courtesy',
   },
   {
+    id: 'openfreemap',
+    name: 'OpenFreeMap (OpenMapTiles, OpenStreetMap data)',
+    terms:
+      'The ctOS dark map and its street and place labels, drawn here from OpenFreeMap vector tiles: free and keyless; credit "OpenFreeMap, (c) OpenMapTiles, data (c) OpenStreetMap contributors" (data ODbL 1.0)',
+    url: 'https://openfreemap.org',
+    layers: ['basemap', 'labels'],
+    feeds: ['openfreemap', 'openfreemap-tiles'],
+    hosts: ['tiles.openfreemap.org'],
+    attribution: 'required',
+  },
+  {
     id: 'esri-imagery',
     name: 'Esri World Imagery',
     terms:

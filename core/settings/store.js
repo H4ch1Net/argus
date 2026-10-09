@@ -5,6 +5,8 @@
 // resolution, globe detail) and live (units, clock, coordinates, interface
 // scale, Earth options).
 
+import { resolutionScaleFor } from '../capability/profile.js';
+
 export const SETTINGS_KEY = 'argus.settings.v1';
 
 /** Each setting: its default and the values it may take. */
@@ -12,7 +14,8 @@ export const SETTINGS_SCHEMA = Object.freeze({
   // Performance (read at boot; a tier change reloads the page).
   tier: { def: 'auto', values: ['auto', 'minimal', 'balanced', 'full'] },
   fps: { def: 'auto', values: ['auto', 20, 30, 60] },
-  resolution: { def: 'auto', values: ['auto', 0.75, 1, 1.25, 1.5] },
+  // Rendered pixels per CSS pixel ('native': the panel's own density).
+  resolution: { def: 'auto', values: ['auto', 1, 1.5, 2, 2.5, 'native'] },
   detail: { def: 'standard', values: ['low', 'standard', 'high'] },
   dataSaver: { def: false, values: [true, false] },
   // Interface.
@@ -166,10 +169,11 @@ export function createSettingsStore(storage) {
  * Profile overrides from the settings: what bootGlobe applies on top of the
  * tier's quality profile. 'auto' leaves the tier's own value.
  */
-export function profileOverrides(s) {
+export function profileOverrides(s, dpr = 1) {
   const out = {};
   if (s.fps !== 'auto') out.targetFrameRate = s.fps;
-  if (s.resolution !== 'auto') out.resolutionScale = s.resolution;
+  if (s.resolution !== 'auto')
+    out.resolutionScale = resolutionScaleFor(s.resolution, dpr);
   out.maximumScreenSpaceError = { low: 4, standard: undefined, high: 1.33 }[s.detail];
   if (out.maximumScreenSpaceError === undefined) delete out.maximumScreenSpaceError;
   return out;

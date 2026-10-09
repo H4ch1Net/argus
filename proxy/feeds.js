@@ -65,6 +65,7 @@ import { feeds as trafficFeeds } from './feeds/traffic.js';
 import { feeds as contextFeeds } from './feeds/context.js';
 import { feeds as exposureFeeds } from './feeds/exposure.js';
 import { feeds as streetFeeds } from './feeds/streets.js';
+import { feeds as basemapFeeds } from './feeds/basemap.js';
 
 // Feeds added after the core set live in per-area modules beside this file
 // (proxy/feeds/*.js), each exporting its own array in the same Feed shape.
@@ -515,4 +516,5 @@ export const feeds = [
   ...contextFeeds,
   ...exposureFeeds,
   ...streetFeeds,
+  ...basemapFeeds,
 ];

@@ -69,6 +69,11 @@ export async function createViewer(container, { profile, onContextChange } = {})
     scene.msaaSamples = profile.msaaSamples;
   }
 
+  // Where no imagery reaches (Web Mercator maps stop at 85 degrees, so the
+  // poles; a tile still loading) the globe shows its base colour: the ctOS
+  // ground, not Cesium's default blue-white cap.
+  scene.globe.baseColor = Cesium.Color.fromCssColorString('#121212');
+
   // Keep the atmosphere/lighting cheap on constrained tiers.
   scene.fog.enabled = profile.tier !== 'minimal';
   scene.globe.showGroundAtmosphere = profile.tier !== 'minimal';
