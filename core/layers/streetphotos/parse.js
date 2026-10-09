@@ -97,7 +97,12 @@ export function parseMapillaryImages(json) {
       lon,
       lat,
       capturedAt: num(d.captured_at),
-      compass: compass === null ? null : ((compass % 360) + 360) % 360,
+      compass:
+        compass === null
+          ? null
+          : compass >= 0 && compass < 360
+            ? compass
+            : ((compass % 360) + 360) % 360,
       pano: d.is_pano === true,
       thumb256: httpsUrl(d.thumb_256_url),
       thumb1024: httpsUrl(d.thumb_1024_url),

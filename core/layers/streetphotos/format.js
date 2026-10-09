@@ -10,7 +10,7 @@ const POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 /** 123 -> "123° SE". */
 export function compassText(deg) {
   if (!Number.isFinite(deg)) return 'unknown';
-  const d = Math.round(((deg % 360) + 360) % 360);
+  const d = Math.round(((deg % 360) + 360) % 360) % 360;
   return `${String(d).padStart(3, '0')}° ${POINTS[Math.round(d / 45) % 8]}`;
 }
 
