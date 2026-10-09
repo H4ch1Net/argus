@@ -32,8 +32,20 @@ import {
   describeSurveillance,
   surveillanceKind,
   surveillanceHeading,
+  surveillanceColorHex,
+  surveillanceSearchText,
 } from '../core/layers/surveillance/format.js';
-import { describeLandmark } from '../core/layers/landmarks/format.js';
+import { normalizeSurveillance } from '../core/layers/surveillance/parse.js';
+import { createSurveillanceSource } from '../core/layers/surveillance/source.js';
+import { describeLandmark, landmarkSearchText } from '../core/layers/landmarks/format.js';
+import {
+  normalizeLandmarks,
+  createLandmarksLoader,
+  createLandmarksSource,
+} from '../core/layers/landmarks/parse.js';
+import { normalizeSignals, createSignalsSource } from '../core/layers/signals/parse.js';
+import { describeSignal, signalSearchText } from '../core/layers/signals/format.js';
+import { tiledNote } from '../core/layers/overpass/tiles.js';
 import { parseShodanFacets } from '../core/layers/shodan/parse.js';
 import { describeShodan, shodanColorHex } from '../core/layers/shodan/format.js';
 import {
@@ -168,6 +180,12 @@ export const GLYPHS = {
     sat: '✦',
     camera: '◉',
     alpr: '◈',
+    ptz: '⊙',
+    speedcam: '⊕',
+    redlight: '⊗',
+    acoustic: '∴',
+    guardpost: '⌂',
+    signal: '⋮',
     landmark: '◆',
     shodan: '■',
     bgp: '•',
@@ -205,6 +223,12 @@ export const GLYPHS = {
     sat: '*',
     camera: 'c',
     alpr: 'A',
+    ptz: 'p',
+    speedcam: 'S',
+    redlight: 'R',
+    acoustic: 'G',
+    guardpost: 'H',
+    signal: 's',
     landmark: 'L',
     shodan: '#',
     bgp: '+',
@@ -259,12 +283,16 @@ export function altitudeColorHex(metres) {
   return hslToHex(0.34 - 0.17 * t, 0.85, 0.6);
 }
 
-const OVERPASS_MAX_DEG = 3;
-const SURVEILLANCE_FILTERS = [
-  'node["man_made"="surveillance"]',
-  'way["man_made"="surveillance"]',
-];
-const LANDMARK_FILTERS = ['node["tourism"]', 'node["historic"]'];
+// The terminal glyph for each surveillance kind (core/layers/surveillance/kinds.js).
+const SURVEILLANCE_CHAR = {
+  alpr: 'alpr',
+  acoustic: 'acoustic',
+  redlight: 'redlight',
+  speed: 'speedcam',
+  average: 'speedcam',
+  guard: 'guardpost',
+  ptz: 'ptz',
+};
 
 /**
  * @param {{ client: object|null, wsBase: string|null, health: object|null, demo: boolean,
@@ -478,35 +506,31 @@ export function buildLayers({
       key: 'surveillance',
       label: 'Surveillance',
       mode: 'viewport',
+      // OSM cameras, ALPR readers (DeFlock's mapping), acoustic sensors, guard
+      // posts, speed and red-light cameras; each 0.1 degree tile fetched once.
       makeSource: async () =>
         demo
           ? (
               await import('../core/layers/surveillance/mockSource.js')
             ).createSurveillanceMockSource({ viewer })
-          : createOverpassSource({
-              proxyClient: client,
-              filters: SURVEILLANCE_FILTERS,
-              maxAreaDeg: OVERPASS_MAX_DEG,
-            }),
-      normalize: (json) => parseOverpass(json),
+          : createSurveillanceSource({ proxyClient: client }),
+      normalize: (raw) => normalizeSurveillance(raw),
       describe: describeSurveillance,
-      searchText: (n) =>
-        `${n.meta.tags.operator || ''} ${n.meta.tags['surveillance:type'] || ''}`,
-      // A camera mapped with a facing draws as an arrow that way (the
-      // terminal's direction tick); one without keeps its glyph.
+      searchText: surveillanceSearchText,
+      // A device mapped with a facing draws as an arrow that way (the
+      // terminal's direction tick); one without keeps its kind's glyph.
       glyph: (n) => {
-        const alpr = surveillanceKind(n.meta.tags) === 'ALPR';
+        const kind = surveillanceKind(n);
         const facing = surveillanceHeading(n);
-        const color = alpr ? '#ff4d4d' : '#ffb454';
-        if (facing != null) return { ch: arrowFor(facing, g), color, bold: alpr };
-        return alpr ? { ch: g.alpr, color, bold: true } : { ch: g.camera, color };
+        const color = surveillanceColorHex(kind);
+        const strong = kind === 'alpr' || kind === 'acoustic';
+        if (facing != null) return { ch: arrowFor(facing, g), color, bold: strong };
+        return { ch: g[SURVEILLANCE_CHAR[kind]] ?? g.camera, color, bold: strong };
       },
-      statusNote: (q) =>
-        !demo && q.bbox && areaTooLarge(q.bbox, OVERPASS_MAX_DEG)
-          ? 'zoom in to a city to load'
-          : '',
+      priority: (n) => (surveillanceKind(n) === 'alpr' ? 1 : 0),
+      statusNote: (_q, raw) => (demo ? '' : tiledNote(raw)),
       legend: () =>
-        `${g.camera} camera  ${g.alpr} ALPR reader  ${g.arrows[1]} mapped facing (red ALPR; locations only)`,
+        `${g.camera} camera ${g.alpr} ALPR ${g.acoustic} acoustic ${g.speedcam} speed ${g.redlight} red-light ${g.guardpost} guard ${g.arrows[1]} facing (OSM, DeFlock; locations only)`,
     },
     {
       key: 'military',
@@ -588,26 +612,22 @@ export function buildLayers({
       key: 'landmarks',
       label: 'Landmarks',
       mode: 'viewport',
+      // Named OSM attractions, museums, monuments, castles, towers (Wikipedia
+      // linked ones first in the glyph priority); each tile fetched once.
       makeSource: async () =>
         demo
           ? (
               await import('../core/layers/landmarks/mockSource.js')
             ).createLandmarkMockSource({ viewer })
-          : createOverpassSource({
-              proxyClient: client,
-              filters: LANDMARK_FILTERS,
-              maxAreaDeg: OVERPASS_MAX_DEG,
-            }),
-      normalize: (json) => parseOverpass(json),
+          : createLandmarksSource(createLandmarksLoader({ proxyClient: client })),
+      normalize: (raw) => normalizeLandmarks(raw),
       describe: describeLandmark,
-      searchText: (n) =>
-        `${n.meta.tags.name || ''} ${n.meta.tags.tourism || n.meta.tags.historic || ''}`,
-      glyph: () => ({ ch: g.landmark, color: '#c9a6ff' }),
-      statusNote: (q) =>
-        !demo && q.bbox && areaTooLarge(q.bbox, OVERPASS_MAX_DEG)
-          ? 'zoom in to a city to load'
-          : '',
-      legend: () => `${g.landmark} landmarks (OSM)`,
+      searchText: landmarkSearchText,
+      glyph: (n) => ({ ch: g.landmark, color: '#c9a6ff', bold: n.meta.notable }),
+      priority: (n) => (n.meta.notable ? 1 : 0),
+      statusNote: (_q, raw) =>
+        demo ? '' : tiledNote(raw, { tooWide: 'zoom in to a city to load' }),
+      legend: () => `${g.landmark} landmarks (OSM, bold: on Wikipedia)`,
     },
     {
       key: 'shodan',
@@ -1035,6 +1055,30 @@ export function buildLayers({
       priority: (n) => Math.log10(Math.max(1, n.meta.count)),
       legend: () =>
         `${g.news} GDELT event reports, 24 h (red conflict, white disaster, gray unrest)`,
+    },
+    {
+      key: 'signals',
+      label: 'Traffic lights',
+      mode: 'viewport',
+      maxEntities: 2500,
+      // OSM traffic signals, only in views about 20 km across or less.
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/signals/mockSource.js')
+            ).createSignalsMockSource({ viewer })
+          : createSignalsSource({ proxyClient: client }),
+      normalize: (raw) => normalizeSignals(raw),
+      describe: describeSignal,
+      searchText: signalSearchText,
+      glyph: (n) => ({
+        ch: g.signal,
+        color: n.meta.kind === 'crossing' ? '#8fa8a6' : '#deeeed',
+        bold: n.meta.kind !== 'crossing',
+      }),
+      priority: (n) => (n.meta.kind === 'crossing' ? 0 : 1),
+      statusNote: (_q, raw) => tiledNote(raw),
+      legend: () => `${g.signal} traffic lights (OSM; zoom in to about 20 km)`,
     },
   ];
 

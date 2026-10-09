@@ -22,6 +22,7 @@ import {
 //   positionAt?(normalized, timeMs), positionCacheMs?, animationFps?,
 //   describe?(normalized) -> cardModel   (for the interaction spine)
 //   statusNote?(query, raw) -> string     (a hint shown beside the count)
+//   select?(list) -> list                 (which records to draw, on each ingest)
 //   onEntityCreate?(target, normalized, { viewer, scene }) -> dispose
 //   onShow?(shown, { viewer, scene })      (hide decorations with the layer)
 //
@@ -229,7 +230,10 @@ export function createLayer(viewer, def, ctx) {
     dirty = true;
   }
 
-  function ingest(list, batchTimeMs = Date.now()) {
+  function ingest(all, batchTimeMs = Date.now()) {
+    // def.select(list) picks which of the held records to draw (the nearest n,
+    // or all in view): static layers whose records are fetched once and kept.
+    const list = def.select ? def.select(all) : all;
     const items = list.length > maxEntities ? list.slice(0, maxEntities) : list;
     const seen = new Set();
     for (const n of items) {

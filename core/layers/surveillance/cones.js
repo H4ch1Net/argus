@@ -10,7 +10,11 @@
 // (one cone each). `camera:angle` in OSM is the camera's TILT from the
 // horizontal, not its field of view, so it is shown on the card and never used
 // for the cone width; the width comes from a range when one is tagged, else a
-// default (ALPR readers cover a few lanes: narrower and shorter).
+// default (ALPR readers cover a few lanes: narrower and shorter; speed and
+// red-light cameras watch one approach: narrower still, a little longer).
+// Acoustic sensors and guard posts have no facing and get neither.
+
+import { isAlprType, surveillanceKindOf, kindInfo, ENFORCEMENT_KINDS } from './kinds.js';
 
 export const COMPASS16 = [
   'N',
@@ -33,6 +37,7 @@ export const COMPASS16 = [
 
 export const CONE_DEFAULTS = Object.freeze({
   alpr: { fovDeg: 60, rangeM: 60 },
+  enforcement: { fovDeg: 30, rangeM: 90 },
   camera: { fovDeg: 70, rangeM: 80 },
 });
 
@@ -98,8 +103,7 @@ export function parseDirections(value) {
 
 /** True for ALPR / ANPR readers (same test as the layer's styling). */
 export function isAlprTags(tags) {
-  const t = String(tags?.['surveillance:type'] || '').toLowerCase();
-  return t.includes('alpr') || t.includes('anpr');
+  return isAlprType(tags?.['surveillance:type']);
 }
 
 /** The raw direction value a camera is mapped with, or null. */
@@ -113,22 +117,29 @@ export function directionTag(tags) {
 
 /**
  * The cones a normalized surveillance entity gets:
- * { alpr, lon, lat, rangeM, cones: [{ headingDeg, fovDeg }], ring }.
+ * { kind, alpr, lon, lat, rangeM, cones: [{ headingDeg, fovDeg }], ring }.
  * `ring` is true when no direction is mapped (drawn as a faint full circle).
- * Returns null without a usable position.
+ * Returns null without a usable position, or for a kind with no facing
+ * (acoustic sensors, guard posts).
  */
 export function cameraCones(n) {
   const lon = n?.position?.longitude;
   const lat = n?.position?.latitude;
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
   const tags = n.meta?.tags || {};
-  const alpr = isAlprTags(tags);
-  const d = alpr ? CONE_DEFAULTS.alpr : CONE_DEFAULTS.camera;
+  const kind = n.meta?.kind ?? surveillanceKindOf(tags);
+  if (!kindInfo(kind).cone) return null;
+  const alpr = kind === 'alpr';
+  const d = alpr
+    ? CONE_DEFAULTS.alpr
+    : ENFORCEMENT_KINDS.has(kind)
+      ? CONE_DEFAULTS.enforcement
+      : CONE_DEFAULTS.camera;
   const cones = parseDirections(directionTag(tags)).map((c) => ({
     headingDeg: c.headingDeg,
     fovDeg: c.fovDeg ?? d.fovDeg,
   }));
-  return { alpr, lon, lat, rangeM: d.rangeM, cones, ring: cones.length === 0 };
+  return { kind, alpr, lon, lat, rangeM: d.rangeM, cones, ring: cones.length === 0 };
 }
 
 /**

@@ -1,95 +1,186 @@
 import { h } from './dom.js';
-import { section, createChoice } from './controls.js';
-import { CITY_POIS, poiView } from '../search/pois.js';
+import { section } from './controls.js';
+import { rankLandmarks, landmarkFraming, distanceKm } from '../layers/landmarks/parse.js';
+import { categoryLabel, categoryCode } from '../layers/landmarks/format.js';
 
-// LANDMARKS, a TOOLS-menu section: pick a city, then one of its public
-// landmarks to fly to its hand-tuned view (core/search/pois.js, adapted from
-// gods-eye-view). Pure UI: flying is the caller's flyTo.
+// LANDMARKS (TOOLS): the landmarks NEARBY the middle of the view, from
+// OpenStreetMap (core/layers/landmarks/parse.js), instead of a fixed list of a
+// few cities. About a dozen, Wikipedia / Wikidata ones first, each with its
+// distance: a row flies there framed for its kind (a tower from below its top,
+// a castle from further out), SAVE keeps it in MY PLACES. The list scans when
+// the section comes into sight and the view has moved since, or on SCAN; each
+// area is fetched once (the tiles are shared with the Landmarks layer).
 
-// Short city codes for the segmented choice (nine full names would not fit).
-const CODE = {
-  austin: 'AUS',
-  sf: 'SF',
-  nyc: 'NYC',
-  tokyo: 'TYO',
-  london: 'LDN',
-  paris: 'PAR',
-  dubai: 'DXB',
-  dc: 'DC',
-  tallinn: 'TLL',
-};
-const fmtHdg = (d) => `${String(Math.round(d) % 360).padStart(3, '0')}°`;
+const LINE = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' };
+const fmtKm = (km) =>
+  km < 1 ? `${Math.round(km * 1000)} M` : `${km.toFixed(km < 10 ? 1 : 0)} KM`;
 
 /**
- * @param {{ flyTo: (view: { lon: number, lat: number, alt: number, heading: number,
- *   pitch: number, targetM: number, groundM: number, name: string }) => void,
- *   city?: string }} deps
- *   flyTo: alt is the viewing RANGE in metres from the landmark (default 1500),
- *   heading and pitch in degrees (pitch default -35, negative looks down),
- *   targetM the landmark's centre above the ground, groundM the city's fallback
- *   ground height; city: the id to open on (default the first)
+ * @param {{
+ *   nearby: (at: { lat: number, lon: number }, radiusKm: number) => Promise<object[]>,
+ *   centre: () => ({ lat: number, lon: number })|null,
+ *   viewKm?: () => number,
+ *   from?: () => ({ lat: number, lon: number })|null,
+ *   flyTo: (view: { lon: number, lat: number, height: number, range: number,
+ *     pitch: number, heading: number }, n: object) => void,
+ *   save: (n: object) => object|null,
+ *   notify?: Function,
+ *   formatDistance?: (m: number) => string,
+ * }} deps
+ *   nearby: normalized landmarks around a point (core/layers/landmarks);
+ *   centre: the ground point in the middle of the view; viewKm: the view's
+ *   width (the scan radius follows it); from: the camera's ground point (the
+ *   flight's heading); save: add to MY PLACES, returns the place or null
  */
-export function createPoiTool({ flyTo, city: initial } = {}) {
-  let city = CITY_POIS.find((c) => c.id === initial) ?? CITY_POIS[0];
-  let flown = null; // `${cityId}:${name}` of the landmark last flown to
+export function createPoiTool({
+  nearby,
+  centre,
+  viewKm = () => 8,
+  from = () => null,
+  flyTo,
+  save,
+  notify = () => {},
+  formatDistance,
+}) {
   const summary = h('div.ct-tool__summary');
-  const list = h('div.ct-tool__steps');
+  const list = h('div.ct-tool__steps.ct-scroll', { style: { maxHeight: '300px' } });
+  let scanning = false;
+  let lastAt = null; // where the list was last scanned
+  let lastRadius = 0;
+  let flown = null;
+  let rows = [];
 
-  function go(poi) {
-    flown = `${city.id}:${poi.name}`;
-    flyTo({ ...poiView(poi), groundM: city.groundM, name: poi.name });
-    for (const row of list.children)
-      row.setAttribute('aria-pressed', String(row.dataset.key === flown));
-  }
+  const dist = (km) => (formatDistance ? formatDistance(km * 1000) : fmtKm(km));
 
   function render() {
-    summary.textContent = `${city.city.toUpperCase()}  ${String(city.pois.length).padStart(2, '0')} LANDMARKS`;
     list.innerHTML = '';
-    for (const poi of city.pois) {
-      const key = `${city.id}:${poi.name}`;
+    for (const { n, km } of rows) {
+      const name = n.meta.name;
+      const row = h(
+        'button.ct-row',
+        {
+          type: 'button',
+          title: `Fly to ${name}`,
+          'aria-pressed': String(flown === n.id),
+          onclick: () => {
+            flown = n.id;
+            flyTo(landmarkFraming(n, from()), n);
+            render();
+          },
+        },
+        // Two lines: the name (a diamond when it is on Wikipedia), then its
+        // kind and distance, so long names keep their room.
+        h(
+          'span.ct-row__label',
+          {},
+          h(
+            'span',
+            { style: LINE },
+            `${n.meta.notable ? '◆ ' : ''}${name.toUpperCase()}`,
+          ),
+          h(
+            'span.ct-row__meta',
+            { style: LINE },
+            `${categoryCode(n.meta.category)} · ${dist(km)}`,
+          ),
+        ),
+      );
+      const keep = h(
+        'button.ct-btn',
+        {
+          type: 'button',
+          title: `Save ${name} to MY PLACES`,
+          onclick: () => {
+            const p = save(n);
+            notify({
+              title: p ? `SAVED ${String(p.name).toUpperCase()}` : 'PLACE LIST FULL',
+              level: 'low',
+            });
+          },
+        },
+        'SAVE',
+      );
       list.appendChild(
         h(
-          'button.ct-row',
+          'div.ct-nearby__row',
           {
-            type: 'button',
-            title: `Fly to ${poi.name}`,
-            'aria-pressed': String(key === flown),
-            dataset: { key },
-            onclick: () => go(poi),
+            title: categoryLabel(n.meta.category),
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              gap: '4px',
+            },
           },
-          h('span.ct-row__label', {}, poi.name.toUpperCase()),
-          h('span.ct-row__meta', {}, `HDG ${fmtHdg(poi.heading)}`),
+          row,
+          keep,
         ),
       );
     }
   }
 
-  const choice = createChoice({
-    label: 'City',
-    options: CITY_POIS.map((c) => ({
-      id: c.id,
-      label: CODE[c.id] ?? c.id.toUpperCase(),
-      title: c.city,
-    })),
-    current: city.id,
-    onSelect: (id) => {
-      city = CITY_POIS.find((c) => c.id === id) ?? city;
+  async function scan() {
+    const at = centre();
+    if (!at) {
+      summary.textContent = 'AIM AT THE GROUND TO SCAN';
+      return;
+    }
+    if (scanning) return;
+    scanning = true;
+    // Search about half the view across, between 2 and 8 km.
+    const radius = Math.max(2, Math.min(8, (viewKm() || 8) / 2));
+    summary.textContent = 'SCANNING OSM...';
+    try {
+      const items = await nearby(at, radius);
+      rows = rankLandmarks(items, at, { limit: 12, maxKm: radius * 1.25 });
+      lastAt = at;
+      lastRadius = radius;
+      summary.textContent = rows.length
+        ? `NEARBY  ${String(rows.length).padStart(2, '0')} WITHIN ${dist(radius * 1.25)}`
+        : 'NO NAMED LANDMARKS NEAR THE VIEW';
       render();
-      return city.id;
-    },
-  });
-  render();
+    } catch (err) {
+      // No popup for a network failure: the summary line says it.
+      console.warn('[argus] nearby landmarks:', err?.message || err);
+      summary.textContent = 'OSM UNREACHABLE: TRY SCAN AGAIN';
+    } finally {
+      scanning = false;
+    }
+  }
 
+  /** Scan again when the view has moved a fair way since the last list. */
+  function maybeScan() {
+    const at = centre();
+    if (!at) return;
+    if (lastAt && distanceKm(at, lastAt) < Math.max(0.5, lastRadius * 0.35)) return;
+    scan();
+  }
+
+  const scanBtn = h(
+    'button.ct-btn',
+    {
+      type: 'button',
+      title: 'List the landmarks around the middle of the view',
+      onclick: () => scan(),
+    },
+    'SCAN VIEW',
+  );
   const el = section(
     'LANDMARKS',
-    choice.el,
     summary,
+    h('div.ct-seg', {}, scanBtn),
     list,
     h(
       'div.ct-section__note',
       {},
-      'Public landmarks with hand-tuned views, adapted from gods-eye-view (MIT).',
+      'Named landmarks from OpenStreetMap around the middle of the view, Wikipedia-linked first. Each area is fetched once.',
     ),
   );
-  return { el };
+  // Scan when the section comes into sight (its tab opened, scrolled to).
+  if (typeof IntersectionObserver === 'function') {
+    new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) maybeScan();
+    }).observe(el);
+  }
+  summary.textContent = 'OPEN TO SCAN THE VIEW';
+  return { el, scan, maybeScan };
 }

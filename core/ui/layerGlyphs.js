@@ -26,7 +26,7 @@ const LAYER_GLYPH = {
   clouds: 'frame',
   radar: 'frame',
   lightning: 'cross',
-  surveillance: 'bracket',
+  surveillance: 'alpr',
   landmarks: 'frame',
   myplaces: 'diamond',
   cctv: 'bracket',
@@ -50,6 +50,7 @@ const LAYER_GLYPH = {
   terminator: 'half',
   tor: 'exit',
   gdelt: 'news',
+  signals: 'signal',
 };
 
 function source(key) {
