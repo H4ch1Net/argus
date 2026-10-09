@@ -272,3 +272,25 @@ test('the cache bounds a feed by bytes as well as entries', () => {
   assert.equal(cache.get('t2', 1e9), null, 'its own oldest went');
   assert.ok(cache.get('other', 1e9), "another feed's entry stays");
 });
+
+test('a fetch that refuses the Connection header still gets the request', async (t) => {
+  const { server, state } = await startUpstream(t, { body: '<State></State>' });
+  const proxy = await startProxy(t, [
+    { id: 'c', baseUrl: base(server), freshConnection: true },
+  ]);
+  // The relay's fetch behaves like an older undici that throws on a
+  // Connection header; the test's own requests use the real one.
+  const real = globalThis.fetch;
+  globalThis.fetch = (url, opts) =>
+    opts?.headers?.connection
+      ? Promise.reject(new TypeError('invalid connection header'))
+      : real(url, opts);
+  t.after(() => {
+    globalThis.fetch = real;
+  });
+  const r = await real(`${base(proxy)}/feed/c/sa.xml`);
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), '<State></State>');
+  assert.equal(state.hits.length, 1);
+  assert.notEqual(state.hits[0].connection, 'close');
+});

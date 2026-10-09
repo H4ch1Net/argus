@@ -5,7 +5,8 @@ import { layerTile } from './layerGlyphs.js';
 // The layer menu: a launcher-style list (design/ctos Launcher) of every data
 // layer, grouped, filterable, each row a toggle. A row shows the layer's own
 // marker in a tile, its name, and its live state on the right: the contact
-// count, LOAD while it fetches, ERR (red) when the feed failed, OFF. The
+// count, LOAD while it fetches, ERR (red) when the feed failed, STALE when the
+// proxy could only give its last good answer, OFF. The
 // selected style (raised, ctosGray left rule) means "on". Presets sit on top.
 
 const fmtCount = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}K` : String(n));
@@ -75,6 +76,9 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
     if (s?.state === 'error')
       return { text: 'ERR', cls: 'is-err', title: s.message || 'Feed error' };
     const count = s?.count ?? 0;
+    // The feed failed but the proxy still had its last good answer.
+    if (s?.stale != null)
+      return { text: `STALE ${fmtCount(count)}`, cls: 'is-stale', title: s.note || '' };
     return {
       text: demo ? `DEMO ${fmtCount(count)}` : fmtCount(count),
       cls: demo ? 'is-demo' : '',

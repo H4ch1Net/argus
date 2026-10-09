@@ -136,9 +136,41 @@ async function setupScene(app, splash) {
     45,
   );
 
-  const { createNotifier } = await import('./core/ui/hud/notify.js');
-  const notifier = createNotifier();
+  // LOGS (core/ui/logs.js): feed, network and layer failures go to this store,
+  // shown collapsed at the end of SETUP, never as popups; only the genuinely
+  // critical still pops up (no proxy at all, the GPU dropping the globe). The
+  // console hears each distinct failure once, not every poll.
+  const [{ createNotifier }, { createLogStore }] = await Promise.all([
+    import('./core/ui/hud/notify.js'),
+    import('./core/ui/logs.js'),
+  ]);
+  const logs = createLogStore();
+  app.logs = logs;
+  const log = (entry) => {
+    const e = logs.add(entry);
+    if (e.count === 1 && e.level !== 'info')
+      console.warn(
+        `[argus] ${e.source ? `${e.source}: ` : ''}${e.title} ${e.body}`.trim(),
+      );
+    return e;
+  };
+  const notifier = createNotifier({ log });
   app.mount('notify', notifier.el);
+  const glCanvas = app.viewer.scene.canvas;
+  glCanvas.addEventListener('webglcontextlost', () => {
+    log({ level: 'error', source: 'gpu', title: 'GRAPHICS CONTEXT LOST' });
+    notifier.push({
+      title: 'GRAPHICS RESET',
+      body: 'The GPU dropped the globe; it is being restored.',
+      level: 'critical',
+      key: 'gl',
+      kind: 'notice',
+    });
+  });
+  glCanvas.addEventListener('webglcontextrestored', () => {
+    log({ level: 'info', source: 'gpu', title: 'GRAPHICS CONTEXT RESTORED' });
+    notifier.clear('gl');
+  });
 
   // A production build with no proxy has no data source (mocks are dev-only), so
   // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
@@ -1066,6 +1098,34 @@ async function setupScene(app, splash) {
   // (rather than becoming a dead toggle), never masquerading as real.
   const noRealFeed = new Set(['cctv', 'threats']);
 
+  // STALE: each layer gets its own view of the proxy client, so an answer the
+  // proxy served from its last good copy (x-argus-stale) marks that layer's
+  // next status STALE with the age, instead of the layer failing.
+  const staleSeen = new Map(); // layer key -> { age, partial }
+  const trackedClient = (key) =>
+    proxyClient.tracked((m) => {
+      if (m.stale === null && !m.partial) return;
+      const cur = staleSeen.get(key) ?? { age: 0, partial: false };
+      cur.age = Math.max(cur.age, m.stale ?? 0);
+      cur.partial ||= m.partial;
+      staleSeen.set(key, cur);
+    });
+  const markStale = (key, s) => {
+    const m = staleSeen.get(key);
+    staleSeen.delete(key);
+    if (!m || s?.state !== 'ok') return s;
+    const age =
+      m.age >= 3600 ? `${Math.round(m.age / 3600)}H` : `${Math.ceil(m.age / 60)}M`;
+    const why = m.partial
+      ? 'the feed sent an incomplete copy'
+      : `the feed is not answering, showing its last good data (${age} old)`;
+    return {
+      ...s,
+      stale: m.age,
+      note: [`STALE: ${why}`, s.note].filter(Boolean).join('; '),
+    };
+  };
+
   for (const r of registrations) {
     // The sourceless layers can only be driven by the dev mock; outside dev they
     // have nothing to show, so do not register them (no dead chips in production).
@@ -1086,9 +1146,10 @@ async function setupScene(app, splash) {
       // With a proxy, use the real feed; if this layer has none (proxy source is
       // null), fall back to the labelled mock instead of failing to enable.
       makeSource: async () => {
-        if (proxyClient) return (await r.proxy(proxyClient)) ?? r.mock();
+        if (proxyClient) return (await r.proxy(trackedClient(r.key))) ?? r.mock();
         return r.mock();
       },
+      decorateStatus: (s) => markStale(r.key, s),
       demo: noRealFeed.has(r.key),
     });
   }
@@ -1379,15 +1440,35 @@ async function setupScene(app, splash) {
   app.mount('layers', layerMenu.el);
   setPreset(activePreset);
 
-  // Feed failures surface once as a notification (the menu row turns ERR too).
+  // Feed failures go to LOGS, never a popup (the menu row turns ERR or STALE
+  // too); a feed that recovers is logged as well. Repeats fold into a count.
+  const feedState = new Map(); // layer key -> 'ok' | 'stale' | 'error'
   manager.subscribeStatus((key, s) => {
-    if (s?.state !== 'error') return;
-    const label = manager.list().find((l) => l.key === key)?.label ?? key;
-    notifier.push({
-      title: `${label} FEED ERROR`,
-      body: s.message || `The ${label.toLowerCase()} feed did not answer.`,
-      key: `err:${key}`,
-    });
+    const state = s?.state === 'ok' && s.stale != null ? 'stale' : s?.state;
+    const was = feedState.get(key);
+    feedState.set(key, state);
+    const label = (manager.list().find((l) => l.key === key)?.label ?? key).toUpperCase();
+    if (state === 'error')
+      log({
+        level: 'error',
+        source: key,
+        title: `${label} FEED ERROR`,
+        body: s.message || 'The feed did not answer.',
+      });
+    else if (state === 'stale' && was !== 'stale')
+      log({
+        level: 'warn',
+        source: key,
+        title: `${label} STALE`,
+        body: String(s.note ?? '').replace(/^STALE: /, ''),
+      });
+    else if (state === 'ok' && (was === 'error' || was === 'stale'))
+      log({
+        level: 'info',
+        source: key,
+        title: `${label} BACK`,
+        body: `${s.count ?? 0} items.`,
+      });
   });
 
   // ------------------------------------------------------------- view menu
@@ -1418,15 +1499,8 @@ async function setupScene(app, splash) {
     proxyBase: proxyBase || null,
     tilesetCache: app.profile?.tilesetCache ?? null,
     onStatus: (s) => {
-      if (!s.ok && s.message) {
-        console.warn(`[argus] terrain: ${s.message}`);
-        notifier.push({
-          title: 'TERRAIN',
-          body: s.message,
-          key: 'terrain',
-          level: 'low',
-        });
-      }
+      if (!s.ok && s.message)
+        log({ level: 'warn', source: 'terrain', title: 'TERRAIN', body: s.message });
     },
   });
   const chosenTerrain = settings?.get('terrain') ?? 'auto';
@@ -1880,6 +1954,7 @@ async function setupScene(app, splash) {
     notify,
     openSettings: () => settingsPanel.open(),
     openKeys: () => keyHelpRef?.open(),
+    logs,
   });
   app.mount('setup', setup.el);
   let keyHelpRef = null;
@@ -2423,6 +2498,7 @@ async function setupScene(app, splash) {
       level: 'low',
       timeoutMs: 9000,
       key: 'demo',
+      kind: 'notice', // critical to know: never folded into the log
     });
   }
 
@@ -2587,6 +2663,8 @@ async function setupScene(app, splash) {
       panel,
       launcher,
       notifier,
+      logs,
+      setup,
       imagery,
       labels,
     });

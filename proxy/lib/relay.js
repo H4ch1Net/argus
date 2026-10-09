@@ -400,13 +400,26 @@ export async function handleRelay(
         let sendBody = body && body.length ? body : undefined;
         let hopHeaders = outbound;
         for (let hop = 0; ; hop += 1) {
-          const up = await fetch(hopUrl, {
-            method,
-            headers: hopHeaders,
-            body: sendBody,
-            signal: controller.signal,
-            redirect: 'manual',
-          });
+          const send = (h) =>
+            fetch(hopUrl, {
+              method,
+              headers: h,
+              body: sendBody,
+              signal: controller.signal,
+              redirect: 'manual',
+            });
+          let up;
+          try {
+            up = await send(hopHeaders);
+          } catch (err) {
+            // A fetch that refuses a Connection header (an older undici, as
+            // in the Android app's Node 18) gets the request without it.
+            if (!hopHeaders.connection || controller.signal.aborted) throw err;
+            hopHeaders = Object.fromEntries(
+              Object.entries(hopHeaders).filter(([k]) => k !== 'connection'),
+            );
+            up = await send(hopHeaders);
+          }
           const location = REDIRECTS.has(up.status) ? up.headers.get('location') : null;
           if (!location) {
             // Read the body inside the same timeout window: a stalled body must

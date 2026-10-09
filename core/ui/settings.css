@@ -157,6 +157,156 @@
   color: var(--success);
 }
 
+/* Key actions answer inline, in the bracket style, never as a popup. */
+.ct-setup__status {
+  padding: 4px 8px;
+  border-left: 2px solid var(--textSecondary);
+  color: var(--textPrimaryDim);
+  font-size: 10.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ct-setup__status[data-state='ok'] {
+  border-left-color: var(--success);
+}
+.ct-setup__status[data-state='bad'] {
+  border-left-color: var(--error);
+  color: var(--error);
+}
+
+/* EXPORT / IMPORT KEYS. */
+.ct-setup__transfer,
+.ct-setup__form,
+.ct-setup__result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ct-setup__transfer {
+  margin: 4px 0 2px;
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--backgroundBright);
+}
+.ct-setup__form {
+  padding: 6px 0 2px;
+}
+.ct-setup__form > input,
+.ct-setup__text {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--textSecondary);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--textPrimary);
+  font: inherit;
+  font-size: 11px;
+}
+.ct-setup__text {
+  resize: vertical;
+  font-size: 10px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+.ct-setup__file {
+  color: var(--textSecondary);
+  font: inherit;
+  font-size: 10.5px;
+}
+.ct-setup__file::file-selector-button {
+  margin-right: 8px;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--textSecondary);
+  background: transparent;
+  color: var(--textPrimaryDim);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.ct-setup__transfer[hidden],
+.ct-setup__form[hidden],
+.ct-setup__result[hidden],
+.ct-setup__status[hidden] {
+  display: none;
+}
+
+/* LOGS: a collapsed section at the end of SETUP. */
+.ct-logs__head {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.ct-logs__head:hover,
+.ct-logs__head:focus-visible {
+  color: var(--textPrimary);
+}
+.ct-logs__head::after {
+  order: 1;
+}
+.ct-logs__badge {
+  order: 0;
+}
+.ct-logs__badge[hidden] {
+  display: none;
+}
+.ct-logs__caret {
+  order: 2;
+  color: var(--textPrimaryDim);
+}
+.ct-logs__body[hidden] {
+  display: none;
+}
+.ct-logs__list {
+  max-height: min(42vh, 360px);
+  border: 1px solid var(--backgroundBright);
+  contain: content;
+}
+.ct-logs__row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--backgroundBright);
+  border-left: 2px solid var(--textSecondary);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.ct-logs__row[data-level='warn'] {
+  border-left-color: var(--textPrimaryDim);
+}
+.ct-logs__row[data-level='error'] {
+  border-left-color: var(--error);
+}
+.ct-logs__time {
+  color: var(--textSecondary);
+  font-variant-numeric: tabular-nums;
+}
+.ct-logs__lvl {
+  color: var(--textSecondary);
+  letter-spacing: 0.06em;
+}
+.ct-logs__row[data-level='error'] .ct-logs__lvl {
+  color: var(--error);
+}
+.ct-logs__title {
+  color: var(--textPrimaryDim);
+  overflow-wrap: anywhere;
+}
+.ct-logs__count {
+  color: var(--textPrimary);
+  font-weight: normal;
+}
+.ct-logs__text {
+  grid-column: 1 / -1;
+  color: var(--textSecondary);
+  overflow-wrap: anywhere;
+}
+
 /* Reduce motion: decorative animation stops (the settings switch, or the OS). */
 :root[data-reduced-motion='true'] *,
 :root[data-reduced-motion='true'] *::before,
