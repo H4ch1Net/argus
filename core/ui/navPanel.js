@@ -723,10 +723,21 @@ export function createNavPanel({
     changed();
   }
 
+  // A preview left open keeps its arrival times current (twice a minute,
+  // nothing while the page is hidden; no request, just the clock).
+  let etaTimer = null;
   const unsubscribe = nav.subscribe((s) => {
     renderCard(s);
     renderDriving(s);
     changed();
+    if (s.status === 'previewing' && !etaTimer)
+      etaTimer = setInterval(() => {
+        if (!document.hidden && nav.state.status === 'previewing') renderCard(nav.state);
+      }, 30_000);
+    else if (s.status !== 'previewing' && etaTimer) {
+      clearInterval(etaTimer);
+      etaTimer = null;
+    }
   });
 
   // ------------------------------------------------------------- map press
@@ -1000,6 +1011,7 @@ export function createNavPanel({
     destroy() {
       end();
       unsubscribe();
+      clearInterval(etaTimer);
       document.removeEventListener('pointerdown', onDocDown, true);
       document.removeEventListener('keydown', onKey);
       if (canvas) {
