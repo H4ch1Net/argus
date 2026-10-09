@@ -41,6 +41,7 @@ export const wazeDefinition = {
   maxEntities: 1500,
   normalize: (raw) => parseWaze(raw?.json ?? raw),
   statusNote: (_q, raw) =>
+    raw?.note ||
     [
       raw?.via === 'local' ? 'your waze-server' : raw?.via === 'demo' ? 'DEMO' : '',
       raw?.clipped ? 'nearest 100 km' : '',

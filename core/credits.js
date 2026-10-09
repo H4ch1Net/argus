@@ -982,8 +982,19 @@ export const CREDITS = [
       'Free public instance under fair use (no bulk or heavy use); data ODbL 1.0 from OpenStreetMap',
     url: 'https://photon.komoot.io',
     layers: ['search'],
-    feeds: ['photon'],
+    feeds: ['photon', 'photon-reverse'],
     hosts: ['photon.komoot.io'],
+    attribution: 'courtesy',
+  },
+  {
+    id: 'census-geocoder',
+    name: 'U.S. Census Bureau Geocoder',
+    terms:
+      'Public domain (a US Government work), keyless; street addresses are interpolated along the TIGER/Line address ranges, so a position is approximate',
+    url: 'https://geocoding.geo.census.gov/geocoder/',
+    layers: ['search'],
+    feeds: ['census-geocoder'],
+    hosts: ['geocoding.geo.census.gov'],
     attribution: 'courtesy',
   },
 

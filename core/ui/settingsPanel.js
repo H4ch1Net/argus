@@ -136,8 +136,8 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
       keep(
         'startView',
         choice('startView', 'Start in', [
-          opt('default', 'Default'),
-          opt('last', 'Last view'),
+          opt('last', 'Where I left'),
+          opt('default', 'Default view'),
           opt('aroundme', 'Around me'),
         ]),
       ),

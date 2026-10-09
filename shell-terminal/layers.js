@@ -1146,6 +1146,7 @@ export function buildLayers({
       }),
       priority: incidentPriority,
       statusNote: (_q, raw) =>
+        raw?.note ||
         [
           raw?.via === 'local' ? 'your waze-server' : '',
           raw?.clipped ? 'nearest 100 km' : '',

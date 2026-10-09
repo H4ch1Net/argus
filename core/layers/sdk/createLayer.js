@@ -798,7 +798,8 @@ export function createLayer(viewer, def, ctx) {
       // An optional hint beside the count (e.g. "zoom in to load"), shared with
       // the terminal shell's statusNote.
       const note = def.statusNote?.(query, raw) || undefined;
-      ctx.onStatus?.({ state: 'ok', count: records.size, query, note });
+      // answered: a real answer came back (main.js logs a recovery only then).
+      ctx.onStatus?.({ state: 'ok', count: records.size, query, note, answered: true });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       ctx.onStatus?.({
@@ -823,7 +824,10 @@ export function createLayer(viewer, def, ctx) {
   const tileFlights = new Map(); // key -> AbortController
   let tileView = null; // { bbox, broad }
   let tileFailures = 0; // in the current view
+  let tileAnswers = 0; // in the current view
   let tileError = '';
+  let tileStatus = null; // the HTTP status of the last failure, if any
+  let tileRetry = null; // a busy source: look again once its tiles cool down
   let shownTiles = '';
   let showTimer = null;
   let tilesFetched = 0; // requests sent (dev stats)
@@ -846,6 +850,7 @@ export function createLayer(viewer, def, ctx) {
         : tilesForView(bbox, tileCfg.tileDeg).slice(0, tileCfg.maxView);
     tileView = { bbox, broad, partial: broad && want.length > 0 };
     tileFailures = 0;
+    tileAnswers = 0;
     for (const t of want) tiles.touch(t.key); // in view: evicted last
     if (reload) backoffUntil = 0;
     tileQueue =
@@ -886,12 +891,22 @@ export function createLayer(viewer, def, ctx) {
       if (controller.signal.aborted) return;
       // Kept even when the layer was switched off meanwhile: drawn next time.
       tiles.set(t.key, { bbox: t.bbox, raw, list: def.normalize(raw) });
+      tileAnswers += 1;
       if (running && !showTimer) showTimer = setTimeout(showTiles, 120); // batch arrivals
     } catch (err) {
       if (err?.name === 'AbortError' || controller.signal.aborted) return;
       tiles.fail(t.key);
       tileFailures += 1;
       tileError = String(err?.message || err);
+      tileStatus = Number(err?.status) || null;
+      // A busy or failing source (429, 5xx, a timeout): the failed tiles are
+      // asked again once they cool down, even if the camera stays put.
+      if (!tileRetry && (!tileStatus || tileStatus === 429 || tileStatus >= 500)) {
+        tileRetry = setTimeout(() => {
+          tileRetry = null;
+          if (running && !document.hidden) pollTiles(false);
+        }, tileCfg.retryMs + 1000);
+      }
       if (err?.status === 429 || err?.status === 503) {
         // Over the budget: drop the rest of this view's queue and rest a while
         // (cached tiles stay drawn; the next camera stop after it asks again).
@@ -951,7 +966,7 @@ export function createLayer(viewer, def, ctx) {
       return;
     }
     if (!records.size && tileFailures && tileError) {
-      ctx.onStatus?.({ state: 'error', message: tileError });
+      ctx.onStatus?.({ state: 'error', message: tileError, status: tileStatus });
       return;
     }
     const note = tileView?.partial
@@ -971,6 +986,7 @@ export function createLayer(viewer, def, ctx) {
       query: { bbox: tileView?.bbox },
       note,
       pending,
+      answered: tileAnswers > 0,
     });
   }
 
@@ -987,6 +1003,8 @@ export function createLayer(viewer, def, ctx) {
     tileSlotWaiters.delete(pumpTiles);
     clearTimeout(showTimer);
     showTimer = null;
+    clearTimeout(tileRetry);
+    tileRetry = null;
   }
 
   // Push mode: incremental updates arrive over a stream (e.g. AIS). Entities are

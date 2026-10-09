@@ -1,0 +1,164 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 19052812,
+        "osm_key": "highway",
+        "osm_value": "unclassified",
+        "type": "street",
+        "name": "Jackson Street",
+        "district": "Over-the-Rhine",
+        "city": "Cincinnati",
+        "county": "Hamilton",
+        "state": "Ohio",
+        "country": "United States",
+        "postcode": "45210",
+        "countrycode": "US",
+        "extent": [-84.5139679, 39.10843, -84.5137077, 39.1073752]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.5138388, 39.1079023]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 16248742,
+        "osm_key": "highway",
+        "osm_value": "residential",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Covington",
+        "county": "Kenton",
+        "state": "Kentucky",
+        "country": "United States",
+        "postcode": "41011",
+        "countrycode": "US",
+        "extent": [-84.515614, 39.079037, -84.515087, 39.077574]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.5153322, 39.0783116]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 19052814,
+        "osm_key": "highway",
+        "osm_value": "residential",
+        "type": "street",
+        "name": "Jackson Street",
+        "city": "Lockland",
+        "county": "Hamilton",
+        "state": "Ohio",
+        "country": "United States",
+        "postcode": "45215",
+        "countrycode": "US",
+        "extent": [-84.449369, 39.228597, -84.449095, 39.22853]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.449232, 39.2285635]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 19052811,
+        "osm_key": "highway",
+        "osm_value": "residential",
+        "type": "street",
+        "name": "Jackson Street",
+        "district": "Camp Dennison",
+        "city": "Symmes Township",
+        "county": "Hamilton",
+        "state": "Ohio",
+        "country": "United States",
+        "postcode": "45111",
+        "countrycode": "US",
+        "extent": [-84.297039, 39.1969861, -84.291901, 39.196538]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.2944776, 39.1966979]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 58743700,
+        "osm_key": "building",
+        "osm_value": "yes",
+        "type": "house",
+        "name": "Jackson Brewery – Cincinnati Metal Blast",
+        "street": "Mohawk Street",
+        "locality": "Brewery District",
+        "district": "Over-the-Rhine",
+        "city": "Cincinnati",
+        "county": "Hamilton",
+        "state": "Ohio",
+        "country": "United States",
+        "postcode": "45214",
+        "countrycode": "US",
+        "extent": [-84.5213697, 39.1199328, -84.5209014, 39.1196803]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.5211356, 39.1198066]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 16126139,
+        "osm_key": "highway",
+        "osm_value": "residential",
+        "type": "street",
+        "name": "Greendevil Lane",
+        "city": "Dayton",
+        "county": "Campbell",
+        "state": "Kentucky",
+        "country": "United States",
+        "postcode": "41074",
+        "countrycode": "US",
+        "extent": [-84.4713633, 39.1163323, -84.4712487, 39.1154771]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.471306, 39.1159047]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 323385841,
+        "osm_key": "highway",
+        "osm_value": "service",
+        "type": "street",
+        "name": "Greendevil Lane",
+        "city": "Dayton",
+        "county": "Campbell",
+        "state": "Kentucky",
+        "country": "United States",
+        "postcode": "41074",
+        "countrycode": "US",
+        "extent": [-84.471466, 39.1148697, -84.4714446, 39.11471]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-84.4714553, 39.1147899]
+      }
+    }
+  ]
+}

@@ -9,6 +9,9 @@ import { resolutionScaleFor } from '../capability/profile.js';
 import { ICON_SETTINGS_SCHEMA } from '../ui/iconPrefs.js';
 
 export const SETTINGS_KEY = 'argus.settings.v1';
+/** Marks a stored record as migrated to this revision of the defaults. */
+export const SETTINGS_REV_KEY = 'argus.settings.rev';
+export const SETTINGS_REV = '2';
 
 /** Each setting: its default and the values it may take. */
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -25,7 +28,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
   coords: { def: 'dec', values: ['dec', 'dms', 'mgrs'] },
   uiScale: { def: 100, values: [90, 100, 115, 130] },
   reducedMotion: { def: false, values: [true, false] },
-  startView: { def: 'default', values: ['default', 'last', 'aroundme'] },
+  // Where a launch starts: where you left off (core/share/session.js), the
+  // default view, or Around Me.
+  startView: { def: 'last', values: ['last', 'default', 'aroundme'] },
   // The user's own map marker (core/ui/selfIcons.js SELF_ICONS, same order).
   selfIcon: {
     def: 'chevron',
@@ -122,6 +127,20 @@ export function createSettingsStore(storage) {
       // private mode or full storage: the setting still applies this session
     }
   };
+  // "Start in" became "where you left off" by default (round 7). A record
+  // saved before that holds the old default 'default' explicitly (every save
+  // writes every key), so a record without this revision mark takes the new
+  // default once; a choice made after that sticks.
+  try {
+    if (storage && storage.getItem(SETTINGS_REV_KEY) !== SETTINGS_REV) {
+      const saved = storage.getItem(SETTINGS_KEY);
+      if (state.startView === 'default') state = { ...state, startView: 'last' };
+      storage.setItem(SETTINGS_REV_KEY, SETTINGS_REV);
+      if (saved) persist();
+    }
+  } catch {
+    // storage blocked: the defaults apply
+  }
   return {
     get: (key) => state[key],
     all: () => ({ ...state }),

@@ -9,6 +9,10 @@ import { buildUpstreamUrl } from '../lib/relay.js';
 import { createGovernor } from '../lib/governor.js';
 import * as nav from '../../core/nav/providers.js';
 import { tomtomSearchRequest } from '../../core/nav/search.js';
+import { censusParams } from '../../core/search/census.js';
+import { regionParams } from '../../core/search/region.js';
+import { nominatimAddressParams } from '../../core/search/address.js';
+import { reverseQuery } from '../../core/cockpit/briefing.js';
 
 const feed = (id) => feeds.find((f) => f.id === id);
 const pathOk = (id, p) => feed(id).allowPaths.some((re) => re.test(p));
@@ -82,6 +86,91 @@ test('photon: /api with q, limit and a lat/lon bias only', () => {
   assert.match(f.headers['user-agent'], /^Argus\//);
   assert.ok(f.governor.ratePerMinute <= 30);
   assert.ok(f.cache.ttlMs >= 60 * 60_000);
+});
+
+const qs = (params) => new URLSearchParams(params).toString();
+
+test('census-geocoder: one address line, the current benchmark, JSON; nothing else', () => {
+  assert.equal(pathOk('census-geocoder', '/geocoder/locations/onelineaddress'), true);
+  assert.equal(pathOk('census-geocoder', '/geocoder/locations/address'), false);
+  assert.equal(pathOk('census-geocoder', '/geocoder/geographies/onelineaddress'), false);
+  assert.equal(pathOk('census-geocoder', '/geocoder/locations/addressbatch'), false);
+  // What core sends passes.
+  assert.equal(
+    queryOk('census-geocoder', qs(censusParams('46211 Jackson street, CA'))),
+    true,
+  );
+  const ok = 'address=46211+Jackson+st%2C+CA&benchmark=Public_AR_Current&format=json';
+  assert.equal(queryOk('census-geocoder', ok), true);
+  assert.equal(queryOk('census-geocoder', ok.replace('json', 'html')), false);
+  assert.equal(
+    queryOk('census-geocoder', ok.replace('Public_AR_Current', '2020')),
+    false,
+  );
+  assert.equal(queryOk('census-geocoder', `${ok}&vintage=Current_Current`), false);
+  assert.equal(queryOk('census-geocoder', `${ok}&address=x`), false);
+  assert.equal(
+    queryOk('census-geocoder', 'benchmark=Public_AR_Current&format=json'),
+    false,
+  );
+  assert.equal(
+    queryOk('census-geocoder', ok.replace(/address=[^&]+/, 'address=ab')),
+    false,
+  );
+  assert.equal(
+    queryOk('census-geocoder', ok.replace(/address=[^&]+/, `address=${'a'.repeat(201)}`)),
+    false,
+  );
+  assert.equal(
+    queryOk('census-geocoder', ok.replace(/address=[^&]+/, 'address=1%0A2+x')),
+    false,
+  );
+  const f = feed('census-geocoder');
+  assert.match(f.headers['user-agent'], /^Argus\//);
+  assert.equal(f.inject, undefined);
+  assert.ok(f.governor.ratePerMinute <= 30 && f.governor.creditBudget <= 1000);
+  assert.ok(f.cache.ttlMs >= 60 * 60_000);
+});
+
+test('photon-reverse: one rounded point, one answer', () => {
+  assert.equal(pathOk('photon-reverse', '/reverse'), true);
+  assert.equal(pathOk('photon-reverse', '/api/'), false);
+  assert.equal(
+    queryOk('photon-reverse', qs(regionParams({ lat: 33.72, lon: -116.21 }))),
+    true,
+  );
+  assert.equal(queryOk('photon-reverse', 'lat=33.72&lon=-116.2&limit=1'), false); // finer than 0.1
+  assert.equal(queryOk('photon-reverse', 'lat=33.7&lon=-116.2&limit=5'), false);
+  assert.equal(queryOk('photon-reverse', 'lat=33.7&lon=-116.2'), false);
+  assert.equal(queryOk('photon-reverse', 'lat=95&lon=0&limit=1'), false);
+  assert.equal(queryOk('photon-reverse', 'lat=33.7&lon=-116.2&limit=1&radius=9'), false);
+  assert.ok(feed('photon-reverse').cache.ttlMs >= 60 * 60_000);
+});
+
+test('nominatim: what core sends passes (search, address bias, reverse); nothing else', () => {
+  assert.equal(pathOk('nominatim', '/search'), true);
+  assert.equal(pathOk('nominatim', '/reverse'), true);
+  assert.equal(pathOk('nominatim', '/search.php'), false);
+  assert.equal(pathOk('nominatim', '/lookup'), false);
+  assert.equal(queryOk('nominatim', 'q=paris&format=json&limit=5'), true);
+  const near = nominatimAddressParams('46211 Jackson street', {
+    lat: 33.72,
+    lon: -116.21,
+  });
+  assert.equal(queryOk('nominatim', qs(near)), true);
+  assert.equal(queryOk('nominatim', 'lat=37.77&lon=-122.41&format=jsonv2&zoom=18'), true);
+  assert.equal(
+    queryOk('nominatim', qs(reverseQuery({ latitude: 33.7, longitude: -116.2 }))),
+    true,
+  );
+  assert.equal(queryOk('nominatim', 'q=a&format=json&bounded=1'), false);
+  assert.equal(queryOk('nominatim', 'q=a&format=xml'), false);
+  assert.equal(queryOk('nominatim', 'q=a&limit=50'), false);
+  assert.equal(queryOk('nominatim', 'q=a&viewbox=1,2,3'), false);
+  assert.equal(queryOk('nominatim', 'q=a&email=x'), false);
+  assert.equal(queryOk('nominatim', 'lat=1&format=json'), false);
+  assert.equal(queryOk('nominatim', 'lat=1&lon=2&zoom=19'), false);
+  assert.ok(feed('nominatim').cache.ttlMs >= 60 * 60_000);
 });
 
 test('radiobrowser also reaches the per-station listen counter, nothing more', () => {

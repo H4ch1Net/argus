@@ -1,9 +1,11 @@
 // Destination search for navigation: the bundled offline places, Photon
-// (komoot, OSM data) through the proxy, and TomTom fuzzy search when the proxy
-// holds a TomTom key, all biased near the user (or the view centre), merged
-// into Places: { id, name, detail, lat, lon, kind }. Pure apart from the
-// injected proxy client: every shell shares it. Inputs are places and
-// addresses, never people.
+// (komoot, OSM data) through the proxy, TomTom fuzzy search when the proxy
+// holds a TomTom key, and for a numbered street address the address
+// geocoders (../search/address.js: US Census, else Nominatim), all biased
+// near the user (or the view centre) and ranked local first
+// (../search/rank.js), merged into Places: { id, name, detail, lat, lon,
+// kind }. Pure apart from the injected proxy client: every shell shares it.
+// Inputs are places and addresses, never people.
 //
 // TomTom Search (search/2/search, feed 'tomtom-search') is per the provider's
 // documentation, not live-tested here (no key in this environment). Photon's
@@ -11,6 +13,8 @@
 
 import { searchPlaces } from '../search/places.js';
 import { PHOTON_FEED, PHOTON_PATH, photonParams } from '../search/photon.js';
+import { lookupAddress, parseAddress } from '../search/address.js';
+import { rankPlaces } from '../search/rank.js';
 import { haversineM } from './geo.js';
 
 export const TOMTOM_SEARCH_FEED = 'tomtom-search';
@@ -48,6 +52,9 @@ export function offlinePlaces(results) {
   });
 }
 
+// Countries whose addresses put the house number before the street.
+const NUMBER_FIRST = new Set(['US', 'CA', 'GB', 'IE', 'AU', 'NZ', 'FR']);
+
 /** Photon GeoJSON -> Places: the name (or street and number), then where it is. */
 export function photonPlaces(json) {
   const out = [];
@@ -56,7 +63,9 @@ export function photonPlaces(json) {
     const [lon, lat] = (f.geometry.coordinates ?? []).map(Number);
     if (!onGlobe(lat, lon)) continue;
     const p = f.properties ?? {};
-    const street = [p.street, p.housenumber]
+    // "83053 Avenue 48" where addresses lead with the number; "Rue X 10" else.
+    const numberFirst = NUMBER_FIRST.has(String(p.countrycode ?? '').toUpperCase());
+    const street = (numberFirst ? [p.housenumber, p.street] : [p.street, p.housenumber])
       .map((x) => text(x))
       .filter(Boolean)
       .join(' ');
@@ -149,16 +158,24 @@ const norm = (s) =>
 
 /**
  * Merge result lists: exact offline names first, then the network lists
- * interleaved (TomTom, Photon, ...), then the other offline names. The same
- * name within 150 m of one already kept is dropped.
+ * (TomTom, Photon, addresses) interleaved and, given the query, ranked local
+ * first (../search/rank.js: text match less distance from `near`), then the
+ * other offline names. The same name within 150 m of one already kept is
+ * dropped.
  */
-export function mergePlaces(offline, networkLists, limit = 8) {
+export function mergePlaces(
+  offline,
+  networkLists,
+  limit = 8,
+  { query = '', near = null } = {},
+) {
   const exact = offline.filter((p) => p.exact);
   const rest = offline.filter((p) => !p.exact);
-  const inter = [];
+  let inter = [];
   const longest = Math.max(0, ...networkLists.map((l) => l.length));
   for (let i = 0; i < longest; i += 1)
     for (const l of networkLists) if (l[i]) inter.push(l[i]);
+  if (query) inter = rankPlaces(query, inter, { near });
   const out = [];
   for (const p of [...exact, ...inter, ...rest]) {
     const dup = out.some(
@@ -168,7 +185,7 @@ export function mergePlaces(offline, networkLists, limit = 8) {
     if (!dup) out.push(p);
     if (out.length >= limit) break;
   }
-  return out.map(({ exact: _e, ...p }) => p);
+  return out.map(({ exact: _e, number: _n, ...p }) => p);
 }
 
 /**
@@ -191,7 +208,14 @@ export async function searchDestinations(
   const found = searchPlaces(q, { limit: 3 });
   const offline = offlinePlaces(found).map((p, i) => ({ ...p, exact: found[i].exact }));
   if (!proxyClient || q.length < 3) return mergePlaces(offline, [], limit);
+  const here =
+    near && onGlobe(Number(near.lat), Number(near.lon))
+      ? { lat: Number(near.lat), lon: Number(near.lon) }
+      : null;
   const asks = [];
+  // A house number first: the address geocoders too (Census in the US, else
+  // Nominatim around the user); Photon often has the street but not the number.
+  if (parseAddress(q)) asks.push(lookupAddress(proxyClient, q, { near: here, signal }));
   if (tomtom) {
     const r = tomtomSearchRequest(q, near, limit);
     asks.push(
@@ -209,7 +233,7 @@ export async function searchDestinations(
   if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
   const lists = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
   const failure = settled.find((s) => s.status === 'rejected')?.reason;
-  const merged = mergePlaces(offline, lists, limit);
+  const merged = mergePlaces(offline, lists, limit, { query: q, near: here });
   if (!merged.length && failure && !lists.some((l) => l.length)) throw failure;
   return merged;
 }

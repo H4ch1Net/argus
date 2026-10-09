@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 1245958011,
+        "osm_key": "highway",
+        "osm_value": "secondary",
+        "type": "street",
+        "name": "Avenue 48",
+        "city": "Coachella",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92201",
+        "countrycode": "US",
+        "extent": [-116.2008615, 33.7003426, -116.1997006, 33.7003392]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-116.200281, 33.7003409]
+      }
+    }
+  ]
+}

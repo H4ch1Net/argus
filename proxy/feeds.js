@@ -57,7 +57,7 @@
 import { UA, exactPath, MINUTE, HOUR } from './feeds/common.js';
 import { feeds as spaceFeeds } from './feeds/space.js';
 import { feeds as earthFeeds } from './feeds/earth.js';
-import { feeds as navFeeds } from './feeds/nav.js';
+import { feeds as navFeeds, nominatimQueryOk } from './feeds/nav.js';
 import { feeds as cameraFeeds } from './feeds/cameras.js';
 import { feeds as webcamFeeds } from './feeds/webcams.js';
 import { feeds as imageryFeeds } from './feeds/imagery.js';
@@ -177,7 +177,13 @@ export const feeds = [
     // order is OVERPASS_URL (if set), the main instance, then two public
     // mirrors that answer the same GET ?data= interface: VK Maps (current data)
     // and kumi.systems (live-tested Oct 2026: its data was months old, so it
-    // goes last). An instance that failed is skipped for 5 minutes, and one
+    // goes last). Checked again on Oct 9 2026: all three come and go (the main
+    // instance gives one address two slots, VK answered 504 or timed out
+    // about half the time, kumi.systems answered 500 on every path, its
+    // status page included, hours after answering node queries), and no
+    // other public instance answered, so the list stands; the app shows a
+    // busy Overpass as one calm log line and asks again (core/ui/feedLog.js).
+    // An instance that failed is skipped for 5 minutes, and one
     // request tries each instance at most once. The mapped things (cameras,
     // readers, landmarks, signals) barely change, so an answer is kept 12
     // hours and may stand in for a week when every instance fails; each
@@ -216,15 +222,21 @@ export const feeds = [
   // Shodan (the snapshot density layer, host lookups) and InternetDB live in
   // proxy/feeds/exposure.js, with their query pins.
   {
-    // Place geocoding (OSM Nominatim) for global search fly-to. Keyless, but its
-    // usage policy requires a valid User-Agent and at most ~1 req/sec, so the
-    // proxy sets a UA and the governor caps the rate; the client debounces too.
+    // Place geocoding (OSM Nominatim) for global search fly-to, numbered
+    // addresses outside the US (with a bias box around the user), the names of
+    // dropped pins and the cockpit briefing. Keyless, but its usage policy
+    // requires a valid User-Agent, at most ~1 req/sec and caching, so the proxy
+    // sets a UA, the governor caps the rate, answers are kept an hour (and may
+    // stand in for a day when Nominatim refuses: it answered this cloud host
+    // 429 in Oct 2026), and the query keys are pinned (feeds/nav.js).
     id: 'nominatim',
     baseUrl: 'https://nominatim.openstreetmap.org',
     methods: ['GET'],
-    allowPaths: [/^\/search/, /^\/reverse$/],
+    allowPaths: [/^\/search$/, /^\/reverse$/],
+    allowQuery: nominatimQueryOk,
     headers: UA,
     governor: { ratePerMinute: 40 },
+    cache: { ttlMs: HOUR, staleMs: 24 * HOUR, maxEntries: 200, maxBytes: 4e6 },
   },
   {
     // Coastlines for the terminal shell's map: Natural Earth land outlines (public

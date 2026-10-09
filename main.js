@@ -649,6 +649,7 @@ async function setupScene(app, splash) {
         return createWazeSource({
           proxyClient: c,
           local: Boolean(health && feedConfigured(health, 'waze-local')),
+          log, // one entry when Waze refuses (403), then 30 min of quiet
         });
       },
       mock: () =>
@@ -782,6 +783,9 @@ async function setupScene(app, splash) {
       key: 'fires',
       group: 'Earth & weather',
       label: 'Fires',
+      // NASA FIRMS needs its free MAP_KEY on the proxy (FIRMS_MAP_KEY): hidden
+      // until it is set, rather than an error every poll.
+      requires: 'firms',
       loadDef: () =>
         import('./core/layers/fires/definition.js').then((m) => m.firesDefinition),
       proxy: (c) => (q, s) =>
@@ -1574,8 +1578,14 @@ async function setupScene(app, splash) {
   // Global search / fly-to (P15) + OSINT query console (P16): query active layers
   // (contacts) and place names (geocoder); a query that parses as a network asset
   // (IP/ASN/domain) is passively looked up, geolocated, enriched, and plotted.
+  // Place search leans towards the user (core/search/rank.js): their position
+  // (a recent fix, else the last known one), else the middle of the view.
+  const searchNear = () => {
+    const f = app.selfPosition?.get?.() ?? app.selfPosition?.lastKnown?.();
+    return f ? { lat: f.lat, lon: f.lon } : osm.middle();
+  };
   const geocode = proxyClient
-    ? createGeocoder(proxyClient)
+    ? createGeocoder(proxyClient, { near: searchNear })
     : dev
       ? (await import('./core/search/mockGeocoder.js')).createMockGeocoder()
       : null;
@@ -1702,34 +1712,16 @@ async function setupScene(app, splash) {
   setPreset(activePreset);
 
   // Feed failures go to LOGS, never a popup (the menu row turns ERR or STALE
-  // too); a feed that recovers is logged as well. Repeats fold into a count.
-  const feedState = new Map(); // layer key -> 'ok' | 'stale' | 'error'
+  // too), kept light (core/ui/feedLog.js): an error every time (repeats fold
+  // into a count), a busy source or a stale copy once, and a recovery only
+  // after one of those and only on a real answer.
+  const { feedLogEntry } = await import('./core/ui/feedLog.js');
+  const feedState = new Map(); // layer key -> the state last logged
   manager.subscribeStatus((key, s) => {
-    const state = s?.state === 'ok' && s.stale != null ? 'stale' : s?.state;
-    const was = feedState.get(key);
-    feedState.set(key, state);
     const label = (manager.list().find((l) => l.key === key)?.label ?? key).toUpperCase();
-    if (state === 'error')
-      log({
-        level: 'error',
-        source: key,
-        title: `${label} FEED ERROR`,
-        body: s.message || 'The feed did not answer.',
-      });
-    else if (state === 'stale' && was !== 'stale')
-      log({
-        level: 'warn',
-        source: key,
-        title: `${label} STALE`,
-        body: String(s.note ?? '').replace(/^STALE: /, ''),
-      });
-    else if (state === 'ok' && (was === 'error' || was === 'stale'))
-      log({
-        level: 'info',
-        source: key,
-        title: `${label} BACK`,
-        body: `${s.count ?? 0} items.`,
-      });
+    const { state, entry } = feedLogEntry(feedState.get(key), s, label, key);
+    feedState.set(key, state);
+    if (entry) log(entry);
   });
 
   // ------------------------------------------------------------- view menu
@@ -2578,11 +2570,7 @@ async function setupScene(app, splash) {
       fixes: createFixSource({ selfPosition: () => app.selfPosition ?? null }),
       shell: app.shell,
       settings: app.settings,
-      near: () =>
-        sketchMod.windowToLatLon(app.viewer, {
-          x: cv.clientWidth / 2,
-          y: cv.clientHeight / 2,
-        }),
+      near: searchNear,
       armTap,
       targetPoint: navTarget,
       flyAlong: navFlyAlong,
@@ -3136,55 +3124,91 @@ async function setupScene(app, splash) {
       track: tk ? { layer: tk, id: String(t.id) } : undefined,
     });
   }
+  // ---------------------------------------------------- session memory (W4)
+  // The app reopens as it was left (SETTINGS > Start in: where I left, the
+  // default): the view as a share hash, the VIEW display controls that have
+  // no setting of their own, the camera filter chips and the preset, in one
+  // record on this device (core/share/session.js). Saved on every change
+  // (debounced) and at once when the page is hidden or closed, since the
+  // Android WebView can be killed in the background without an unload. The
+  // car shares this origin and storage but keeps its own state: it never
+  // reads or writes the record.
+  const sessionMod = await import('./core/share/session.js');
+  const viewState = await import('./core/ui/viewState.js');
+  const [{ webcamFilter }, { trafficCamKindFilter }] = await Promise.all([
+    import('./core/layers/webcams/categories.js'),
+    import('./core/layers/trafficcams/kinds.js'),
+  ]);
+  const chipFilters = { webcams: webcamFilter, trafficcams: trafficCamKindFilter };
+  const controlAllow = {
+    switches: sessionMod.SESSION_SWITCHES,
+    choices: sessionMod.SESSION_CHOICES,
+  };
+  let sessionStore = null;
+  try {
+    sessionStore = window.localStorage;
+  } catch {
+    sessionStore = null;
+  }
+  const keepsSession = app.shell !== 'car';
+  const sessionSaver = keepsSession
+    ? sessionMod.createSessionSaver({
+        storage: sessionStore,
+        collect: () => ({
+          hash: encodeView(),
+          controls: viewState.readControls(view, controlAllow),
+          filters: Object.fromEntries(
+            Object.entries(chipFilters).map(([k, f]) => [k, [...f.selected()]]),
+          ),
+          preset: activePreset
+            ? {
+                id: activePreset,
+                before: before ? { layers: [...before.layers], view: before.view } : null,
+                staged: staged ? [...staged] : null,
+              }
+            : null,
+        }),
+      })
+    : null;
   let hashTimer = null;
   const writeHash = () => {
     clearTimeout(hashTimer);
-    hashTimer = setTimeout(() => {
-      const hash = encodeView();
-      history.replaceState(null, '', hash);
-      // For "Start in: last view" (an installed app opens without the hash).
-      // Not in the car shell: it shares one origin and localStorage with the
-      // phone WebView, so its follow view must not become the phone's start.
-      if (app.shell !== 'car') {
-        try {
-          localStorage.setItem('argus.lastView', hash);
-        } catch {
-          // storage blocked: the address bar still holds the view
-        }
-      }
-    }, 800);
+    hashTimer = setTimeout(() => history.replaceState(null, '', encodeView()), 800);
+    sessionSaver?.schedule();
   };
 
-  const startView = app.settings?.get('startView') ?? 'default';
-  let lastView = null;
-  if (location.hash.length <= 1 && startView === 'last') {
-    try {
-      lastView = localStorage.getItem('argus.lastView');
-    } catch {
-      lastView = null;
-    }
-  }
-  const startHash = location.hash.length > 1 ? location.hash : lastView;
-  const shared =
-    startHash && startHash.length > 1
-      ? share.decodeShareHash(startHash, {
-          layerKeys: manager.keys(),
-          imageryIds: IMAGERY_SOURCES.map((x) => x.id),
-          terrainIds: TERRAIN_SOURCES.map((x) => x.id),
-          labelKeys: ['cities', 'places', 'roads'],
-          sensorModes: shaders?.modes ?? ['none'],
-        })
-      : null;
+  const startView = app.settings?.get('startView') ?? 'last';
+  const stored = keepsSession
+    ? sessionMod.readSession(sessionStore, {
+        presetIds: PRESETS.map((p) => p.id),
+        layerKeys: manager.keys(),
+      })
+    : { session: null, legacyView: null };
+  const plan = sessionMod.startPlan({
+    shell: app.shell,
+    hash: location.hash,
+    startView,
+    session: stored.session,
+    legacyView: stored.legacyView,
+  });
+  const shared = plan.hash
+    ? share.decodeShareHash(plan.hash, {
+        layerKeys: manager.keys(),
+        imageryIds: IMAGERY_SOURCES.map((x) => x.id),
+        terrainIds: TERRAIN_SOURCES.map((x) => x.id),
+        labelKeys: ['cities', 'places', 'roads'],
+        sensorModes: shaders?.modes ?? ['none'],
+      })
+    : null;
 
   // Default state (master plan 8): flights + earthquakes + transit on. The
-  // mobile shell launches into the "Around Me" preset itself (geolocation, and
-  // its layer set, so the highlighted preset matches what is on); desktop starts
-  // at the world view with the defaults. A shared link wins over both.
+  // mobile shell's first launch goes into the "Around Me" preset itself
+  // (geolocation, and its layer set, so the highlighted preset matches what
+  // is on); desktop starts at the world view with the defaults. A shared link
+  // wins over everything, then the saved session.
   splash?.step('GREETER_UI_INITIALIZING', 85);
   const aroundMe =
-    (!desktop || startView === 'aroundme') &&
-    app.aroundMe &&
-    PRESETS.find((p) => p.id === 'around-me');
+    plan.kind === 'aroundme' && app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
   if (shared) {
     if (shared.camera) {
       camera.lookFrom({
@@ -3199,7 +3223,8 @@ async function setupScene(app, splash) {
       imagery.set(shared.imagery);
       imageryChoice.paint(shared.imagery);
     }
-    if (shared.terrain) terrainChoice.set(shared.terrain);
+    // Terrain is a setting of its own: a resumed session leaves it to SETTINGS.
+    if (shared.terrain && plan.kind === 'link') terrainChoice.set(shared.terrain);
     if (shared.sensor && shaders) {
       shaders.setSensor(shared.sensor);
       syncSensorUi();
@@ -3226,6 +3251,20 @@ async function setupScene(app, splash) {
   } else {
     for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
+  // The rest of a resumed session: display controls (pressed as a person
+  // would), the camera filter chips, and the preset with the view it gives back.
+  const resumed = plan.kind === 'session' ? plan.session : null;
+  if (resumed) {
+    for (const [k, f] of Object.entries(chipFilters))
+      if (resumed.filters[k]) f.set(resumed.filters[k]);
+    viewState.applyControls(view, resumed.controls, controlAllow);
+    if (resumed.preset) {
+      setPreset(resumed.preset.id);
+      const b = resumed.preset.before;
+      before = b ? { layers: new Set(b.layers), view: b.view } : null;
+      staged = before ? new Set(resumed.preset.staged ?? enabledKeys()) : null;
+    }
+  }
   app.viewer.camera.moveEnd.addEventListener(writeHash);
   manager.subscribe(writeHash);
   let lastHub = null;
@@ -3236,6 +3275,19 @@ async function setupScene(app, splash) {
       writeHash();
     }
   });
+  if (sessionSaver) {
+    // Any press in the interface may change what is remembered (a switch, a
+    // chip, a preset): save soon after. Hidden or closing: save now.
+    document.addEventListener('click', () => sessionSaver.schedule(), true);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') sessionSaver.flush();
+    });
+    window.addEventListener('pagehide', () => sessionSaver.flush());
+    document.addEventListener('freeze', () => sessionSaver.flush());
+    // The state this launch settled into is itself worth keeping.
+    sessionSaver.schedule();
+    if (dev && window.__argus) window.__argus.session = sessionSaver;
+  }
 
   if (dev && window.__argus)
     Object.assign(window.__argus, {

@@ -1,7 +1,9 @@
 // The Waze source: the view's box through the proxy, from your own waze-server
 // when LOCAL_WAZE_URL is set (the 'waze-local' feed), else from the live map's
-// endpoint (the 'waze' feed). Returns { json, clipped, via } for the
-// definition. Pure: no Cesium; the terminal uses it too.
+// endpoint (the 'waze' feed). Returns { json, clipped, via, note? } for the
+// definition. A 403 from the live map holds the layer off it for 30 minutes
+// (or until RELOAD) with one log entry, not an error every poll. Pure: no
+// Cesium; the terminal uses it too.
 
 import {
   WAZE_FEED,
@@ -13,24 +15,88 @@ import {
   wazeLocalQuery,
 } from './parse.js';
 
+/** How long a refusal (403) from Waze's live map stops the layer asking. */
+export const WAZE_REFUSED_MS = 30 * 60_000;
+export const WAZE_REFUSED_NOTE =
+  'Waze refused (403); set LOCAL_WAZE_URL to your own waze-server';
+
 /**
- * @param {{ proxyClient: object, local?: boolean }} opts
- *   local: the proxy has LOCAL_WAZE_URL (read from /health by the caller)
+ * Waze's live map answers 403 to Argus (it never poses as a browser): once
+ * refused, ask again only after `holdMs`, or on RELOAD (query.reload).
+ * Pure over an injected clock.
  */
-export function createWazeSource({ proxyClient, local = false }) {
+export function createRefusalGate({
+  holdMs = WAZE_REFUSED_MS,
+  now = () => Date.now(),
+} = {}) {
+  let until = 0;
+  return {
+    /** Refused now: returns true the first time (log it), false while it holds. */
+    refuse() {
+      const first = now() >= until;
+      until = now() + holdMs;
+      return first;
+    },
+    held: () => now() < until,
+    clear() {
+      until = 0;
+    },
+    get until() {
+      return until;
+    },
+  };
+}
+
+/**
+ * @param {{ proxyClient: object, local?: boolean, log?: Function|null,
+ *   gate?: ReturnType<typeof createRefusalGate> }} opts
+ *   local: the proxy has LOCAL_WAZE_URL (read from /health by the caller)
+ *   log: one LOGS entry when Waze refuses (core/ui/logs.js entry shape)
+ */
+export function createWazeSource({
+  proxyClient,
+  local = false,
+  log = null,
+  gate = createRefusalGate(),
+}) {
+  // A refusal shows as a quiet, empty answer with the reason, not an error
+  // every poll (the layer's status note carries it).
+  const refused = (clipped) => ({
+    json: { alerts: [], jams: [] },
+    clipped,
+    via: 'refused',
+    note: WAZE_REFUSED_NOTE,
+  });
   return async (query, signal) => {
     const box = wazeBox(query?.bbox);
     if (!box) return { json: { alerts: [], jams: [] }, clipped: false, via: null };
-    const json = local
-      ? await proxyClient.getJson(WAZE_LOCAL_FEED, WAZE_LOCAL_PATH, {
-          params: wazeLocalQuery(query.bbox),
-          signal,
-        })
-      : await proxyClient.getJson(WAZE_FEED, WAZE_PATH, {
-          params: wazeQuery(query.bbox),
-          signal,
+    if (local) {
+      const json = await proxyClient.getJson(WAZE_LOCAL_FEED, WAZE_LOCAL_PATH, {
+        params: wazeLocalQuery(query.bbox),
+        signal,
+      });
+      return { json, clipped: box.clipped, via: 'local' };
+    }
+    if (query?.reload) gate.clear();
+    if (gate.held()) return refused(box.clipped);
+    let json;
+    try {
+      json = await proxyClient.getJson(WAZE_FEED, WAZE_PATH, {
+        params: wazeQuery(query.bbox),
+        signal,
+      });
+    } catch (err) {
+      if (err?.status !== 403) throw err;
+      if (gate.refuse())
+        log?.({
+          level: 'warn',
+          source: 'waze',
+          title: 'WAZE REFUSED',
+          body: `Waze's live map answered 403 to Argus; not asking again for ${Math.round(WAZE_REFUSED_MS / 60_000)} min (or until RELOAD). Set LOCAL_WAZE_URL to your own waze-server.`,
         });
-    return { json, clipped: box.clipped, via: local ? 'local' : 'live' };
+      return refused(box.clipped);
+    }
+    return { json, clipped: box.clipped, via: 'live' };
   };
 }
 
