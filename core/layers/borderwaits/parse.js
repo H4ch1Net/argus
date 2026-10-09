@@ -151,7 +151,7 @@ export function parseCsv(textIn) {
  * "Closed", or their French forms.
  */
 export function cbsaDelay(raw) {
-  const t = text(String(raw ?? '').replace(/﻿/g, ''), 60);
+  const t = text(String(raw ?? '').replace(/\uFEFF/g, ''), 60);
   if (!t) return null;
   const n = normName(t);
   if (/not applicable|sans objet|^n a$/.test(n)) return null;
@@ -175,7 +175,7 @@ export function cbsaDelay(raw) {
 export function parseCbsa(csv) {
   const rows = parseCsv(csv);
   if (rows.length < 2) return [];
-  const head = rows[0].map((h) => normName(h.replace(/﻿/g, '')));
+  const head = rows[0].map((h) => normName(h.replace(/\uFEFF/g, '')));
   const col = (re) => head.findIndex((h) => re.test(h));
   const iOffice = col(/office|bureau/);
   const iLocation = col(/location|lieu|emplacement/);
