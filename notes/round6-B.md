@@ -43,9 +43,19 @@ Auto: all of it lives in core, main.js and the proxy the Android app embeds).
   `upstreamPaths` (the proxy builds the body itself from pinned upstream
   files), `cache.maxBytes` (a per-feed byte cap in the response cache).
 - Order of attempts: OVERPASS_URL-style override (or the feed's base), the
-  feed's own base when overridden, then mirrors. 429, 5xx, a network error or
-  a timeout cools that base down for 5 minutes (it goes to the back of the
-  list; `health` map per request handler in `lib/app.js`).
+  feed's own base when overridden, then mirrors; one client request tries
+  each instance at most once. 429, 5xx, a network error or a timeout cools
+  that base down for 5 minutes: it is skipped meanwhile, and when every base
+  is cooling a request makes one try only (at the first to recover), so an
+  outage is never multiplied across instances (`createRelayRuntime()` per
+  request handler in `lib/app.js`).
+- `queue: { concurrency, maxWaitMs, maxQueued }` (new Feed field): at most
+  `concurrency` requests upstream at once, the rest wait in order (FIFO
+  `createLimiter`), and a governor rate refusal waits for room in the minute
+  (`retryAfterMs`, new in `lib/governor.js`) within maxWaitMs instead of a 429. A client that hangs up while waiting is dropped before anything is
+  sent. Identical cached requests in flight share one upstream call (the
+  others wait and get it as a cache hit; if it failed, they get the stale
+  copy or an error, never a repeat).
 - Stale-if-error: when every attempt fails, a cached feed answers with its
   last good body plus `x-argus-cache: stale` and `x-argus-stale: <age s>`.
   A validated-bad body with nothing better is passed on uncached with
@@ -57,8 +67,12 @@ Auto: all of it lives in core, main.js and the proxy the Android app embeds).
   then `overpass.kumi.systems/api` (its data was months old here, so last);
   35 s per attempt (queries ask `[timeout:25]`); `validate: overpassAnswered`
   (a 200 whose remark is a "runtime error" moves on); cache 12 h, stale a
-  week, 300 entries / 20 MB for this feed. The response cache's global entry
-  cap went from 200 to 600 (still 48 MB).
+  week, 2,000 entries / 24 MB for this feed. Budget (reviewed after E1's 0.1
+  degree tiles): queue of 2 at a time (overpass-api.de gives an address two
+  slots), up to 500 waiting 3 minutes each, 60 a minute (was 20, refused),
+  6,000 a day (the main instance's guidance is "safe below 10,000 a day").
+  The response cache's global entry cap went from 200 to 3,000 (still 48 MB
+  in all).
 - Longer timeouts: celestrak 30 s, firms 30 s, gdelt-events 60 s.
 - Client side: `core/net/proxyClient.js` gained `onMeta` per request and
   `client.tracked(onMeta)` (the same client with the hook on every request),
@@ -188,7 +202,7 @@ None added (`SETTINGS_SCHEMA` untouched). No new env keys either.
 
 ## Tests
 
-- `node --test proxy/test/*.test.js`: 156 / 156 pass (new
+- `node --test proxy/test/*.test.js`: 162 / 162 pass (new
   `reliability.test.js`, `gdelt.test.js`; extended `setup.test.js`,
   `contextFeeds.test.js`).
 - Core + shells: 658 pass, 2 fail (the two known: satellites/propagate,
@@ -244,11 +258,15 @@ real proxy from this worktree on 5212)
   anything that reads like a failure to LOGS. To log directly use
   `app.logs?.add({ level, source, title, body })`; to force a popup for
   something that matches the failure words, pass `kind: 'notice'`.
-- A: the Overpass proxy cache is per exact URL (the QL), 12 h, 300 entries /
-  20 MB for that feed; tile-cached static layers fit that. `layerManager`
-  `register` gained an optional `decorateStatus`; `createLayer` is untouched.
-  A layer's status may now carry `stale` (seconds) and a `STALE: ...` note.
+- A / E1: the Overpass proxy cache is per exact URL (the QL), 12 h, 2,000
+  entries / 24 MB for that feed. A tile burst is queued in the proxy (2 at a
+  time, 60 a minute, up to 3 minutes' wait), so a client should not give up
+  on an Overpass tile much sooner than that; past the wait (or 500 waiting,
+  or the 6,000-a-day cap) the proxy answers 429 "busy" or the stale copy.
+  `layerManager` `register` gained an optional `decorateStatus`;
+  `createLayer` is untouched. A layer's status may now carry `stale`
+  (seconds) and a `STALE: ...` note.
 - Anyone adding a feed: `timeoutMs`, `mirrors`, `retries`, `validate`,
-  `produce` are available; `validateFeeds` checks them.
+  `produce`, `queue` are available; `validateFeeds` checks them.
 - The terminal shell already shows feed failures in its layer list and its
   own message line (no popups there), so it has no LOGS view.

@@ -51,6 +51,21 @@ test('rate limit is enforced independent of cost', () => {
   assert.equal(g.check('shodan', '/shodan/host/count').ok, false); // 4th within a minute
 });
 
+test('a rate refusal says when the minute has room again', () => {
+  let t = 1_000_000;
+  const g = createGovernor(feeds, () => t);
+  for (let i = 0; i < 3; i += 1) {
+    g.record('shodan', 0);
+    t += 10_000;
+  }
+  // Requests at 0 s, 10 s, 20 s; now 30 s: the first leaves the minute at 60 s.
+  const v = g.check('shodan', '/shodan/host/count');
+  assert.equal(v.ok, false);
+  assert.equal(v.retryAfterMs, 30_001);
+  t += v.retryAfterMs;
+  assert.equal(g.check('shodan', '/shodan/host/count').ok, true);
+});
+
 test('credit window resets after creditWindowMs', () => {
   let t = 1000;
   const g = createGovernor(feeds, () => t);

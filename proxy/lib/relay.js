@@ -187,10 +187,91 @@ function applyPathPrefix(feed, subpath, env) {
   return prefix ? prefix + rel : rel;
 }
 
-// A base that failed (network error, timeout, 429, 5xx) goes to the back of its
-// feed's mirror list for this long, so a dead primary does not cost its whole
-// timeout on every request.
+// A base that failed (network error, timeout, 429, 5xx) is left out of its
+// feed's mirror list for this long, so a dead or busy instance is not asked
+// again by every request (nor costs its whole timeout each time).
 export const MIRROR_COOLDOWN_MS = 5 * 60_000;
+
+/**
+ * At most `max` holders at once; the rest wait in order (FIFO). acquire()
+ * resolves to a release function (safe to call twice); a wait longer than
+ * maxWaitMs, a full queue, or an aborted signal rejects instead.
+ */
+export function createLimiter(max, { maxQueued = Infinity } = {}) {
+  let active = 0;
+  const waiting = [];
+  const grant = () => {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const next = waiting.shift();
+      if (next)
+        next.go(); // the slot passes straight to the next in line
+      else active -= 1;
+    };
+  };
+  return {
+    get active() {
+      return active;
+    },
+    get queued() {
+      return waiting.length;
+    },
+    acquire({ maxWaitMs = Infinity, signal } = {}) {
+      if (active < max) {
+        active += 1;
+        return Promise.resolve(grant());
+      }
+      if (waiting.length >= maxQueued) return Promise.reject(new Error('queue full'));
+      return new Promise((resolve, reject) => {
+        let timer = null;
+        const onAbort = () =>
+          drop(Object.assign(new Error('gone'), { name: 'AbortError' }));
+        const entry = {
+          go: () => {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', onAbort);
+            resolve(grant());
+          },
+        };
+        const drop = (err) => {
+          const i = waiting.indexOf(entry);
+          if (i >= 0) waiting.splice(i, 1);
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          reject(err);
+        };
+        if (Number.isFinite(maxWaitMs))
+          timer = setTimeout(() => drop(new Error('queue wait timed out')), maxWaitMs);
+        signal?.addEventListener('abort', onAbort, { once: true });
+        waiting.push(entry);
+      });
+    },
+  };
+}
+
+/**
+ * What the relay keeps between requests (one per request handler): base
+ * health, in-flight cached requests (identical ones wait for the first), and
+ * each queued feed's limiter.
+ */
+export function createRelayRuntime() {
+  return { health: new Map(), inflight: new Map(), queues: new Map() };
+}
+
+const sleep = (ms, signal) =>
+  new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 
 /**
  * The bases a request may use, in configured order: the operator's override
@@ -207,11 +288,17 @@ export function upstreamBases(feed, base) {
   return [...new Set(list)];
 }
 
-/** Healthy bases first (in their order), then the ones cooling down. */
+/**
+ * The bases to try, in order: the healthy ones only. When every one is cooling
+ * down, just the one that recovers first (one try, so an outage is never
+ * multiplied across every instance by every request).
+ */
 export function orderByHealth(bases, health, now = Date.now()) {
   if (bases.length < 2 || !health) return bases;
-  const cooling = (b) => (health.get(b) ?? 0) > now;
-  return [...bases.filter((b) => !cooling(b)), ...bases.filter(cooling)];
+  const until = (b) => health.get(b) ?? 0;
+  const up = bases.filter((b) => until(b) <= now);
+  if (up.length) return up;
+  return [bases.reduce((a, b) => (until(b) < until(a) ? b : a))];
 }
 
 /** Read a fetch body, refusing one larger than maxBytes. */
@@ -269,7 +356,7 @@ const seconds = (ms) => `${Math.round(ms / 100) / 10} s`;
  * @param {import('node:http').ServerResponse} res
  * @param {{ feeds: import('../feeds.js').Feed[], config: object, env?: NodeJS.ProcessEnv,
  *   cache?: ReturnType<import('./cache.js').createResponseCache>,
- *   health?: Map<string, number> }} ctx  health: base URL -> cooling-down-until (ms)
+ *   runtime?: ReturnType<typeof createRelayRuntime> }} ctx
  */
 export async function handleRelay(
   req,
@@ -281,10 +368,18 @@ export async function handleRelay(
     governor = null,
     cache = null,
     env = process.env,
-    health = null,
+    runtime = null,
   },
 ) {
   const cors = corsHeaders(req, config.cors);
+  const health = runtime?.health ?? null;
+  // The client hung up (panned away): nothing queued for it starts upstream.
+  const gone = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) gone.abort();
+  });
+  let settleInflight = null;
+  let releaseSlot = null;
   try {
     const url = new URL(req.url, 'http://proxy.local');
     const match = url.pathname.match(/^\/feed\/([^/]+)(\/.*)?$/);
@@ -356,6 +451,28 @@ export async function handleRelay(
     };
     if (cacheCfg && fromCache(cacheCfg.ttlMs, 'hit')) return;
     const staleMs = cacheCfg ? Math.max(cacheCfg.ttlMs, cacheCfg.staleMs ?? 0) : 0;
+
+    // The same cached request already on its way (two tabs, the phone and the
+    // car): wait for it and share its answer, never a second upstream call. If
+    // it failed, its failure stands (stale copy or error), not a repeat.
+    const inflight = cacheKey ? runtime?.inflight : null;
+    if (inflight?.has(cacheKey)) {
+      await inflight.get(cacheKey);
+      if (fromCache(cacheCfg.ttlMs, 'hit')) return;
+      if (fromCache(staleMs, 'stale')) return;
+      throw new RelayError(502, 'upstream unavailable (the same request just failed)');
+    }
+    if (inflight) {
+      const done = new Promise((resolve) => (settleInflight = resolve));
+      inflight.set(cacheKey, done);
+      // Settled (and removed) in the finally below, however this ends.
+      const key = cacheKey;
+      const settle = settleInflight;
+      settleInflight = () => {
+        if (inflight.get(key) === done) inflight.delete(key);
+        settle();
+      };
+    }
 
     const headers = {};
     if (accept) headers['accept'] = accept;
@@ -515,11 +632,51 @@ export async function handleRelay(
       }
     }
 
+    // A queued feed (Overpass) lets only `concurrency` requests at a time go
+    // upstream and holds the rest in order, up to maxWaitMs, instead of
+    // refusing a burst (a first view of tiled layers is dozens of them). A
+    // client that hangs up while waiting is dropped before anything is sent.
+    const q = feed.queue;
+    const waitUntil = Date.now() + (q?.maxWaitMs ?? 0);
+    if (q && runtime) {
+      if (!runtime.queues.has(feed.id))
+        runtime.queues.set(
+          feed.id,
+          createLimiter(q.concurrency, { maxQueued: q.maxQueued ?? Infinity }),
+        );
+      try {
+        releaseSlot = await runtime.queues.get(feed.id).acquire({
+          maxWaitMs: q.maxWaitMs,
+          signal: gone.signal,
+        });
+      } catch {
+        if (gone.signal.aborted) return;
+        if (fromCache(staleMs, 'stale')) return;
+        throw new RelayError(429, `${feed.id} is busy: too many requests waiting`);
+      }
+    }
+
     // Rate / budget governor (job 6): refuse before spending on a metered feed.
     // acquire() counts the request at once (however many mirrors it then
     // tries), so concurrent requests cannot all pass before any is recorded; a
-    // request the upstream never answered is refunded below.
-    const gov = governor?.acquire(feed.id, target.pathname);
+    // request the upstream never answered is refunded below. A queued feed
+    // waits for room in its minute (within its wait) rather than failing.
+    let gov = governor?.acquire(feed.id, target.pathname);
+    while (
+      q &&
+      gov &&
+      !gov.ok &&
+      gov.retryAfterMs != null &&
+      Date.now() + gov.retryAfterMs <= waitUntil &&
+      !gone.signal.aborted
+    ) {
+      await sleep(gov.retryAfterMs, gone.signal);
+      gov = governor.acquire(feed.id, target.pathname);
+    }
+    if (gone.signal.aborted) {
+      if (gov?.ok) governor.refund(feed.id, gov);
+      return;
+    }
     if (gov && !gov.ok) {
       if (fromCache(staleMs, 'stale')) return;
       throw new RelayError(gov.status, gov.message);
@@ -610,6 +767,9 @@ export async function handleRelay(
     }
     const status = err instanceof RelayError ? err.status : 500;
     sendJson(res, status, { error: err.message || 'relay error' }, cors);
+  } finally {
+    releaseSlot?.();
+    settleInflight?.();
   }
 }
 

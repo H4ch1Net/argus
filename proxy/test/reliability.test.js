@@ -5,7 +5,7 @@ import http from 'node:http';
 import { createRequestHandler } from '../lib/app.js';
 import { loadConfig, validateFeeds } from '../lib/config.js';
 import { createResponseCache } from '../lib/cache.js';
-import { orderByHealth, upstreamBases } from '../lib/relay.js';
+import { createLimiter, orderByHealth, upstreamBases } from '../lib/relay.js';
 import { feeds as registry, OVERPASS_MIRRORS, overpassAnswered } from '../feeds.js';
 import { chpDocumentComplete } from '../feeds/traffic.js';
 
@@ -84,7 +84,7 @@ test('a timeout serves the last good body too, and each feed has its own timeout
   assert.match((await r.json()).error, /timed out after 0\.1 s/);
 });
 
-test('mirrors: 429, 5xx and timeouts move on, in order; a failed base cools down', async (t) => {
+test('mirrors: 429, 5xx and timeouts move on, in order; a failed base is skipped a while', async (t) => {
   const main = await startUpstream(t, { status: 429, body: 'busy' });
   const second = await startUpstream(t, { body: 'slow', delayMs: 300 });
   const third = await startUpstream(t, {
@@ -121,7 +121,7 @@ test('mirrors: 429, 5xx and timeouts move on, in order; a failed base cools down
   assert.equal((await fetch(`${base(proxy)}/feed/ovp/status`)).status, 403);
 });
 
-test('mirror order: override first, then the feed base, then mirrors; cooling ones last', () => {
+test('mirror order: override first, then the feed base, then mirrors; cooling ones skipped', () => {
   const feed = { baseUrl: 'https://a/api', mirrors: ['https://b/api', 'https://c/api'] };
   assert.deepEqual(upstreamBases(feed, { baseUrl: 'https://a/api', overridden: false }), [
     'https://a/api',
@@ -142,15 +142,16 @@ test('mirror order: override first, then the feed base, then mirrors; cooling on
     ),
     ['https://me'],
   );
+  // A base cooling down is skipped, not just moved back...
+  const ab = ['https://a/api', 'https://b/api'];
   const health = new Map([['https://a/api', 2000]]);
-  assert.deepEqual(orderByHealth(['https://a/api', 'https://b/api'], health, 1000), [
-    'https://b/api',
-    'https://a/api',
-  ]);
-  assert.deepEqual(orderByHealth(['https://a/api', 'https://b/api'], health, 3000), [
-    'https://a/api',
-    'https://b/api',
-  ]);
+  assert.deepEqual(orderByHealth(ab, health, 1000), ['https://b/api']);
+  assert.deepEqual(orderByHealth(ab, health, 3000), ab, 'and back once cooled');
+  // ...and when every one is cooling, one try at the first to recover.
+  health.set('https://b/api', 1500);
+  assert.deepEqual(orderByHealth(ab, health, 1000), ['https://b/api']);
+  // A feed without mirrors always tries its one base.
+  assert.deepEqual(orderByHealth(['https://a/api'], health, 1000), ['https://a/api']);
 });
 
 test('the Overpass entry: env override, main instance, two mirrors, long cache', () => {
@@ -293,4 +294,132 @@ test('a fetch that refuses the Connection header still gets the request', async 
   assert.equal(await r.text(), '<State></State>');
   assert.equal(state.hits.length, 1);
   assert.notEqual(state.hits[0].connection, 'close');
+});
+
+test('the limiter: a few at a time, the rest in order, bounded waits', async () => {
+  const lim = createLimiter(2, { maxQueued: 2 });
+  const r1 = await lim.acquire();
+  await lim.acquire();
+  const order = [];
+  const third = lim.acquire().then((rel) => (order.push(3), rel));
+  const fourth = lim.acquire().then((rel) => (order.push(4), rel));
+  await assert.rejects(lim.acquire(), /queue full/);
+  assert.equal(lim.active, 2);
+  assert.equal(lim.queued, 2);
+  r1();
+  r1(); // releasing twice frees one slot only
+  const r3 = await third;
+  assert.deepEqual(order, [3]);
+  r3();
+  (await fourth)();
+  assert.equal(lim.active, 1);
+  // A wait that runs out, or a caller that leaves, gives up its place.
+  const busy = createLimiter(1);
+  await busy.acquire();
+  await assert.rejects(busy.acquire({ maxWaitMs: 20 }), /timed out/);
+  const ac = new AbortController();
+  const left = busy.acquire({ signal: ac.signal });
+  ac.abort();
+  await assert.rejects(left, { name: 'AbortError' });
+  assert.equal(busy.queued, 0);
+});
+
+test('a queued feed sends a burst two at a time and answers every request', async (t) => {
+  let inFlight = 0;
+  let peak = 0;
+  const upstream = await listen((req, res) => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    setTimeout(() => {
+      inFlight -= 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ elements: [], url: req.url }));
+    }, 60);
+  });
+  t.after(() => upstream.close());
+  const proxy = await startProxy(t, [
+    {
+      id: 'ovp',
+      baseUrl: `${base(upstream)}/api`,
+      allowPaths: [/^\/api\/interpreter$/],
+      queue: { concurrency: 2, maxWaitMs: 5_000 },
+      cache: { ttlMs: 60_000 },
+    },
+  ]);
+  const tiles = Array.from({ length: 8 }, (_, i) =>
+    fetch(`${base(proxy)}/feed/ovp/interpreter?data=tile${i}`),
+  );
+  const answers = await Promise.all(tiles);
+  assert.ok(answers.every((r) => r.status === 200));
+  assert.equal(peak, 2, 'never more than two upstream at once');
+});
+
+test('identical requests in flight share one upstream call', async (t) => {
+  const { server, state } = await startUpstream(t, {
+    body: '{"elements":[1]}',
+    delayMs: 120,
+  });
+  const proxy = await startProxy(t, [
+    { id: 'f', baseUrl: base(server), cache: { ttlMs: 60_000 } },
+  ]);
+  const same = await Promise.all(
+    [1, 2, 3].map(() => fetch(`${base(proxy)}/feed/f/interpreter?data=same`)),
+  );
+  assert.equal(state.hits.length, 1);
+  assert.deepEqual(same.map((r) => r.headers.get('x-argus-cache')).sort(), [
+    'hit',
+    'hit',
+    'miss',
+  ]);
+  // When the shared call fails, the others do not repeat it.
+  state.plan = { status: 503, body: 'down', delayMs: 120 };
+  const failed = await Promise.all(
+    [1, 2, 3].map(() => fetch(`${base(proxy)}/feed/f/interpreter?data=other`)),
+  );
+  assert.equal(state.hits.length, 2);
+  assert.ok(failed.every((r) => r.status >= 500));
+});
+
+test('a rate-limited queued feed waits for room instead of failing', async (t) => {
+  const { server } = await startUpstream(t, { body: 'ok' });
+  let calls = 0;
+  const governor = {
+    acquire: () =>
+      ++calls === 1
+        ? { ok: false, status: 429, message: 'rate limit for q', retryAfterMs: 40 }
+        : { ok: true, cost: 0 },
+    refund: () => {},
+    usage: () => null,
+  };
+  const feeds = [
+    { id: 'q', baseUrl: base(server), queue: { concurrency: 1, maxWaitMs: 2_000 } },
+    { id: 'plain', baseUrl: base(server) },
+  ];
+  const proxy = await listen(
+    createRequestHandler({ config: loadConfig({}), feeds, governor }),
+  );
+  t.after(() => proxy.close());
+  const r = await fetch(`${base(proxy)}/feed/q/x`);
+  assert.equal(r.status, 200);
+  assert.equal(calls, 2);
+  // Without a queue, a refusal is immediate, as before.
+  calls = 0;
+  assert.equal((await fetch(`${base(proxy)}/feed/plain/x`)).status, 429);
+});
+
+test('when every instance fails, the next request tries just one', async (t) => {
+  const a = await startUpstream(t, { status: 503 });
+  const b = await startUpstream(t, { status: 429 });
+  const proxy = await startProxy(t, [
+    {
+      id: 'm',
+      baseUrl: `${base(a.server)}/api`,
+      mirrors: [`${base(b.server)}/api`],
+      allowPaths: [/^\/api\/interpreter$/],
+    },
+  ]);
+  assert.equal((await fetch(`${base(proxy)}/feed/m/interpreter?data=1`)).status, 429);
+  assert.equal(a.state.hits.length + b.state.hits.length, 2, 'each once');
+  await fetch(`${base(proxy)}/feed/m/interpreter?data=2`);
+  assert.equal(a.state.hits.length + b.state.hits.length, 3, 'then one try, not two');
 });
