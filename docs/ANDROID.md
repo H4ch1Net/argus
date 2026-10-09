@@ -107,24 +107,57 @@ says to check the phone, and the phone asks for it.
 
 ### In the car
 
-- **The view:** heading-up 3D, tilted 45 degrees, following you: about 3 km
-  above you when stopped, widening to about 8 km at motorway speed. Your
-  position is the white chevron.
+- **The view:** follows you, about 1.8 km above you when stopped, widening to
+  about 6.5 km at motorway speed. Your position is the white chevron. **VIEW**
+  (top right) cycles three views: **3D** (tilted 45 degrees, heading up), **2D**
+  (straight down, heading up) and **North** (straight down, north up). The flat
+  views are the lightest to draw. The choice is remembered.
 - **Map buttons** (right side): pan, re-centre, zoom in, zoom out. Zooming
   while following changes the follow distance; dragging or panning switches to
   free look (MODE FREE); re-centre flies back and follows again.
-- **LAYERS** (top right): flights, traffic cameras, weather radar, earthquakes.
-  The choice is remembered for the next drive.
+- **LAYERS** (top right): two one-tap presets first, **Drive** (traffic
+  incidents, CHP incidents, traffic cameras, surveillance and ALPR locations;
+  the default) and **Sky** (aircraft overhead), then a switch for each layer.
+  The list shows only layers this build can show: traffic incidents appear
+  once the phone's proxy has a TomTom key. The choice is remembered.
+- **Aircraft** are drawn on their ground track, like a radar scope: the car's
+  camera looks down from below cruise altitude, so aircraft drawn at altitude
+  would never be in view. Their flight level stays on their labels.
 - **Touch screens:** drag to pan, pinch or double-tap to zoom, tap a contact to
   select it (its row turns green, marked 00).
-- **Readouts:** top left, UTC and local time, speed (km/h, or mph where the
-  phone's region uses it), heading, mode. Bottom left, the selected contact and
-  the nearest ones with range and a direction arrow relative to your heading.
+- **Readouts:** top left, speed (large; km/h, or mph where the phone's region
+  uses it), heading, view and mode. Bottom left, the selected contact and the
+  nearest ones, **what is ahead first** (within 60 degrees of your course,
+  marked with a white edge), each with range and an arrow showing where it
+  lies on the map.
 
 Driver-distraction rules shape the car screen: the map, the status strip and
 the nearest-contacts readout only. No text entry, no menus, no video, no camera
 stills, and only critical notices (a missing proxy, say); feed errors stay on
 the phone.
+
+### Performance
+
+The car screen is drawn by the phone's GPU, beside whatever the phone itself
+draws, so the car version is built to stay light:
+
+- It always uses its own light look: the dark basemap, flat terrain, no sun
+  lighting, atmosphere or stars, whatever the phone app is set to (the phone's
+  choices, such as satellite imagery or photorealistic 3D tiles, never reach
+  the car).
+- It renders only what changed. The follow view updates 20 times a second on
+  the move, 12 when creeping, and stops when you stop; standing still, GPS
+  wander is held still, so a parked car with no aircraft on draws nothing.
+  Aircraft move 8 times a second.
+- The render target is held to about 1.1 million pixels whatever the car's
+  screen, so a wide or dense display costs no more than a small one.
+- Layers that load by area refetch when you have driven about a third of the
+  view away (checked every 4 seconds), and not at all for GPS wander.
+- Drags and pinches reach the map once per display frame, and the map pauses
+  (no drawing, no polling, no location) whenever another app is in front on
+  the car screen.
+- The thermal ladder still applies: if frames slow down as the phone heats,
+  the car lowers its resolution further.
 
 ### Trying it without a car
 

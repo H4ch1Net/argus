@@ -14,7 +14,7 @@ import {
 test('options fill the defaults and snap the tile size to divide the globe', () => {
   const o = tileOptions({ tileDeg: 0.3, ttlMs: 1000 });
   assert.equal(o.ttlMs, 1000);
-  assert.equal(o.maxTiles, TILE_DEFAULTS.maxTiles);
+  assert.equal(o.maxTiles, Math.max(TILE_DEFAULTS.maxTiles, TILE_DEFAULTS.maxView + 8));
   assert.ok(Math.abs(180 / o.tileDeg - Math.round(180 / o.tileDeg)) < 1e-9);
   assert.equal(tileOptions({ tileDeg: 0.7 }).tileDeg, 180 / 257);
   assert.equal(tileOptions(true).tileDeg, TILE_DEFAULTS.tileDeg);
