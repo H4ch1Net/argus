@@ -38,6 +38,21 @@ import {
   FIX_THE_MAP_URL,
 } from '../core/route/osrm.js';
 import { greatCircleM, initialBearingDeg } from '../core/draw/geometry.js';
+import {
+  flowQuery,
+  flowSegmentPath,
+  formatFlowReadout,
+  parseFlowSegment,
+} from '../core/layers/simtraffic/flow.js';
+import { SHODAN_SNAPSHOTS, snapshotById } from '../core/layers/shodan/snapshots.js';
+import { createShodanSource, fetchCountryFacets } from '../core/layers/shodan/source.js';
+import { shodanToNormalized } from '../core/layers/shodan/parse.js';
+import {
+  createStreetPhotoTiles,
+  findNearestStreetPhoto,
+} from '../core/layers/streetphotos/source.js';
+import { streetPhotoToNormalized } from '../core/layers/streetphotos/parse.js';
+import { describeStreetPhoto } from '../core/layers/streetphotos/format.js';
 
 export const CLI_COMMANDS = [
   'query',
@@ -55,6 +70,9 @@ export const CLI_COMMANDS = [
   'bgp',
   'ct',
   'health',
+  'flow',
+  'shodan',
+  'photo',
 ];
 
 const QUAKE_FEEDS = [
@@ -249,6 +267,8 @@ export async function runCli(cmd, argv, io = {}) {
     '--group',
     '--count',
     '--mode',
+    '--snapshot',
+    '--country',
   ];
   const args = positionals(argv, valueFlags);
 
@@ -289,6 +309,38 @@ export async function runCli(cmd, argv, io = {}) {
   if ((cmd === 'flights' || cmd === 'fires') && !opt(argv, '--near')) {
     err(`argus ${cmd}: --near <LAT,LON|place> is required (feeds are viewport-bounded)`);
     return 2;
+  }
+  if ((cmd === 'flow' || cmd === 'photo') && !args.length) {
+    err(`argus ${cmd}: give a place or LAT,LON`);
+    return 2;
+  }
+  if (cmd === 'shodan' && opt(argv, '--snapshot') && opt(argv, '--snapshot') !== 'list') {
+    const id = opt(argv, '--snapshot');
+    if (!SHODAN_SNAPSHOTS.some((s) => s.id === id)) {
+      err(
+        `argus shodan: --snapshot must be one of ${SHODAN_SNAPSHOTS.map((s) => s.id).join(', ')}`,
+      );
+      return 2;
+    }
+  }
+  if (
+    cmd === 'shodan' &&
+    opt(argv, '--country') &&
+    !/^[a-z]{2}$/i.test(opt(argv, '--country'))
+  ) {
+    err('argus shodan: --country takes a two-letter country code');
+    return 2;
+  }
+  if (cmd === 'shodan' && opt(argv, '--snapshot') === 'list') {
+    if (json) out(JSON.stringify(SHODAN_SNAPSHOTS, null, 2));
+    else
+      out(
+        table(
+          ['id', 'snapshot', 'query'],
+          SHODAN_SNAPSHOTS.map((s) => [s.id, s.label, s.query]),
+        ),
+      );
+    return 0;
   }
   if (cmd === 'geocode' && !args.length) {
     err('argus geocode: give a place name');
@@ -763,6 +815,130 @@ export async function runCli(cmd, argv, io = {}) {
               `${new Date().toISOString().slice(11, 19)}  ${ev.domain}  +${ev.domains}  ${ev.ca}`;
       await streamLines(url, cmd, cmd === 'bgp' ? 'events' : 'certs', count, json, (ev) =>
         out(typeof ev === 'string' ? ev : fmt(ev)),
+      );
+      return 0;
+    }
+
+    // A keyed feed this proxy does not have: say which key, before any request.
+    const needKey = (feed, secret) => {
+      if (backend.health && !feedConfigured(backend.health, feed)) {
+        err(`${cmd}: needs ${secret} in .env (proxy side)`);
+        return true;
+      }
+      return false;
+    };
+
+    if (cmd === 'flow') {
+      // TomTom live speed on the road nearest a point (current / free-flow).
+      if (!c) {
+        err('flow: TomTom flow is online only; --demo has no network');
+        return 1;
+      }
+      if (needKey('tomtom-flowseg', 'TOMTOM_API_KEY')) return 1;
+      const place = await resolvePlace(backend, args.join(' '));
+      const seg = parseFlowSegment(
+        await c.getJson('tomtom-flowseg', flowSegmentPath(3), {
+          params: flowQuery(place.lat, place.lon),
+        }),
+      );
+      if (!seg) {
+        err(`flow: no road with flow data near ${place.name}`);
+        return 1;
+      }
+      if (json) out(JSON.stringify({ place, ...seg, credit: '© TomTom' }, null, 2));
+      else {
+        out(`${place.name}: ${formatFlowReadout(seg)}`);
+        out(
+          `  road class ${seg.frc ?? '?'}, travel time ${seg.currentTravelTimeS ?? '?'} s (free-flow ${seg.freeTravelTimeS ?? '?'} s), confidence ${seg.confidence ?? '?'}`,
+        );
+        out('  Traffic flow © TomTom');
+      }
+      return 0;
+    }
+
+    if (cmd === 'shodan') {
+      // A curated snapshot (credit-free counts): top countries, or one
+      // country's ports, operators and products. Never a free-text search.
+      if (!c) {
+        err('shodan: needs the proxy and SHODAN_API_KEY; --demo has no network');
+        return 1;
+      }
+      if (needKey('shodan', 'SHODAN_API_KEY')) return 1;
+      const snapshot = snapshotById(opt(argv, '--snapshot'));
+      const country = opt(argv, '--country')?.toUpperCase();
+      const limit = Number(opt(argv, '--limit') ?? 20);
+      if (country) {
+        const f = await fetchCountryFacets(c, snapshot.id, country);
+        if (json) out(JSON.stringify({ snapshot, country, ...f }, null, 2));
+        else {
+          out(
+            `${snapshot.label} in ${country}: ${f.total ?? '?'} hosts (Shodan snapshot)`,
+          );
+          for (const [k, v] of f.rows) out(`  ${k.padEnd(14)}${v}`);
+        }
+        return 0;
+      }
+      const raw = await createShodanSource({
+        proxyClient: c,
+        getSnapshot: () => snapshot.id,
+      })();
+      const list = shodanToNormalized(raw)
+        .filter((n) => n.type === 'shodan-density')
+        .slice(0, limit);
+      if (json)
+        out(
+          JSON.stringify(
+            {
+              snapshot,
+              total: raw.count?.total ?? null,
+              countries: list.map((n) => n.meta),
+            },
+            null,
+            2,
+          ),
+        );
+      else {
+        out(
+          `${snapshot.label}: ${raw.count?.total ?? '?'} hosts worldwide (Shodan snapshot, awareness only)`,
+        );
+        out(
+          table(
+            ['#', 'country', 'hosts'],
+            list.map((n) => [n.meta.rank, n.meta.country, n.meta.count]),
+          ),
+        );
+      }
+      return 0;
+    }
+
+    if (cmd === 'photo') {
+      // The nearest Mapillary street-level photo: when, which way, the link.
+      if (!c) {
+        err('photo: Mapillary is online only; --demo has no network');
+        return 1;
+      }
+      if (needKey('mapillary', 'MAPILLARY_TOKEN')) return 1;
+      const place = await resolvePlace(backend, args.join(' '));
+      const best = await findNearestStreetPhoto(
+        createStreetPhotoTiles({ proxyClient: c }),
+        place.lat,
+        place.lon,
+      );
+      if (!best) {
+        err(`photo: no Mapillary photo within 400 m of ${place.name}`);
+        return 1;
+      }
+      const card = describeStreetPhoto(streetPhotoToNormalized(best.image), {
+        distanceM: best.distanceM,
+      });
+      out(
+        json
+          ? JSON.stringify(
+              { place, image: best.image, distanceM: best.distanceM },
+              null,
+              2,
+            )
+          : printCard(card),
       );
       return 0;
     }

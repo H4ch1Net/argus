@@ -20,11 +20,9 @@ export const MAPILLARY_CREDIT = 'Street photos © Mapillary, CC BY-SA 4.0';
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 
 /** True when a view box is small enough to load photos for. */
-export function viewSmallEnough(bbox) {
+export function viewSmallEnough(bbox, maxDeg = MAPILLARY_MAX_VIEW_DEG) {
   return Boolean(
-    bbox &&
-    bbox.lamax - bbox.lamin <= MAPILLARY_MAX_VIEW_DEG &&
-    bbox.lomax - bbox.lomin <= MAPILLARY_MAX_VIEW_DEG,
+    bbox && bbox.lamax - bbox.lamin <= maxDeg && bbox.lomax - bbox.lomin <= maxDeg,
   );
 }
 
@@ -46,8 +44,8 @@ export function tileAt(lat, lon) {
  * Tiles covering a view box, nearest its middle first, at most `max`; none
  * when the view is too wide.
  */
-export function mapillaryTiles(bbox, max = 6) {
-  if (!viewSmallEnough(bbox)) return [];
+export function mapillaryTiles(bbox, max = 6, maxDeg = MAPILLARY_MAX_VIEW_DEG) {
+  if (!viewSmallEnough(bbox, maxDeg)) return [];
   const d = MAPILLARY_TILE_DEG;
   const cLat = (bbox.lamin + bbox.lamax) / 2;
   const cLon = (bbox.lomin + bbox.lomax) / 2;

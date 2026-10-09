@@ -35,7 +35,6 @@ import {
   surveillanceHeading,
 } from '../core/layers/surveillance/format.js';
 import { describeLandmark } from '../core/layers/landmarks/format.js';
-import { parseShodanFacets } from '../core/layers/shodan/parse.js';
 import { describeShodan, shodanColorHex } from '../core/layers/shodan/format.js';
 import {
   bgpEventToNormalized,
@@ -160,6 +159,24 @@ import {
   gdeltSearchText,
 } from '../core/layers/gdelt/format.js';
 import { createGdeltSource, createGdeltMockSource } from '../core/layers/gdelt/source.js';
+import { shodanToNormalized } from '../core/layers/shodan/parse.js';
+import { shodanSearchText } from '../core/layers/shodan/format.js';
+import { createShodanSource } from '../core/layers/shodan/source.js';
+import { createSimTrafficSource } from '../core/layers/simtraffic/source.js';
+import { createSimTrafficMockSource } from '../core/layers/simtraffic/mockSource.js';
+import {
+  createSimDriver,
+  describeSimVehicle,
+  viewOfBbox,
+} from '../core/layers/simtraffic/driver.js';
+import { CONGESTION_COLORS } from '../core/layers/simtraffic/format.js';
+import { streetPhotoToNormalized } from '../core/layers/streetphotos/parse.js';
+import {
+  describeStreetPhoto,
+  streetPhotoSearchText,
+} from '../core/layers/streetphotos/format.js';
+import { createStreetPhotoSource } from '../core/layers/streetphotos/source.js';
+import { createStreetPhotoMockSource } from '../core/layers/streetphotos/mockSource.js';
 
 export const GLYPHS = {
   unicode: {
@@ -198,6 +215,9 @@ export const GLYPHS = {
     },
     relay: { exit: '»', guard: '◙', middle: '∙' },
     news: '¶',
+    simcar: '▫',
+    photo: '⊡',
+    host: '◦',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -235,6 +255,9 @@ export const GLYPHS = {
     },
     relay: { exit: '>', guard: 'g', middle: 'o' },
     news: 'n',
+    simcar: 'v',
+    photo: 'p',
+    host: 'o',
   },
 };
 
@@ -323,6 +346,9 @@ export function buildLayers({
   const incidentPriority = (n) =>
     n.meta.severity === 'critical' ? 2 : n.meta.severity === 'notable' ? 1 : 0;
   let torStatus = '';
+  // The simulated traffic's model driver (positions by time) and its note.
+  const simDriver = createSimDriver({ cap: 150 });
+  let simNote = '';
 
   const layers = [
     {
@@ -623,18 +649,22 @@ export function buildLayers({
             await import('../core/layers/shodan/mockSource.js')
           ).createShodanMockSource();
         if (needs('shodan', 'SHODAN_API_KEY')) return null;
-        // Credit-free count facets only: awareness, never search-on-pan.
-        return (_q, signal) =>
-          client.getJson('shodan', '/shodan/host/count', {
-            params: { query: 'product:Apache httpd', facets: 'country:200' },
-            signal,
-          });
+        // A curated snapshot through the credit-free count endpoint (the
+        // proxy pins the query): awareness, never search-on-pan. The snapshot
+        // is ARGUS_SHODAN_SNAPSHOT (core/layers/shodan/snapshots.js ids).
+        return createShodanSource({
+          proxyClient: client,
+          getSnapshot: () => process.env.ARGUS_SHODAN_SNAPSHOT,
+        });
       },
-      normalize: (json) => parseShodanFacets(json, 'country'),
+      normalize: (raw) => shodanToNormalized(raw),
       describe: describeShodan,
-      searchText: (n) => n.meta.country,
-      glyph: (n) => ({ ch: g.shodan, color: shodanColorHex(n.meta.count) }),
-      priority: (n) => Math.log10(Math.max(1, n.meta.count)),
+      searchText: shodanSearchText,
+      glyph: (n) =>
+        n.type === 'shodan-host'
+          ? { ch: g.host, color: '#ffffff' }
+          : { ch: g.shodan, color: shodanColorHex(n.meta.count) },
+      priority: (n) => Math.log10(Math.max(1, n.meta.count ?? 1)),
       legend: () => `${g.shodan} exposed-host density by country`,
     },
     {
@@ -954,6 +984,74 @@ export function buildLayers({
       statusNote: (q) =>
         !demo && q.bbox && areaTooLarge(q.bbox, DAM_MAX_DEG) ? 'zoom in to load' : '',
       legend: () => `${g.dam} dams (OSM)`,
+    },
+    {
+      key: 'simtraffic',
+      label: 'Traffic (simulated)',
+      mode: 'poll',
+      intervalMs: 10_000,
+      viewportBounded: true,
+      maxEntities: 150,
+      // SIMULATED vehicles on OSM roads (core/layers/simtraffic), the same model
+      // as the globe: active once the map is zoomed in below about 8 km.
+      makeSource: async () => {
+        let view = null;
+        const getView = () => view;
+        const src = demo
+          ? createSimTrafficMockSource({ getView, tier: 'minimal' })
+          : createSimTrafficSource({
+              proxyClient: client,
+              getView,
+              flow: keyed('tomtom-flowseg'),
+              tier: 'minimal',
+            });
+        return async (q) => {
+          view = viewOfBbox(q?.bbox);
+          return src();
+        };
+      },
+      normalize: (model) => {
+        simDriver.sync(model);
+        simNote = model?.note?.() ?? '';
+        return simDriver.vehicles(Date.now());
+      },
+      positionAt: (n, t) => simDriver.positionAt(n.meta.slot, t),
+      statusNote: () => simNote,
+      describe: (n) => describeSimVehicle(n, simDriver.speedKmh(n.meta.slot)),
+      glyph: (n) => ({
+        ch: g.simcar,
+        color: n.meta.flow
+          ? (CONGESTION_COLORS[
+              n.meta.flow.ratio < 0.45
+                ? 'jam'
+                : n.meta.flow.ratio < 0.75
+                  ? 'slow'
+                  : 'free'
+            ] ?? '#d9d9d9')
+          : '#d9d9d9',
+      }),
+      priority: () => -1,
+      legend: () => `${g.simcar} SIMULATED vehicles (zoom in below 8 km)`,
+    },
+    {
+      key: 'streetphotos',
+      label: 'Street photos',
+      mode: 'viewport',
+      maxEntities: 600,
+      unavailable: needs('mapillary', 'MAPILLARY_TOKEN'),
+      makeSource: async () => {
+        // The closest terminal zoom is about 8 km across: load the tiles
+        // around the middle of it.
+        if (demo) return createStreetPhotoMockSource({ maxViewDeg: 0.12 });
+        if (needs('mapillary', 'MAPILLARY_TOKEN')) return null;
+        return createStreetPhotoSource({ proxyClient: client, maxViewDeg: 0.12 });
+      },
+      normalize: (raw) => (raw?.images ?? []).map(streetPhotoToNormalized),
+      statusNote: (_q, raw) => (raw?.tooWide ? 'zoom in to load' : ''),
+      describe: (n) => describeStreetPhoto(n),
+      searchText: streetPhotoSearchText,
+      glyph: () => ({ ch: g.photo, color: '#deeeed' }),
+      legend: () => `${g.photo} street photos (Mapillary, CC BY-SA)`,
     },
     {
       key: 'incidents',

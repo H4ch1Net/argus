@@ -41,14 +41,18 @@ export function createStreetPhotoTiles({ proxyClient, now = () => Date.now() }) 
   return { tile };
 }
 
-/** The viewport source for the layer: { images, tooWide }. */
-export function createStreetPhotoSource({ proxyClient, tiles = null }) {
+/**
+ * The viewport source for the layer: { images, tooWide }. maxViewDeg: the
+ * widest view that loads (the terminal's closest zoom is wider than the
+ * globe's limit; it then loads the tiles around the middle).
+ */
+export function createStreetPhotoSource({ proxyClient, tiles = null, maxViewDeg }) {
   const t = tiles ?? createStreetPhotoTiles({ proxyClient });
   return async (query, signal) => {
     const bbox = query?.bbox;
-    if (!viewSmallEnough(bbox)) return { images: [], tooWide: true };
+    if (!viewSmallEnough(bbox, maxViewDeg)) return { images: [], tooWide: true };
     const seen = new Map();
-    for (const tl of mapillaryTiles(bbox)) {
+    for (const tl of mapillaryTiles(bbox, 6, maxViewDeg)) {
       for (const img of await t.tile(tl, signal))
         if (!seen.has(img.id)) seen.set(img.id, img);
       if (seen.size >= MAX_IMAGES) break;

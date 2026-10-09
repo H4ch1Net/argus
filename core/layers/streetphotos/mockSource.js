@@ -52,9 +52,10 @@ export function createStreetPhotoMockTiles() {
   return { tile: async (t) => demoTileImages(t) };
 }
 
-export function createStreetPhotoMockSource() {
+export function createStreetPhotoMockSource({ maxViewDeg } = {}) {
   return createStreetPhotoSource({
     proxyClient: null,
     tiles: createStreetPhotoMockTiles(),
+    maxViewDeg,
   });
 }
