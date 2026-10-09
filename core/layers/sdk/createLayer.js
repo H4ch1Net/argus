@@ -1,7 +1,7 @@
 import * as Cesium from 'cesium';
 import { createRingBuffer } from './ringBuffer.js';
 import { interpolateInto } from './interpolate.js';
-import { computeViewportQuery } from './viewport.js';
+import { computeViewportQuery, viewportShift } from './viewport.js';
 import { getRenderer, isPrimitiveRenderType } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
 import { createFieldLayer } from './fieldLayer.js';
@@ -48,7 +48,10 @@ const DEFAULT_MAX_ENTITIES = 2000;
 /**
  * @param {import('cesium').Viewer} viewer
  * @param {object} def LayerDefinition
- * @param {{ source: Function, onStatus?: Function, clock?: object, animationFps?: number }} ctx
+ * @param {{ source: Function, onStatus?: Function, clock?: object, animationFps?: number,
+ *   groundClamp?: boolean }} ctx  groundClamp draws every record at ground level
+ *   (its ground track): the car's camera sits below cruise altitude looking
+ *   down, so aircraft drawn at altitude would never be in its view.
  */
 export function createLayer(viewer, def, ctx) {
   if (typeof ctx?.source !== 'function') {
@@ -146,7 +149,7 @@ export function createLayer(viewer, def, ctx) {
     return Cesium.Cartesian3.fromDegrees(
       fix.longitude,
       fix.latitude,
-      Math.max(0, fix.altitude),
+      ctx.groundClamp ? 0 : Math.max(0, fix.altitude),
       Cesium.Ellipsoid.WGS84,
       result ?? new Cesium.Cartesian3(),
     );
@@ -305,12 +308,14 @@ export function createLayer(viewer, def, ctx) {
   // --- fetching -------------------------------------------------------------
 
   let lastPollAt = 0;
+  let lastQuery = null; // the view the last bounded fetch asked for
   async function poll() {
     if (!running) return;
     lastPollAt = Date.now();
     // 'viewport' layers are fetched per region, so they are always bounded.
     const bounded = def.fetch?.viewportBounded || mode === 'viewport';
     const query = bounded ? computeViewportQuery(viewer) : {};
+    if (bounded) lastQuery = query;
     aborter?.abort();
     const controller = new AbortController();
     aborter = controller;
@@ -340,6 +345,7 @@ export function createLayer(viewer, def, ctx) {
   let staleTimer = null;
   let moveEndRemove = null;
   let moveTimer = null;
+  let driftTimer = null;
 
   function pushIngest(raw) {
     if (!running) return;
@@ -385,15 +391,31 @@ export function createLayer(viewer, def, ctx) {
   // timed layer refetches at most every 5 s this way, so panning cannot
   // multiply a metered feed's requests (OpenSky, FIRMS).
   const MOVE_REFETCH_GAP_MS = 5000;
+  // A view that barely moved (GPS jitter under the car's follow camera, a
+  // nudge) keeps the data it has: refetching costs a request and a rebuild
+  // for the same records. viewportShift is in views: 0.04 is 4 % of the view.
+  const SAME_VIEW = 0.04;
+  // A camera that never settles (the car following the vehicle, a tracked
+  // aircraft) never raises moveEnd, so every few seconds check whether the
+  // view has drifted far enough off the fetched area to need the next one.
+  const DRIFT_CHECK_MS = 4000;
+  const DRIFT_REFETCH = 0.3;
+  function refetchIfMoved(minShift) {
+    if (!running || document.hidden) return;
+    if (mode !== 'viewport' && Date.now() - lastPollAt < MOVE_REFETCH_GAP_MS) return;
+    if (
+      lastQuery &&
+      viewportShift(lastQuery.bbox, computeViewportQuery(viewer).bbox) < minShift
+    )
+      return;
+    poll();
+  }
   function watchCamera() {
     moveEndRemove = viewer.camera.moveEnd.addEventListener(() => {
       clearTimeout(moveTimer);
-      moveTimer = setTimeout(() => {
-        if (!running || document.hidden) return;
-        if (mode !== 'viewport' && Date.now() - lastPollAt < MOVE_REFETCH_GAP_MS) return;
-        poll();
-      }, 700);
+      moveTimer = setTimeout(() => refetchIfMoved(SAME_VIEW), 700);
     });
+    driftTimer = setInterval(() => refetchIfMoved(DRIFT_REFETCH), DRIFT_CHECK_MS);
   }
   function onVisibilityChange() {
     if (document.hidden) pausePolling();
@@ -466,6 +488,8 @@ export function createLayer(viewer, def, ctx) {
         moveEndRemove?.();
         moveEndRemove = null;
         clearTimeout(moveTimer);
+        clearInterval(driftTimer);
+        driftTimer = null;
       }
       moversActive(false);
     },

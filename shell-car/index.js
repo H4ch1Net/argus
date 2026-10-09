@@ -3,15 +3,18 @@ import { bootGlobe } from '../core/index.js';
 import { createCameraControls } from '../core/scene/cameraControls.js';
 import { h } from '../core/ui/dom.js';
 import {
-  FOLLOW_PITCH_DEG,
+  VIEW_MODES,
   angleDelta,
+  carResolutionScale,
   clamp,
   courseFor,
   destination,
+  followFrameMs,
   followPose,
   formatDistance,
   formatHeading,
   formatSpeed,
+  isParkedJitter,
   layerCode,
   lerp,
   nearestContacts,
@@ -26,19 +29,27 @@ import './shell.css';
 // Car shell (Android Auto). The Android app draws this page on the car display
 // (android/.../car/CarMapRenderer.kt) and drives it through window.argusCar:
 // gestures from the car's screen, the phone's location, and the car's LAYERS
-// list. A heading-up 3D view follows the vehicle, tilted 45 degrees at 3 to 8
-// km depending on speed. Driver-distraction rules shape the UI: the map, a
-// status strip (time, speed, heading), the nearest contacts in large type and
-// the tracking boxes; no menus, no text entry, no video. Main still mounts
-// its components; the slots this shell has no place for are ignored.
+// and VIEW buttons. The view follows the vehicle: tilted 3D heading up, flat
+// 2D heading up, or 2D north up, 1.8 to 6.5 km up depending on speed.
+// Driver-distraction rules shape the UI: the map, a status strip (speed,
+// heading, view, mode), the nearest contacts ahead in large type and the
+// tracking boxes; no menus, no text entry, no video. Main still mounts its
+// components; the slots this shell has no place for are ignored.
+//
+// It draws on the phone's GPU beside whatever the phone draws, so it renders
+// only what changed: the follow view updates 12 to 20 times a second while
+// the vehicle moves and stops when it stands (GPS wander is held still), the
+// render target is held to a pixel budget, and moving layers tick slowly.
 //
 // Also runs in any browser at ?shell=car (navigator.geolocation then drives
 // it, and a drag on the globe leaves follow mode), which is how to try it
 // without a car.
 
 const EASE_S = 0.35; // how quickly the follow view settles on a new fix
-const FRAME_MS = 1000 / 20; // follow-view updates per second, at most
 const DEAD_RECKON_S = 2; // carry a fix forward along its course this long
+// Moving layers (aircraft) tick this often in the car: enough to see them
+// move, a third of the frames a phone spends on them.
+const CAR_ANIMATION_FPS = 8;
 const FIX_STALE_MS = 5000;
 const GEO_FALLBACK_MS = 6000; // no fix pushed by the app: use the WebView's own
 const SYNTHETIC_POINTER = 4242;
@@ -64,19 +75,26 @@ export async function mountShell(root, bootOpts = {}) {
     setLocation: (...a) => (ctl ? ctl.setLocation(...a) : (early.location = a)),
     setLayers: (keys) => (ctl ? ctl.setLayers(keys) : (early.layers = keys)),
     setInsets: (...a) => (ctl ? ctl.setInsets(...a) : (early.insets = a)),
+    setView: (mode) => (ctl ? ctl.setView(mode) : (early.view = mode)),
     state: () => ctl?.state() ?? null,
   };
 
   // The car display is a second screen on the phone's GPU, rendering while the
-  // phone may render too: the lightest tier, about 1.25 device pixels per CSS
-  // pixel (not below 0.86, so the thermal ladder's 0.7 step still lowers it).
+  // phone may render too: the lightest tier, a fixed budget of rendered pixels
+  // whatever the car's screen (model.js carResolutionScale), and slow ticks
+  // for moving layers.
   const dpr = window.devicePixelRatio || 1;
   const app = await bootGlobe(globeEl, {
     onContextChange: bootOpts.onContextChange,
     tier: 'minimal',
     profile: {
-      resolutionScale: clamp(1.25 / dpr, 0.86, 1),
+      resolutionScale: carResolutionScale(
+        window.innerWidth || 1280,
+        window.innerHeight || 720,
+        dpr,
+      ),
       targetFrameRate: 30,
+      animationFps: CAR_ANIMATION_FPS,
     },
   });
   const { viewer } = app;
@@ -93,13 +111,15 @@ export async function mountShell(root, bootOpts = {}) {
       value,
     };
   };
+  // Speed and heading first and largest; the car's own bar already shows the
+  // time. VIEW echoes the VIEW button, MODE says whether the map follows.
   const cells = {
-    utc: cell('UTC'),
-    local: cell('LCL'),
     speed: cell('SPD'),
     heading: cell('HDG'),
+    view: cell('VIEW'),
     mode: cell('MODE'),
   };
+  cells.speed.el.classList.add('car-cell--lead');
   const status = h(
     'div.car-status',
     { role: 'status' },
@@ -117,6 +137,7 @@ export async function mountShell(root, bootOpts = {}) {
   let fromApp = false;
   let following = true;
   let rangeScale = 1;
+  let viewMode = '3d';
   let overlay = null;
   let summary = null;
   let wantLayers = null;
@@ -125,7 +146,7 @@ export async function mountShell(root, bootOpts = {}) {
   const insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
   // ------------------------------------------------------------ following
-  const view = { lat: 0, lon: 0, heading: 0, range: 0 };
+  const view = { lat: 0, lon: 0, heading: 0, pitch: VIEW_MODES['3d'].pitch, range: 0 };
   let viewSet = false;
   let acquiringUntil = 0;
   let raf = 0;
@@ -151,7 +172,7 @@ export async function mountShell(root, bootOpts = {}) {
       centre,
     );
     hpr.heading = Cesium.Math.toRadians(view.heading);
-    hpr.pitch = Cesium.Math.toRadians(FOLLOW_PITCH_DEG);
+    hpr.pitch = Cesium.Math.toRadians(view.pitch);
     hpr.range = view.range;
     cam.lookAt(centre, hpr);
     cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
@@ -162,21 +183,33 @@ export async function mountShell(root, bootOpts = {}) {
     if (!raf && following && fix) raf = requestAnimationFrame(tick);
   }
 
+  const settledOn = (target) =>
+    Math.abs(view.lat - target.lat) < 1e-6 &&
+    Math.abs(angleDelta(view.lon, target.lon)) < 1e-6 &&
+    Math.abs(angleDelta(view.heading, target.heading)) < 0.05 &&
+    Math.abs(view.pitch - target.pitch) < 0.05 &&
+    Math.abs(view.range - target.range) < 1;
+
   function tick(t) {
     raf = 0;
     if (!following || !fix) return;
-    if (t - lastTick < FRAME_MS) {
-      raf = requestAnimationFrame(tick);
-      return;
-    }
-    const dt = lastTick ? Math.min(0.5, (t - lastTick) / 1000) : FRAME_MS / 1000;
-    lastTick = t;
     const now = performance.now();
     const pos = predicted(now);
     const target = followPose(
       { lat: pos.lat, lon: pos.lon, heading: fix.heading, speed: fix.speed },
-      { scale: rangeScale },
+      { scale: rangeScale, mode: viewMode },
     );
+    // 20 updates a second on the move or in a turn, 12 when creeping.
+    const frameMs = followFrameMs(
+      fix.speed,
+      viewSet ? angleDelta(view.heading, target.heading) : 0,
+    );
+    if (t - lastTick < frameMs) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    const dt = lastTick ? Math.min(0.5, (t - lastTick) / 1000) : frameMs / 1000;
+    lastTick = t;
     if (!viewSet) {
       // First fix: fly in from wherever the globe is, then follow.
       Object.assign(view, target);
@@ -187,23 +220,22 @@ export async function mountShell(root, bootOpts = {}) {
         latitude: target.lat,
         range: target.range,
         heading: target.heading,
-        pitch: FOLLOW_PITCH_DEG,
+        pitch: target.pitch,
         duration: 2,
       });
-    } else if (now >= acquiringUntil) {
+    } else if (now >= acquiringUntil && !settledOn(target)) {
+      // Only a view that is still on its way moves the camera: once it rests
+      // on the target, nothing renders and nothing refetches until the next
+      // real change.
       const k = 1 - Math.exp(-dt / EASE_S);
       view.lat = lerp(view.lat, target.lat, k);
       view.lon = wrap360(view.lon + angleDelta(view.lon, target.lon) * k + 180) - 180;
       view.heading = wrap360(view.heading + angleDelta(view.heading, target.heading) * k);
+      view.pitch = lerp(view.pitch, target.pitch, k);
       view.range = lerp(view.range, target.range, k);
       applyView();
     }
-    const settled =
-      Math.abs(view.lat - target.lat) < 1e-6 &&
-      Math.abs(angleDelta(view.lon, target.lon)) < 1e-6 &&
-      Math.abs(angleDelta(view.heading, target.heading)) < 0.05 &&
-      Math.abs(view.range - target.range) < 1;
-    if (!settled || (fix.speed || 0) > 0.3 || now < acquiringUntil) {
+    if (!settledOn(target) || (fix.speed || 0) > 0.3 || now < acquiringUntil) {
       raf = requestAnimationFrame(tick);
     } else {
       lastTick = 0;
@@ -343,6 +375,14 @@ export async function mountShell(root, bootOpts = {}) {
       accuracy: Number.isFinite(accuracy) ? accuracy : null,
       t: performance.now(),
     };
+    // Standing still, the GPS wanders a few metres a second: hold the last
+    // position, or the view would creep, re-render and refetch every fix.
+    // (Checked before speed is derived from positions, which wander too.)
+    if (isParkedJitter(fix, next)) {
+      next.lat = fix.lat;
+      next.lon = fix.lon;
+      next.speed ??= 0;
+    }
     if (next.speed === null) next.speed = speedBetween(fix, next);
     next.heading = courseFor(fix, next);
     fix = next;
@@ -404,6 +444,24 @@ export async function mountShell(root, bootOpts = {}) {
     }
   }
 
+  // The car's LAYERS list offers only the layers this build can actually show
+  // (a keyed layer appears once the phone's proxy has its key): tell the app
+  // which, whenever that set changes.
+  let reportedLayers = '';
+  function reportLayers() {
+    const keys = menus.flatMap((m) =>
+      [...m.querySelectorAll('[data-layer]')].map((r) => r.dataset.layer),
+    );
+    const json = JSON.stringify([...new Set(keys)].sort());
+    if (!keys.length || json === reportedLayers) return;
+    reportedLayers = json;
+    try {
+      window.ArgusCarHost?.layers?.(json);
+    } catch {
+      // not inside the app (a browser at ?shell=car)
+    }
+  }
+
   function setLayers(keys) {
     if (!Array.isArray(keys)) return;
     wantLayers = new Set(keys.map(String));
@@ -411,7 +469,21 @@ export async function mountShell(root, bootOpts = {}) {
     // Main switches the link's layers on one by one as the scene starts:
     // settle once more after that.
     clearTimeout(layerTimer);
-    layerTimer = setTimeout(reconcileLayers, 3000);
+    layerTimer = setTimeout(() => {
+      reconcileLayers();
+      reportLayers();
+    }, 3000);
+  }
+
+  // ----------------------------------------------------------------- view
+  function setView(mode) {
+    if (!VIEW_MODES[mode] || mode === viewMode) return;
+    viewMode = mode;
+    // Following, the view eases into the new pitch and heading; in free look,
+    // the new view takes the map back to the vehicle.
+    if (following) startFollow();
+    else ctl.recenter();
+    refreshStatus();
   }
 
   // --------------------------------------------------------------- insets
@@ -440,17 +512,20 @@ export async function mountShell(root, bootOpts = {}) {
 
   // ----------------------------------------------------------- readouts
   const pad2 = (n) => String(n).padStart(2, '0');
+  // Each cell is written only when its text changes: no style or layout work
+  // for an unchanged strip, once a second.
+  const put = (c, text) => {
+    if (c.value.textContent !== text) c.value.textContent = text;
+  };
   function refreshStatus() {
     // Backgrounded (the browser ?shell=car fallback): skip the repaint. The
-    // next visible tick catches the clock and fix up, so nothing is lost.
+    // next visible tick catches the fix up, so nothing is lost.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const now = new Date();
-    cells.utc.value.textContent = `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
-    cells.local.value.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
     const fresh = fix && performance.now() - fix.t < FIX_STALE_MS;
-    cells.speed.value.textContent = formatSpeed(fresh ? fix.speed : NaN, units);
-    cells.heading.value.textContent = formatHeading(fresh ? fix.heading : NaN);
-    cells.mode.value.textContent = !fix ? 'NO FIX' : following ? 'FOLLOW' : 'FREE';
+    put(cells.speed, formatSpeed(fresh ? fix.speed : NaN, units));
+    put(cells.heading, formatHeading(fresh ? fix.heading : NaN));
+    put(cells.view, VIEW_MODES[viewMode].label);
+    put(cells.mode, !fix ? 'NO FIX' : following ? 'FOLLOW' : 'FREE');
     status.classList.toggle('is-stale', !fresh);
   }
   setInterval(refreshStatus, 1000);
@@ -495,7 +570,11 @@ export async function mountShell(root, bootOpts = {}) {
     const contacts = (summary?.contacts ?? [])
       .filter((c) => c.target !== hub?.target)
       .map((c) => ({ ...c, ...latLonOf(c.target) }));
-    for (const c of nearestContacts(contacts, here, hub?.target ? 2 : 3)) {
+    // What lies ahead first: a driver acts on what is coming (model.js).
+    const course = fix && fix.speed > 1 ? fix.heading : null;
+    for (const c of nearestContacts(contacts, here, hub?.target ? 2 : 3, {
+      heading: course,
+    })) {
       rows.push(
         row(
           pad2(c.id ?? 0),
@@ -503,6 +582,8 @@ export async function mountShell(root, bootOpts = {}) {
           layerCode(c.key),
           c.distanceM,
           c.bearingDeg,
+          false,
+          c.ahead === true,
         ),
       );
     }
@@ -510,11 +591,13 @@ export async function mountShell(root, bootOpts = {}) {
     readout.hidden = rows.length === 0;
   }
 
-  function row(id, name, kind, distance, bearing, isHub = false) {
-    const rel =
-      Number.isFinite(bearing) && fix ? wrap360(bearing - (fix.heading ?? 0)) : null;
+  function row(id, name, kind, distance, bearing, isHub = false, isAhead = false) {
+    // The arrow points the way the contact lies on the map: relative to the
+    // course in the heading-up views, to north in the north-up one.
+    const up = VIEW_MODES[viewMode].headingUp ? (fix?.heading ?? 0) : 0;
+    const rel = Number.isFinite(bearing) && fix ? wrap360(bearing - up) : null;
     return h(
-      `div.car-row${isHub ? '.is-hub' : ''}`,
+      `div.car-row${isHub ? '.is-hub' : ''}${isAhead ? '.is-ahead' : ''}`,
       {},
       h('span.car-row__id', {}, id),
       h('span.car-row__name', {}, String(name).slice(0, 16)),
@@ -546,15 +629,18 @@ export async function mountShell(root, bootOpts = {}) {
     setLocation,
     setLayers,
     setInsets,
+    setView,
     state: () => ({
       following,
       rangeScale,
+      view: viewMode,
       fix: fix && { ...fix },
       layers: wantLayers ? [...wantLayers] : null,
       insets: { ...insets },
     }),
   };
   if (early.insets) setInsets(...early.insets);
+  if (early.view) setView(early.view);
   if (early.location) setLocation(...early.location);
   if (early.layers) setLayers(early.layers);
   // Tell the app the page is listening, so it sends the current state.
@@ -578,6 +664,7 @@ export async function mountShell(root, bootOpts = {}) {
       else if (slot === 'layers') {
         menus.push(el);
         reconcileLayers();
+        reportLayers();
       }
     },
     attachOverlay(o) {
