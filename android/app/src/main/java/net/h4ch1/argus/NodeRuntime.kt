@@ -68,7 +68,53 @@ class Prefs(context: Context) {
         get() = sp.getString("carView", null)?.takeIf { it in CAR_VIEWS } ?: CAR_VIEWS.first()
         set(v) = sp.edit().putString("carView", v).apply()
 
+    /** The car's recent destinations, newest first: a JSON array of places (car/CarNav.kt). */
+    var carRecents: String
+        get() = sp.getString("carRecents", null) ?: "[]"
+        set(v) = sp.edit().putString("carRecents", v).apply()
+
+    /** Plan car routes without highways and freeways (the route preview's toggle). */
+    var carAvoidHighways: Boolean
+        get() = sp.getBoolean("carAvoidHighways", false)
+        set(v) = sp.edit().putBoolean("carAvoidHighways", v).apply()
+
+    /** Whether the car session has asked for the car data permissions (asked once). */
+    var carDataAsked: Boolean
+        get() = sp.getBoolean("carDataAsked", false)
+        set(v) = sp.edit().putBoolean("carDataAsked", v).apply()
+
+    /** The car's fuel tank in litres, 0 when not set (Settings, VEHICLE). */
+    var tankLitres: Float
+        get() = sp.getFloat("tankLitres", 0f)
+        set(v) = sp.edit().putFloat("tankLitres", v).apply()
+
+    /** Settings shows the tank in US gallons instead of litres. */
+    var tankGallons: Boolean
+        get() = sp.getBoolean("tankGallons", false)
+        set(v) = sp.edit().putBoolean("tankGallons", v).apply()
+
+    /** The VEHICLE silhouette: "auto" (guessed from the car's fuels), or one of VEHICLE_BODIES. */
+    var vehicleBody: String
+        get() = sp.getString("vehicleBody", null)?.takeIf { it in VEHICLE_BODIES } ?: "auto"
+        set(v) = sp.edit().putString("vehicleBody", v).apply()
+
+    /**
+     * Fuel level (percent) and odometer (metres) at the last fill-up the car
+     * app saw: the start of the average consumption. -1 when none yet.
+     */
+    var fuelBaselinePct: Float
+        get() = sp.getFloat("fuelBaselinePct", -1f)
+        set(v) = sp.edit().putFloat("fuelBaselinePct", v).apply()
+
+    var fuelBaselineOdoM: Long
+        get() = sp.getLong("fuelBaselineOdoM", -1L)
+        set(v) = sp.edit().putLong("fuelBaselineOdoM", v).apply()
+
     companion object {
+        /** "auto" and the VEHICLE panel's silhouettes (shell-car/panels.js). */
+        val VEHICLE_BODIES = listOf("auto", "sedan", "suv", "ev")
+
+
         /** The DRIVE preset: what matters on the road (shell-car, CarLayers). */
         val CAR_DEFAULT_LAYERS = setOf("incidents", "chp", "trafficcams", "surveillance")
 

@@ -19,6 +19,7 @@ import androidx.car.app.versioning.CarAppApiLevels
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import net.h4ch1.argus.Ink
 import net.h4ch1.argus.Prefs
 import net.h4ch1.argus.R
 
@@ -38,6 +39,7 @@ object CarLayers {
         Layer("chp", R.string.layer_chp),
         Layer("trafficcams", R.string.layer_trafficcams),
         Layer("surveillance", R.string.layer_surveillance),
+        Layer("signals", R.string.layer_signals),
         Layer("flights", R.string.layer_flights),
         Layer("military", R.string.layer_military),
         Layer("radar", R.string.layer_radar),
@@ -66,8 +68,24 @@ object CarLayers {
     }
 }
 
-private fun CarContext.icon(@DrawableRes res: Int): CarIcon =
+internal fun CarContext.icon(@DrawableRes res: Int): CarIcon =
     CarIcon.Builder(IconCompat.createWithResource(this, res)).setTint(CarColor.DEFAULT).build()
+
+/** Follow a CarNav for as long as a screen lives, invalidating it on every change. */
+internal fun Screen.invalidateOn(nav: CarNav) {
+    lifecycle.addObserver(object : DefaultLifecycleObserver {
+        private var stop: (() -> Unit)? = null
+
+        override fun onCreate(owner: LifecycleOwner) {
+            stop = nav.observe { invalidate() }
+        }
+
+        override fun onDestroy(owner: LifecycleOwner) {
+            stop?.invoke()
+            stop = null
+        }
+    })
+}
 
 @StringRes
 private fun viewTitle(mode: String): Int = when (mode) {
@@ -79,9 +97,19 @@ private fun viewTitle(mode: String): Int = when (mode) {
 /**
  * The map screen: the globe fills the car display (CarMapRenderer), with the
  * map controls in the map action strip (pan, re-centre, zoom in, zoom out),
- * and LAYERS and VIEW in the action strip. No text entry, no lists over the map.
+ * and WHERE TO (END while navigating), LAYERS and VIEW in the action strip.
+ * Navigating, Android Auto draws the routing card from CarNav: the next
+ * maneuver and the one after, and the remaining distance, time and arrival.
  */
-class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : Screen(carContext) {
+class MapScreen(
+    carContext: CarContext,
+    private val renderer: CarMapRenderer,
+    private val nav: CarNav,
+) : Screen(carContext) {
+    init {
+        invalidateOn(nav)
+    }
+
     override fun onGetTemplate(): Template {
         val prefs = Prefs(carContext)
         val mapActions = ActionStrip.Builder()
@@ -106,6 +134,26 @@ class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : 
             )
             .build()
         val actions = ActionStrip.Builder()
+        // WHERE TO opens search; on a route, END takes its place (a new
+        // destination starts from the map again).
+        if (nav.navigating) {
+            actions.addAction(
+                Action.Builder()
+                    .setTitle(carContext.getString(R.string.car_end))
+                    .setIcon(carContext.icon(R.drawable.ic_car_end))
+                    .setOnClickListener { nav.stop() }
+                    .build(),
+            )
+        } else {
+            actions.addAction(
+                Action.Builder()
+                    .setTitle(carContext.getString(R.string.car_where_to))
+                    .setIcon(carContext.icon(R.drawable.ic_car_search))
+                    .setOnClickListener { screenManager.push(SearchScreen(carContext, nav)) }
+                    .build(),
+            )
+        }
+        actions
             .addAction(
                 Action.Builder()
                     .setTitle(carContext.getString(R.string.car_layers))
@@ -125,11 +173,18 @@ class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : 
                     }
                     .build(),
             )
-            .build()
-        return NavigationTemplate.Builder()
-            .setActionStrip(actions)
-            .setMapActionStrip(mapActions)
-            .build()
+        val template = NavigationTemplate.Builder().setActionStrip(actions.build())
+        // Map actions need car API level 2; older hosts get the map without them.
+        if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_2) template.setMapActionStrip(mapActions)
+        if (nav.navigating) {
+            // The routing card in ctOS ground; the host keeps it legible.
+            template.setBackgroundColor(CarColor.createCustom(Ink.PANEL, Ink.PANEL))
+            template.setNavigationInfo(nav.navigationInfo())
+            nav.info?.takeIf { it.status != "arrived" }?.destinationEstimate()?.let {
+                template.setDestinationTravelEstimate(it)
+            }
+        }
+        return template.build()
     }
 
     private companion object {
