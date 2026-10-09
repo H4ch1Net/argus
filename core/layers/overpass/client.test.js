@@ -67,6 +67,11 @@ test('source skips broad views, queries + caches narrow ones', async () => {
   assert.equal(calls, 1);
   assert.equal(parseOverpass(a).length, 1);
   assert.deepEqual(a, b);
+  // RELOAD asks again past the memo, and refreshes it.
+  await source({ bbox, reload: true });
+  assert.equal(calls, 2);
+  await source({ bbox });
+  assert.equal(calls, 2);
 });
 
 test('a 200 with a runtime-error remark is an error and is not cached', async () => {

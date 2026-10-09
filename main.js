@@ -196,6 +196,18 @@ async function setupScene(app, splash) {
   });
   const camera = createCameraControls(app.viewer);
   const desktop = app.shell === 'desktop';
+  // Gestures and merge nearby (every shell, the car's included): a pinch that
+  // follows the fingers, the trackpad pinch and the zoom envelope
+  // (core/interaction/cameraInput.js; double and triple tap are the picker's),
+  // and the scene's cluster policy (core/layers/sdk/cluster.js), on unless
+  // switched off in VIEW > CONTACTS.
+  const [{ tuneCameraInput }, { clusterPolicy }] = await Promise.all([
+    import('./core/interaction/cameraInput.js'),
+    import('./core/layers/sdk/cluster.js'),
+  ]);
+  tuneCameraInput(app.viewer, camera);
+  const merge = clusterPolicy(app.viewer.scene);
+  merge.set({ merge: app.settings?.get('merge') ?? true });
 
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
@@ -1244,6 +1256,8 @@ async function setupScene(app, splash) {
     extras,
     interceptTap,
     proxyClient,
+    camera,
+    merge,
   });
   extras.setRefresh(() => tracking.tracker.refresh());
   tracker = tracking.tracker;
@@ -1515,6 +1529,35 @@ async function setupScene(app, splash) {
     ),
   );
   if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
+
+  // MERGE NEARBY: contacts close together on screen as one counted marker
+  // while zoomed out (the Layer SDK's clustering; the setting key 'merge').
+  const mergeSwitch = createSwitch({
+    label: 'Merge nearby',
+    on: merge.merge,
+    title:
+      'Group contacts that sit close together into one counted marker until you zoom in (far lighter zoomed out)',
+    onToggle: (on) => {
+      merge.set({ merge: on });
+      settings?.set('merge', on);
+    },
+  });
+  settings?.subscribe((key, value) => {
+    if (key !== 'merge') return;
+    merge.set({ merge: value });
+    mergeSwitch.set(value);
+  });
+  view.push(
+    section(
+      'CONTACTS',
+      mergeSwitch.el,
+      h(
+        'div.ct-section__note',
+        {},
+        'Tap a group to fly to it. Below 3 km every contact is drawn.',
+      ),
+    ),
+  );
 
   // 3D aircraft close to the camera (glTF models per class), desktop default.
   const { createModelLod } = await import('./core/scene/modelLod.js');
@@ -2598,7 +2641,17 @@ async function setupScene(app, splash) {
 async function attachTracking(
   app,
   manager,
-  { extraResolvers = [], panel, overlay, notify, extras, interceptTap, proxyClient },
+  {
+    extraResolvers = [],
+    panel,
+    overlay,
+    notify,
+    extras,
+    interceptTap,
+    proxyClient,
+    camera,
+    merge,
+  },
 ) {
   const [
     { createPicker },
@@ -2694,11 +2747,13 @@ async function attachTracking(
       cockpitTarget = t;
       briefing?.show();
       wx?.show();
+      merge?.set({ hold: true }); // riding along: every contact drawn
     },
     onExit: () => {
       cockpitTarget = null;
       briefing?.hide();
       wx?.hide();
+      merge?.set({ hold: false });
       tracker?.resume();
     },
   });
@@ -2817,6 +2872,7 @@ async function attachTracking(
       ].filter(Boolean),
     onChange: (target, rec) => {
       if (!quiet) app.focusTarget?.(Boolean(target));
+      merge?.set({ pinned: target ?? null }); // the target never hides in a group
       if (target && rec) extras?.onSelect(rec.key, rec.normalized);
       // On the phone the card covers the lower half: glide the target into
       // the free area above it (sideways only, never a zoom).
@@ -2840,10 +2896,19 @@ async function attachTracking(
       }
     },
   });
+  // Taps: one selects (contacts before lines before areas), two zoom in about
+  // the point, three zoom out; an armed tool takes every tap instead.
   createPicker(app.viewer, {
     accept: (target) => Boolean(resolve(target)),
-    onPick: (target, pos) => {
-      if (interceptTap?.(pos)) return;
+    intercept: interceptTap,
+    onZoom: camera ? (factor, pos, opts) => camera.zoomAt(pos, factor, opts) : undefined,
+    onPick: (target) => {
+      // A group of merged contacts: fly to fit them (they come apart on arrival).
+      if (target?.argusCluster) {
+        const box = target.bounds?.();
+        if (box) camera?.fitBounds(box);
+        return;
+      }
       tracker.select(target);
     },
   });

@@ -42,6 +42,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
   atmosphere: { def: true, values: [true, false] },
   stars: { def: true, values: [true, false] },
   exaggeration: { def: 1, values: [1, 1.5, 2, 3] },
+  // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
+  // NEARBY; the Layer SDK's clustering).
+  merge: { def: true, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

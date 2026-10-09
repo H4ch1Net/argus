@@ -81,7 +81,12 @@ export function createSurveillanceDefinition({ tier } = {}) {
 
   return {
     id: 'surveillance',
-    fetch: { mode: 'viewport' },
+    // Fetched once per half-degree tile and kept 12 h (or until RELOAD):
+    // mapped cameras and readers do not move (core/layers/sdk/tileCache.js).
+    fetch: {
+      mode: 'viewport',
+      tileCache: { tileDeg: 0.5, ttlMs: 12 * 3_600_000, maxTiles: 32 },
+    },
     // The Overpass client skips views wider than a few degrees; say so.
     statusNote: (q, raw) =>
       q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length

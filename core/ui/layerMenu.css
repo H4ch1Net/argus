@@ -24,9 +24,48 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.ct-layers__item {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.ct-layers__item[hidden] {
+  display: none;
+}
 .ct-layers__row {
+  flex: 1;
+  min-width: 0;
   min-height: 32px;
   font-size: 12px;
+}
+/* RELOAD: a framed square beside an enabled cached layer's row. */
+.ct-layers__reload {
+  flex: none;
+  width: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--textSecondary);
+  background: var(--background);
+  color: var(--textPrimaryDim);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-layers__reload[hidden] {
+  display: none;
+}
+.ct-layers__reload:hover {
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
+}
+.ct-layers__reload:focus-visible {
+  outline: 1px solid var(--textPrimary);
+  outline-offset: -3px;
+}
+.ct-layers__reload.is-busy {
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
+  animation: ct-blink 900ms steps(2) infinite;
 }
 .ct-layers__row .ct-row__meta.is-err {
   color: var(--error);

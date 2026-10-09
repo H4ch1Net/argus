@@ -63,6 +63,7 @@ export function createLayerManager(viewer, { readout, clock, animationFps } = {}
           }
           const def = await e.loadDef();
           return createLayer(viewer, def, {
+            key, // the layer's ink (cluster markers) and its log source
             source,
             onStatus: (s) => {
               e.status = s;

@@ -5,6 +5,25 @@ import { computeViewportQuery } from './viewport.js';
 import { getRenderer, isPrimitiveRenderType } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
 import { createFieldLayer } from './fieldLayer.js';
+import { layerInk } from './colors.js';
+import {
+  CLUSTER,
+  createGridClusterer,
+  clusterLabel,
+  clusterSizePx,
+  membersBox,
+  clusterPolicy,
+  fanOffset,
+  cellKey,
+} from './cluster.js';
+import {
+  tileOptions,
+  tilesForView,
+  tileCountForView,
+  createTileStore,
+  mergeTileRecords,
+} from './tileCache.js';
+import { clusterGlyph } from '../../ui/glyphs.js';
 import {
   acquireContinuousRender,
   releaseContinuousRender,
@@ -15,7 +34,7 @@ import {
 // viewport-bounded fetch and load-only-in-view baked in.
 //
 // A LayerDefinition (static, reusable) provides:
-//   id, fetch:{ mode, intervalMs, viewportBounded },
+//   id, fetch:{ mode, intervalMs, viewportBounded, tileCache? },
 //   normalize(raw) -> NormalizedEntity[],
 //   render:{ renderType, style(normalized)->styleProps, ...renderConfig },
 //   interpolate?:boolean, historyCapacity?, interpolateLagMs?, maxEntities?,
@@ -24,9 +43,24 @@ import {
 //   statusNote?(query, raw) -> string     (a hint shown beside the count)
 //   onEntityCreate?(target, normalized, { viewer, scene }) -> dispose
 //   onShow?(shown, { viewer, scene })      (hide decorations with the layer)
+//   cluster?: false                        (never merge this layer's contacts)
+//
+// fetch.tileCache: { tileDeg, ttlMs, maxTiles } (mode 'viewport'): static
+// infrastructure is fetched once per fixed tile and kept (./tileCache.js). The
+// source gets query.bbox = the tile's box and query.tile = its key (plus
+// query.reload = true after RELOAD); the SDK writes the status note itself
+// ("zoom in to load" when a view needs more than tileCache.maxView tiles), so
+// statusNote is not called for such a layer.
 //
 // A NormalizedEntity is { id, position:{longitude,latitude,altitude}, type,
 // meta, velocity? } per the contract.
+//
+// Merge nearby. Point and billboard layers cluster in screen space while the
+// camera is high (./cluster.js): the members of a group are hidden (not drawn,
+// not pickable, not visible to forEachVisible) and one marker with the count
+// stands in for them; tapping it flies to fit the group. The scene's cluster
+// policy switches it (the MERGE NEARBY setting, a hold while riding along) and
+// keeps the selected target out of every group.
 //
 // Performance model. Point and billboard layers (nearly all of them) draw into
 // one BillboardCollection primitive per layer, never the Entity API: no property
@@ -48,7 +82,9 @@ const DEFAULT_MAX_ENTITIES = 2000;
 /**
  * @param {import('cesium').Viewer} viewer
  * @param {object} def LayerDefinition
- * @param {{ source: Function, onStatus?: Function, clock?: object, animationFps?: number }} ctx
+ * @param {{ source: Function, onStatus?: Function, clock?: object, animationFps?: number,
+ *   key?: string, log?: Function }} ctx  key: the manager's layer key (its ink);
+ *   log: an optional log sink for failures ({ level, source, title, body }).
  */
 export function createLayer(viewer, def, ctx) {
   if (typeof ctx?.source !== 'function') {
@@ -182,6 +218,15 @@ export function createLayer(viewer, def, ctx) {
         visible: true,
         dispose: null,
         cached: null,
+        // Merge nearby: in front of the planet (hv), the grid cell of the last
+        // recluster, whether it is hidden inside a group and which, and its
+        // last geodetic position (to fit a group's members).
+        hv: false,
+        cell: -1,
+        clustered: false,
+        cluster: null,
+        lon: 0,
+        lat: 0,
       };
       records.set(normalized.id, rec);
       if (primitive) {
@@ -262,13 +307,26 @@ export function createLayer(viewer, def, ctx) {
   const paceFps = () => (bigFleet() ? Math.min(fps, 15) : fps);
   const tickMs = () => Math.max(12, 1000 / paceFps() - 4);
   let lastTick = 0;
+
+  // Draw state of one record from its horizon test and its group: hidden in a
+  // group or behind the planet is not visible; a suppressed one (drawn as a 3D
+  // model) stays visible with its glyph off.
+  function apply(rec) {
+    const visible = rec.hv && !rec.clustered;
+    rec.visible = visible;
+    const show = visible && !suppressed.has(rec.id);
+    if (rec.billboard.show !== show) rec.billboard.show = show;
+  }
+
   function onPreRender() {
     if (!running || !shown || !primitive) return;
-    const cam = scene.camera.positionWC;
+    const camera = scene.camera;
+    const cam = camera.positionWC;
     const cameraMoved = !Cesium.Cartesian3.equalsEpsilon(cam, lastCamera, 0, 1);
     const now = performance.now();
     const tick = dirty || (isMover && now - lastTick >= tickMs());
-    if (!tick && !cameraMoved) return;
+    const cluster = clusterable && clusterDue(cameraMoved, tick, now);
+    if (!tick && !cameraMoved && !cluster) return;
     if (tick) lastTick = now;
     Cesium.Cartesian3.clone(cam, lastCamera);
     occluder.cameraPosition = cam;
@@ -277,10 +335,13 @@ export function createLayer(viewer, def, ctx) {
         if (!positionOf(rec, rec.world)) {
           if (rec.billboard.show) rec.billboard.show = false;
           rec.visible = false;
+          rec.hv = false;
           // Forget the old write, or camera-move frames would show it again.
           rec.written = undefined;
           continue;
         }
+        rec.lon = fix.longitude;
+        rec.lat = fix.latitude;
         if (
           !rec.written ||
           Cesium.Cartesian3.distanceSquared(rec.written, rec.world) > 1
@@ -291,13 +352,270 @@ export function createLayer(viewer, def, ctx) {
       } else if (!rec.written) {
         continue; // never positioned yet: wait for the next tick
       }
-      const visible = occluder.isPointVisible(rec.world);
-      rec.visible = visible;
-      const show = visible && !suppressed.has(rec.id);
-      if (rec.billboard.show !== show) rec.billboard.show = show;
+      rec.hv = occluder.isPointVisible(rec.world);
+      apply(rec);
     }
     dirty = false;
+    // Regroup with the positions and horizon flags just computed.
+    if (cluster && recluster(now)) {
+      const on = clustersOn;
+      for (const rec of records.values()) {
+        const slot = on && rec.cell >= 0 ? grid.slotOf(rec.cell) : -1;
+        rec.clustered = slot >= 0;
+        rec.cluster = slot >= 0 ? pool[slot].target : null;
+        apply(rec);
+      }
+    }
   }
+
+  // --- merge nearby -----------------------------------------------------------
+  // Screen-space groups (./cluster.js), recomputed only when the view turned or
+  // moved, the records changed, or the policy changed, at most 4 Hz (movers
+  // under a still camera once a second), with a trailing pass once the camera
+  // settles. One BillboardCollection of pooled markers per layer.
+
+  const clusterable = primitive && def.cluster !== false;
+  const policy = clusterable ? clusterPolicy(scene) : null;
+  const grid = clusterable ? createGridClusterer() : null;
+  const cellPx =
+    def.cluster?.cellPx ??
+    (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+      ? CLUSTER.cellTouchPx
+      : CLUSTER.cellPx);
+  const minClusterHeight = def.cluster?.minHeightM ?? CLUSTER.minHeightM;
+  const clusterInk = clusterable ? layerInk(ctx.key ?? def.id) : null;
+  let markers = null; // the markers' BillboardCollection, made on first use
+  const pool = []; // { billboard, target, label, px, written }
+  let shownMarkers = 0;
+  let clustersOn = false; // members are hidden in groups right now
+  let clusterStale = true;
+  let moversDrifted = false;
+  let lastClusterAt = -Infinity;
+  let policyVersion = -1;
+  let clusterTimer = null;
+  const lastDir = new Cesium.Cartesian3();
+  // The grid follows a world anchor shared by the scene's layers, so it slides
+  // with the globe in a pan and every layer cuts the screen the same way.
+  const anchor = policy?.anchor;
+  let fanToken = 0; // this layer's token with the policy while running
+  const fanKeys = []; // per group: its cell key, then its slot in that cell
+  const fanSlots = [];
+  const cellAt = { x: 0, y: 0 };
+  // World to window, CSS px: one matrix per pass, a few multiplies per contact.
+  const viewProj = new Cesium.Matrix4();
+  const win = new Cesium.Cartesian2();
+  let fastProject = false;
+  let viewW = 0;
+  let viewH = 0;
+  let sx = 0;
+  let sy = 0;
+
+  function clusterDue(cameraMoved, tick, now) {
+    if (
+      cameraMoved ||
+      dirty ||
+      policy.version !== policyVersion ||
+      policy.takePoke(fanToken) ||
+      !Cesium.Cartesian3.equalsEpsilon(scene.camera.directionWC, lastDir, 1e-9)
+    ) {
+      clusterStale = true;
+    } else if (isMover && tick && clustersOn) {
+      moversDrifted = true;
+    }
+    if (!clusterStale && !moversDrifted) return false;
+    const wait =
+      (clusterStale ? CLUSTER.intervalMs : CLUSTER.moverIntervalMs) -
+      (now - lastClusterAt);
+    if (wait <= 0) return true;
+    if (!clusterTimer) {
+      clusterTimer = setTimeout(() => {
+        clusterTimer = null;
+        if (running && shown) scene.requestRender();
+      }, wait + 4);
+    }
+    return false;
+  }
+
+  function setupProjection() {
+    const camera = scene.camera;
+    viewW = scene.canvas.clientWidth;
+    viewH = scene.canvas.clientHeight;
+    const view = camera.viewMatrix;
+    const proj = camera.frustum?.projectionMatrix;
+    fastProject = Boolean(view && proj && Cesium.Matrix4.multiply);
+    if (fastProject) Cesium.Matrix4.multiply(proj, view, viewProj);
+  }
+
+  /** Window position of a world point into sx, sy; false behind the camera. */
+  function project(p) {
+    if (fastProject) {
+      const m = viewProj;
+      const w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+      if (!(w > 1e-9)) return false;
+      sx = (((m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12]) / w) * 0.5 + 0.5) * viewW;
+      sy = (0.5 - ((m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13]) / w) * 0.5) * viewH;
+      return true;
+    }
+    const r = Cesium.SceneTransforms.worldToWindowCoordinates(scene, p, win);
+    if (!r) return false;
+    sx = r.x;
+    sy = r.y;
+    return true;
+  }
+
+  /** The anchor's window position into sx, sy (re-anchored when it wandered off). */
+  const anchorAt = new Cesium.Cartesian3();
+  function anchorOnScreen() {
+    if (
+      anchor.ok &&
+      project(anchor) &&
+      sx > -viewW &&
+      sx < 2 * viewW &&
+      sy > -viewH &&
+      sy < 2 * viewH
+    )
+      return true;
+    win.x = viewW / 2;
+    win.y = viewH / 2;
+    const hit = scene.camera.pickEllipsoid(win, Cesium.Ellipsoid.WGS84, anchorAt);
+    anchor.ok = Boolean(hit);
+    if (hit) {
+      anchor.x = hit.x;
+      anchor.y = hit.y;
+      anchor.z = hit.z;
+    }
+    return anchor.ok && project(anchor);
+  }
+
+  function marker(i) {
+    if (pool[i]) return pool[i];
+    if (!markers) {
+      markers = scene.primitives.add(new Cesium.BillboardCollection());
+      markers.show = shown;
+    }
+    const target = {
+      id: `cluster:${def.id}:${i}`,
+      layerId: def.id,
+      argusCluster: true,
+      count: 0,
+      world: new Cesium.Cartesian3(),
+      position: {
+        getValue: (_time, result) =>
+          Cesium.Cartesian3.clone(target.world, result ?? new Cesium.Cartesian3()),
+      },
+      /** The box around the group's members (degrees), to fly to. */
+      bounds: () => {
+        const pts = [];
+        for (const rec of records.values())
+          if (rec.clustered && rec.cluster === target) pts.push(rec);
+        return membersBox(pts);
+      },
+    };
+    const billboard = markers.add({
+      position: Cesium.Cartesian3.ZERO,
+      show: false,
+      id: target,
+      color: clusterInk,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+    });
+    pool[i] = {
+      billboard,
+      target,
+      label: '',
+      px: 1,
+      written: null,
+      slot: 0,
+      offset: new Cesium.Cartesian2(),
+    };
+    return pool[i];
+  }
+
+  function hideMarkers(from) {
+    for (let i = from; i < shownMarkers; i += 1) pool[i].billboard.show = false;
+    shownMarkers = from;
+  }
+
+  /**
+   * Regroup. Returns whether the groups may have changed (the caller then
+   * re-applies every record's flags).
+   */
+  function recluster(now) {
+    lastClusterAt = now;
+    clusterStale = false;
+    moversDrifted = false;
+    policyVersion = policy.version;
+    Cesium.Cartesian3.clone(scene.camera.directionWC, lastDir);
+    const wanted =
+      policy.active && scene.camera.positionCartographic.height >= minClusterHeight;
+    if (!wanted) {
+      const was = clustersOn || shownMarkers > 0;
+      clustersOn = false;
+      hideMarkers(0);
+      fanKeys.length = 0;
+      policy.place(fanToken, fanKeys);
+      return was;
+    }
+    setupProjection();
+    const anchoredNow = anchorOnScreen();
+    const ax = anchoredNow ? sx : 0;
+    const ay = anchoredNow ? sy : 0;
+    grid.begin(viewW, viewH, cellPx, ax, ay);
+    const pinned = policy.pinned;
+    for (const rec of records.values()) {
+      rec.cell = -1;
+      if (!rec.hv || !rec.written || rec.target === pinned || suppressed.has(rec.id))
+        continue;
+      if (project(rec.world)) {
+        rec.cell = grid.add(sx, sy, rec.world.x, rec.world.y, rec.world.z);
+      }
+    }
+    const n = grid.finish(CLUSTER.minPoints);
+    // Groups of other layers in the same cell: each takes its own spot.
+    fanKeys.length = n;
+    for (let i = 0; i < n; i += 1) {
+      grid.cellCenter(i, cellAt);
+      fanKeys[i] = cellKey(cellAt.x, cellAt.y, ax, ay, cellPx);
+    }
+    policy.place(fanToken, fanKeys, fanSlots);
+    for (let i = 0; i < n; i += 1) {
+      const m = marker(i);
+      const slot = fanSlots[i] ?? 0;
+      if (m.slot !== slot) {
+        const [dx, dy] = fanOffset(slot);
+        m.offset.x = dx;
+        m.offset.y = dy;
+        m.billboard.pixelOffset = m.offset;
+        m.slot = slot;
+      }
+      const count = grid.count(i);
+      m.target.count = count;
+      grid.centroid(i, m.target.world);
+      const label = clusterLabel(count);
+      if (m.label !== label) {
+        const g = clusterGlyph(label);
+        m.billboard.setImage(g.id, g.image);
+        m.label = label;
+        m.px = g.px;
+      }
+      const scale = clusterSizePx(count) / m.px;
+      if (m.billboard.scale !== scale) m.billboard.scale = scale;
+      if (
+        !m.written ||
+        Cesium.Cartesian3.distanceSquared(m.written, m.target.world) > 1
+      ) {
+        m.billboard.position = m.target.world;
+        m.written = Cesium.Cartesian3.clone(m.target.world, m.written ?? undefined);
+      }
+      if (!m.billboard.show) m.billboard.show = true;
+    }
+    if (n > shownMarkers) shownMarkers = n;
+    hideMarkers(n);
+    clustersOn = n > 0;
+    return true;
+  }
+
   const removePreRender = primitive
     ? scene.preRender.addEventListener(onPreRender)
     : null;
@@ -305,12 +623,18 @@ export function createLayer(viewer, def, ctx) {
   // --- fetching -------------------------------------------------------------
 
   let lastPollAt = 0;
-  async function poll() {
+  /** reload: the user pressed RELOAD (sources may skip their own memo). */
+  async function poll({ reload = false } = {}) {
     if (!running) return;
+    if (tileCfg) {
+      pollTiles(reload);
+      return;
+    }
     lastPollAt = Date.now();
     // 'viewport' layers are fetched per region, so they are always bounded.
     const bounded = def.fetch?.viewportBounded || mode === 'viewport';
     const query = bounded ? computeViewportQuery(viewer) : {};
+    if (reload) query.reload = true;
     aborter?.abort();
     const controller = new AbortController();
     aborter = controller;
@@ -332,6 +656,145 @@ export function createLayer(viewer, def, ctx) {
         message: String(err?.message || err),
       });
     }
+  }
+
+  // --- fetch once: the tile cache (fetch.tileCache, ./tileCache.js) -----------
+  // Each camera stop lists the tiles the view needs, nearest first; cached and
+  // fresh ones cost nothing, the rest are fetched a couple at a time. Requests
+  // already in flight finish even if the view moved on (the tile is still worth
+  // keeping); queued ones that left the view are dropped. Every cached tile is
+  // drawn (nearest first, so the entity cap keeps what is around you).
+
+  const tileCfg =
+    def.fetch?.tileCache && mode === 'viewport' ? tileOptions(def.fetch.tileCache) : null;
+  const tiles = tileCfg ? createTileStore(tileCfg) : null;
+  let tileQueue = [];
+  const tileFlights = new Map(); // key -> AbortController
+  let tileView = null; // { bbox, broad }
+  let tileFailures = 0; // in the current view
+  let tileError = '';
+  let shownTiles = '';
+  let showTimer = null;
+  let tilesFetched = 0; // requests sent (dev stats)
+
+  function pollTiles(reload) {
+    lastPollAt = Date.now();
+    const { bbox } = computeViewportQuery(viewer);
+    const broad = tileCountForView(bbox, tileCfg.tileDeg) > tileCfg.maxView;
+    tileView = { bbox, broad };
+    tileFailures = 0;
+    const want = broad ? [] : tilesForView(bbox, tileCfg.tileDeg);
+    for (const t of want) tiles.touch(t.key); // in view: evicted last
+    tileQueue = want.filter(
+      (t) =>
+        !tileFlights.has(t.key) &&
+        (reload || (!tiles.isFresh(t.key) && !tiles.isCoolingDown(t.key))),
+    );
+    for (const t of tileQueue) t.reload = reload;
+    showTiles();
+    pumpTiles();
+    reportTiles();
+  }
+
+  function pumpTiles() {
+    while (running && tileFlights.size < tileCfg.concurrency && tileQueue.length) {
+      fetchTile(tileQueue.shift());
+    }
+  }
+
+  async function fetchTile(t) {
+    const controller = new AbortController();
+    tileFlights.set(t.key, controller);
+    try {
+      const query = { bbox: t.bbox, tile: t.key };
+      if (t.reload) query.reload = true;
+      tilesFetched += 1;
+      const raw = await ctx.source(query, controller.signal);
+      if (controller.signal.aborted) return;
+      tiles.set(t.key, { bbox: t.bbox, raw, list: def.normalize(raw) });
+      if (!showTimer) showTimer = setTimeout(showTiles, 120); // batch arrivals
+    } catch (err) {
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
+      tiles.fail(t.key);
+      tileFailures += 1;
+      tileError = String(err?.message || err);
+      // No popup (feed failures go to the menu row and the log), and the tile
+      // is not asked again for a minute.
+      console.warn(`[argus] ${def.id}: tile ${t.key} failed: ${tileError}`);
+      ctx.log?.({
+        level: 'warn',
+        source: ctx.key ?? def.id,
+        title: `${String(ctx.key ?? def.id).toUpperCase()} TILE FAILED`,
+        body: `${t.key}: ${tileError}`,
+      });
+    } finally {
+      if (tileFlights.get(t.key) === controller) tileFlights.delete(t.key);
+      pumpTiles();
+      reportTiles();
+    }
+  }
+
+  // Draw every cached tile's records; skipped when the set is unchanged.
+  function showTiles() {
+    clearTimeout(showTimer);
+    showTimer = null;
+    if (!running) return;
+    const entries = [...tiles.values()];
+    const total = entries.reduce((s, e) => s + (e.list?.length ?? 0), 0);
+    const b = tileView?.bbox;
+    if (b && total > maxEntities) {
+      // Over the cap the order decides what is kept: nearest the view first.
+      const cLat = (b.lamin + b.lamax) / 2;
+      const cLon = (b.lomin + b.lomax) / 2;
+      const d = (e) =>
+        Math.hypot(
+          (e.bbox.lamin + e.bbox.lamax) / 2 - cLat,
+          (e.bbox.lomin + e.bbox.lomax) / 2 - cLon,
+        );
+      entries.sort((p, q) => d(p) - d(q));
+    } else {
+      entries.sort((p, q) => (p.key < q.key ? -1 : 1));
+    }
+    const sig = entries.map((e) => `${e.key}@${e.at}`).join('|');
+    if (sig === shownTiles) return;
+    shownTiles = sig;
+    ingest(mergeTileRecords(entries, maxEntities));
+    reportTiles();
+  }
+
+  function reportTiles() {
+    if (!running) return;
+    const pending = tileFlights.size + tileQueue.length;
+    if (!records.size && pending) {
+      ctx.onStatus?.({ state: 'loading' });
+      return;
+    }
+    if (!records.size && tileFailures && tileError) {
+      ctx.onStatus?.({ state: 'error', message: tileError });
+      return;
+    }
+    const note = tileView?.broad
+      ? 'zoom in to load'
+      : pending
+        ? `loading ${pending} tile${pending > 1 ? 's' : ''}`
+        : tileFailures
+          ? `${tileFailures} tile${tileFailures > 1 ? 's' : ''} failed: ${tileError}`
+          : undefined;
+    ctx.onStatus?.({
+      state: 'ok',
+      count: records.size,
+      query: { bbox: tileView?.bbox },
+      note,
+      pending,
+    });
+  }
+
+  function abortTiles() {
+    for (const c of tileFlights.values()) c.abort();
+    tileFlights.clear();
+    tileQueue = [];
+    clearTimeout(showTimer);
+    showTimer = null;
   }
 
   // Push mode: incremental updates arrive over a stream (e.g. AIS). Entities are
@@ -373,6 +836,7 @@ export function createLayer(viewer, def, ctx) {
       timer = null;
     }
     aborter?.abort();
+    if (tileCfg) abortTiles();
   }
   function resumePolling() {
     if (!running || timer) return;
@@ -416,6 +880,7 @@ export function createLayer(viewer, def, ctx) {
   function setShown(on) {
     shown = on;
     if (collection) collection.show = on;
+    if (markers) markers.show = on;
     if (ds) ds.show = on;
     // Decorations a definition draws itself (orbit rings, camera frustums).
     def.onShow?.(on, { viewer, scene });
@@ -429,6 +894,7 @@ export function createLayer(viewer, def, ctx) {
       running = true;
       setShown(true);
       moversActive(true);
+      if (clusterable && !fanToken) fanToken = policy.join();
       if (mode === 'push') {
         unsubscribe = document.hidden ? null : ctx.source(pushIngest);
         document.addEventListener('visibilitychange', onPushVisibilityChange);
@@ -468,10 +934,42 @@ export function createLayer(viewer, def, ctx) {
         clearTimeout(moveTimer);
       }
       moversActive(false);
+      if (fanToken) {
+        policy.leave(fanToken);
+        fanToken = 0;
+      }
     },
     /** Fetch again now (a local source changed: saved places, a filter). */
     refresh() {
-      if (running && mode !== 'push') poll();
+      if (!running || mode === 'push') return;
+      if (tileCfg) {
+        // A filter changed: redraw from the cached answers, no new request.
+        for (const e of tiles.values()) e.list = def.normalize(e.raw);
+        shownTiles = '';
+        showTiles();
+        reportTiles();
+        return;
+      }
+      poll();
+    },
+    /**
+     * RELOAD: fetch the view again now, past every cache this side of the
+     * proxy (each cached tile counts as expired; the source gets
+     * query.reload). What is drawn stays until the new answers arrive.
+     */
+    reload() {
+      if (!running || !this.reloadable) return false;
+      if (tileCfg) tiles.expireAll();
+      poll({ reload: true });
+      return true;
+    },
+    /** Whether RELOAD means something here: cached tiles or a slow poll. */
+    get reloadable() {
+      return (
+        Boolean(tileCfg) ||
+        mode === 'viewport' ||
+        (mode === 'poll' && intervalMs >= 5 * 60_000)
+      );
     },
     setEnabled(on) {
       setShown(on);
@@ -482,9 +980,11 @@ export function createLayer(viewer, def, ctx) {
     destroy() {
       this.stop();
       removePreRender?.();
+      clearTimeout(clusterTimer);
       for (const rec of records.values()) rec.dispose?.();
       records.clear();
       if (collection) scene.primitives.remove(collection);
+      if (markers) scene.primitives.remove(markers);
       if (ds) viewer.dataSources.remove(ds, true);
     },
     get size() {
@@ -561,5 +1061,16 @@ export function createLayer(viewer, def, ctx) {
     },
     // Dev-only: feed a normalized list straight in for verification.
     _ingest: import.meta.env.DEV ? (list) => ingest(list) : undefined,
+    // Dev-only: what the cache and the groups hold right now.
+    _stats: import.meta.env.DEV
+      ? () => ({
+          tiles: tiles?.size ?? 0,
+          tilesFetched,
+          tilesPending: tileFlights.size + tileQueue.length,
+          groups: clustersOn ? shownMarkers : 0,
+          grouped: [...records.values()].filter((r) => r.clustered).length,
+          drawn: [...records.values()].filter((r) => r.billboard?.show).length,
+        })
+      : undefined,
   };
 }

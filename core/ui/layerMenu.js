@@ -7,8 +7,16 @@ import { layerTile } from './layerGlyphs.js';
 // marker in a tile, its name, and its live state on the right: the contact
 // count, LOAD while it fetches, ERR (red) when the feed failed, OFF. The
 // selected style (raised, ctosGray left rule) means "on". Presets sit on top.
+// An enabled layer whose data is kept (static infrastructure fetched once per
+// tile, slow polls) gets a small RELOAD square beside its row: fetch it again
+// now instead of waiting for the cache to expire.
 
 const fmtCount = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}K` : String(n));
+
+// A square loop with an arrowhead: ctOS has no round corners, so neither does
+// its reload mark.
+const RELOAD_SVG =
+  '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M11.5 6.5V11.5H2.5V2.5H9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 0.5 10.5 2.5 7.5 4.5Z" fill="currentColor"/></svg>';
 
 /**
  * @param {{ manager: object, presets?: object[], onPreset?: (p: object) => void,
@@ -107,10 +115,36 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
         h('span.ct-row__label', {}, label),
         meta,
       );
-      rows.set(key, { row, meta, demo });
-      listEl.appendChild(row);
+      const reload = h('button.ct-layers__reload', {
+        type: 'button',
+        hidden: true,
+        title: `Reload ${label}: fetch it again now`,
+        'aria-label': `Reload ${label}`,
+        html: RELOAD_SVG,
+        onclick: () => reloadLayer(key),
+      });
+      const item = h('div.ct-layers__item', {}, row, reload);
+      rows.set(key, { row, meta, demo, item, reload, busy: null });
+      listEl.appendChild(item);
     }
     refresh();
+  }
+
+  function reloadLayer(key) {
+    const r = rows.get(key);
+    if (!r || r.busy) return;
+    if (!manager.getLayer?.(key)?.reload?.()) return;
+    r.reload.classList.add('is-busy');
+    // Cleared by the layer's next settled status, or after 30 s regardless.
+    r.busy = setTimeout(() => settle(key), 30_000);
+  }
+
+  function settle(key) {
+    const r = rows.get(key);
+    if (!r?.busy) return;
+    clearTimeout(r.busy);
+    r.busy = null;
+    r.reload.classList.remove('is-busy');
   }
 
   function refresh() {
@@ -124,6 +158,9 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
       r.meta.textContent = m.text;
       r.meta.className = `ct-row__meta ${m.cls}`;
       r.row.title = m.title;
+      const reloadable = enabled && Boolean(manager.getLayer?.(key)?.reloadable);
+      if (r.reload.hidden === reloadable) r.reload.hidden = !reloadable;
+      if (!reloadable) settle(key);
     }
     countEl.textContent = `${String(on).padStart(2, '0')}/${String(rows.size).padStart(2, '0')}`;
   }
@@ -136,7 +173,7 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
         !q ||
         r.row.textContent.toLowerCase().includes(q) ||
         r.row.dataset.group.toLowerCase().includes(q);
-      r.row.hidden = !match;
+      r.item.hidden = !match;
       if (match) groupsShown.add(r.row.dataset.group);
     }
     for (const g of listEl.querySelectorAll('.ct-layers__group'))
@@ -145,7 +182,11 @@ export function createLayerMenu({ manager, presets = [], onPreset, onManualToggl
 
   build();
   manager.subscribe(refresh);
-  manager.subscribeStatus(() => refresh());
+  manager.subscribeStatus((key, s) => {
+    // A reload is done once the layer settles (no tiles left to fetch).
+    if (s && s.state !== 'loading' && !s.pending) settle(key);
+    refresh();
+  });
 
   return {
     el,

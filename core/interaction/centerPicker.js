@@ -1,9 +1,10 @@
-import * as Cesium from 'cesium';
-import { pickedTarget } from './picker.js';
+import { pickAt } from './picker.js';
 
 // Pick the entity nearest the screen centre (the reticle) with a generous box.
 // Used by the mobile point-at-sky mode to "light up" whatever the phone points
-// at. Reads the scene only; the shell owns the sensor and the reticle UI.
+// at. Reads the scene only; the shell owns the sensor and the reticle UI. The
+// same priority as a tap: contacts before lines before areas, nothing behind
+// the planet.
 
 export function createCenterPicker(viewer, { accept } = {}) {
   const scene = viewer.scene;
@@ -11,16 +12,15 @@ export function createCenterPicker(viewer, { accept } = {}) {
     /** @returns {object | null} a layer target or Entity */
     pick() {
       const canvas = scene.canvas;
-      const center = new Cesium.Cartesian2(
-        canvas.clientWidth / 2,
-        canvas.clientHeight / 2,
+      const target = pickAt(
+        scene,
+        { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 },
+        45,
+        accept,
+        6,
       );
-      const picks = scene.drillPick(center, 5, 90, 90);
-      for (const p of picks) {
-        const t = pickedTarget(p);
-        if (t && (!accept || accept(t))) return t;
-      }
-      return null;
+      // A cluster marker is not something to light up.
+      return target?.argusCluster ? null : target;
     },
   };
 }

@@ -614,6 +614,67 @@ export function imageGlyph(image) {
   return { id, image, px: image.width || 32 };
 }
 
+// --- Cluster markers (Layer SDK "merge nearby") -------------------------------
+// A group of contacts as one ctOS bracket box with the member count, over a
+// second frame peeking out up and right so it reads as a stack. Drawn white
+// like every glyph (the layer tints it with its own ink), one canvas per label,
+// as wide as the label needs.
+
+const CLUSTER_FONT = `600 11px 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace`;
+const CLUSTER_H = 20; // nominal box height, CSS px
+const CLUSTER_STACK = 3; // offset of the frame behind
+
+/** A cluster marker for a count label ("7", "300+", "2K+"): { id, image, px }. */
+export function clusterGlyph(label) {
+  const key = `cluster:${label}`;
+  if (cache.has(key)) return cache.get(key);
+  const text = String(label);
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = CLUSTER_FONT;
+  const h = CLUSTER_H;
+  const w = Math.max(h + 2, Math.ceil(probe.measureText(text).width) + 12);
+  const s = CLUSTER_STACK;
+  const c = document.createElement('canvas');
+  c.width = (w + s) * DENSITY;
+  c.height = (h + s) * DENSITY;
+  const g = c.getContext('2d');
+  g.scale(DENSITY, DENSITY);
+  g.lineJoin = 'miter';
+  g.lineCap = 'butt';
+  // The frame behind, then the box in front on its ground (hiding the overlap).
+  g.strokeStyle = INK;
+  g.globalAlpha = 0.5;
+  g.lineWidth = 1;
+  g.strokeRect(s + 0.5, 0.5, w - 1, h - 1);
+  g.globalAlpha = 1;
+  g.fillStyle = KEYLINE;
+  g.fillRect(0, s, w, h);
+  const a = Math.min(6, h * 0.3);
+  const corners = [
+    [1.5, s + 1.5, 1, 1],
+    [w - 1.5, s + 1.5, -1, 1],
+    [1.5, s + h - 1.5, 1, -1],
+    [w - 1.5, s + h - 1.5, -1, -1],
+  ];
+  g.strokeStyle = INK;
+  g.lineWidth = 1.5;
+  for (const [x, y, sx, sy] of corners) {
+    g.beginPath();
+    g.moveTo(x + sx * a, y);
+    g.lineTo(x, y);
+    g.lineTo(x, y + sy * a);
+    g.stroke();
+  }
+  g.fillStyle = INK;
+  g.font = CLUSTER_FONT;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, w / 2, s + h / 2 + 0.5);
+  const out = { id: `argus-cluster-${text}`, image: c, px: (h + s) * DENSITY };
+  cache.set(key, out);
+  return out;
+}
+
 /** Testing aid: forget cached glyphs. */
 export function _resetGlyphs() {
   cache.clear();

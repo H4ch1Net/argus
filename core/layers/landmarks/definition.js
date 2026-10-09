@@ -1,17 +1,17 @@
 import { parseOverpass } from '../overpass/parse.js';
-import { areaTooLarge } from '../overpass/client.js';
 import { describeLandmark } from './format.js';
 import { ink } from '../sdk/colors.js';
 
-// Landmarks: OSM tourism / historic features as a viewport-fetched, static point
-// layer. Uses the same Overpass client as the surveillance layer.
+// Landmarks: OSM tourism / historic features as a static point layer, fetched
+// once per half-degree tile and kept 12 h (core/layers/sdk/tileCache.js). Uses
+// the same Overpass client as the surveillance layer.
 
 export const landmarksDefinition = {
   id: 'landmarks',
-  fetch: { mode: 'viewport' },
-  // The Overpass client skips views wider than a few degrees; say so.
-  statusNote: (q, raw) =>
-    q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length ? 'zoom in to load' : '',
+  fetch: {
+    mode: 'viewport',
+    tileCache: { tileDeg: 0.5, ttlMs: 12 * 3_600_000, maxTiles: 32 },
+  },
   interpolate: false,
   maxEntities: 4000,
   normalize: (json) => parseOverpass(json),
