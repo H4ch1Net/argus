@@ -59,10 +59,17 @@
 }
 
 /* ------------------------------------------------------------ status */
-.car-status {
+/* Top left: the page's own maneuver banner (browser only), then the strip. */
+.car-topleft {
   position: absolute;
   top: calc(var(--car-top) + 8px);
   left: calc(var(--car-left) + 8px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.car-status {
   display: flex;
   background: var(--panel-translucent);
   border: 1px solid var(--date-border);
@@ -113,6 +120,11 @@
 }
 .car-readout[hidden] {
   display: none;
+}
+/* On a route: narrower, clear of the vehicle at the centre of the free area. */
+.car-readout.is-route {
+  min-width: 0;
+  max-width: min(380px, calc(100% - var(--car-left) - var(--car-right) - 16px));
 }
 .car-row {
   display: grid;
@@ -190,4 +202,171 @@
 }
 .car-self svg {
   display: block;
+}
+
+/* ------------------------------------------------------------ vehicle */
+/* VEHICLE, parked only: right of the map, clear of the host's controls.
+   Slides in on a short transform; nothing animates while it rests. */
+.car-vehicle {
+  position: absolute;
+  top: calc(var(--car-top) + 12px);
+  right: calc(var(--car-right) + 12px);
+  width: min(360px, calc(100% - var(--car-left) - var(--car-right) - 24px));
+  max-height: calc(100% - var(--car-top) - var(--car-bottom) - 24px);
+  overflow: hidden;
+  padding: 10px 14px 14px;
+  background-color: var(--panel-translucent);
+  box-shadow: var(--window-shadow);
+  opacity: 0;
+  transform: translateX(16px);
+  transition:
+    opacity 200ms var(--ease-out-cubic),
+    transform 200ms var(--ease-out-cubic);
+}
+.car-vehicle.is-in {
+  opacity: 1;
+  transform: none;
+}
+.car-vehicle[hidden] {
+  display: none;
+}
+.car-vehicle__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--textSecondary);
+}
+.car-vehicle__state {
+  margin-left: auto;
+  color: var(--success);
+}
+.car-vehicle__low {
+  border-color: var(--textPrimary);
+  color: var(--background);
+  background: var(--textPrimary);
+}
+.car-vehicle__low[hidden] {
+  display: none;
+}
+.car-vehicle__name {
+  margin-top: 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--textPrimary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.car-vehicle__art {
+  margin: 6px -4px 2px;
+  color: var(--textPrimary);
+}
+.car-vehicle__art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.car-vehicle__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+.car-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  border-left: 2px solid var(--date-border);
+  padding-left: 8px;
+}
+.car-stat__label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--textSecondary);
+}
+.car-stat__value {
+  font-size: 22px;
+  line-height: 1.1;
+  color: var(--textPrimary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.car-stat__meter {
+  display: block;
+  margin-top: 3px;
+}
+
+/* ------------------------------------------------- maneuver (browser) */
+.car-maneuver {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  min-width: 340px;
+  max-width: min(460px, calc(100vw - var(--car-left) - var(--car-right) - 24px));
+  padding: 10px 16px 0 10px;
+  border-color: var(--textPrimary);
+}
+.car-maneuver[hidden] {
+  display: none;
+}
+.car-maneuver__icon {
+  color: var(--textPrimary);
+}
+.car-maneuver__icon svg {
+  display: block;
+}
+.car-maneuver__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.car-maneuver__dist {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--textPrimary);
+  font-variant-numeric: tabular-nums;
+}
+.car-maneuver__text {
+  font-size: 16px;
+  color: var(--textPrimaryDim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.car-maneuver__then {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--textSecondary);
+}
+.car-maneuver__then[hidden] {
+  display: none;
+}
+.car-maneuver__then-icon svg {
+  display: block;
+  color: var(--textPrimaryDim);
+}
+.car-maneuver.is-rerouting .car-maneuver__dist {
+  color: var(--textPrimaryDim);
+}
+/* The ETA line: under both, across the panel. */
+.car-maneuver__eta {
+  grid-column: 1 / -1;
+  margin: 10px -16px 0 -10px;
+  padding: 6px 16px 7px;
+  border-top: 1px solid var(--date-border);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  color: var(--textPrimary);
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
 }

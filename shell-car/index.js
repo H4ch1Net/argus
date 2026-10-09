@@ -17,12 +17,28 @@ import {
   isParkedJitter,
   layerCode,
   lerp,
+  metresPerPixel,
   nearestContacts,
   planLayerClicks,
   speedBetween,
   unitsForLocale,
   wrap360,
 } from './model.js';
+import {
+  bearingAlong,
+  createNavGate,
+  drivingSideFor,
+  indexRoute,
+  locateOnRoute,
+  navPayload,
+  navZoom,
+  pointAlong,
+  routesPayload,
+  searchPayload,
+} from './nav.js';
+import { createParkedTracker, usesImperialGallon, vehicleView } from './vehicle.js';
+import { createRouteView } from './routeView.js';
+import { createNavBanner, createVehiclePanel } from './panels.js';
 import '../core/ui/theme.css';
 import './shell.css';
 
@@ -41,9 +57,16 @@ import './shell.css';
 // the vehicle moves and stops when it stands (GPS wander is held still), the
 // render target is held to a pixel budget, and moving layers tick slowly.
 //
+// It is also the car's GPS: the Android Auto screens (search, route preview,
+// the routing card) ask this page through the same bridge to search, plan and
+// follow a route with the navigator (core/nav/navigator.js, handed in by main
+// through setNavigator), and the page draws the route, looks ahead along it,
+// and reports progress back about once a second. Parked, a VEHICLE panel shows
+// the car's own data (setCarInfo); it hides as soon as the car moves.
+//
 // Also runs in any browser at ?shell=car (navigator.geolocation then drives
 // it, and a drag on the globe leaves follow mode), which is how to try it
-// without a car.
+// without a car; there the page shows its own maneuver banner.
 
 const EASE_S = 0.35; // how quickly the follow view settles on a new fix
 const DEAD_RECKON_S = 2; // carry a fix forward along its course this long
@@ -65,7 +88,10 @@ export async function mountShell(root, bootOpts = {}) {
   root.append(globeEl, hud);
 
   // The API exists before the globe does: early calls are kept, latest wins.
+  // A search or a plan that arrives first is answered at once with an error
+  // (the host retries on the driver's next tap).
   let ctl = null;
+  let shellApp = null;
   const early = {};
   window.argusCar = {
     pan: (...a) => ctl?.pan(...a),
@@ -76,8 +102,43 @@ export async function mountShell(root, bootOpts = {}) {
     setLayers: (keys) => (ctl ? ctl.setLayers(keys) : (early.layers = keys)),
     setInsets: (...a) => (ctl ? ctl.setInsets(...a) : (early.insets = a)),
     setView: (mode) => (ctl ? ctl.setView(mode) : (early.view = mode)),
+    search: (query, reqId) =>
+      ctl ? ctl.search(query, reqId) : notReady('searchResults', String(reqId ?? '')),
+    preview: (place, opts) => (ctl ? ctl.preview(place, opts) : notReady('routes', opts)),
+    selectRoute: (id) => ctl?.selectRoute(id),
+    navigate: (routeId) => ctl?.navigate(routeId),
+    stopNav: () => ctl?.stopNav(),
+    setCarInfo: (json) => (ctl ? ctl.setCarInfo(json) : (early.carInfo = json)),
     state: () => ctl?.state() ?? null,
   };
+
+  /** Call window.ArgusCarHost[method] (the Android app); false outside it. */
+  function toHost(method, ...args) {
+    const host = window.ArgusCarHost;
+    if (typeof host?.[method] !== 'function') return false;
+    try {
+      host[method](...args);
+      return true;
+    } catch (err) {
+      console.warn(`[car] host ${method} failed`, err);
+      return false;
+    }
+  }
+
+  function notReady(method, arg) {
+    const error = 'STARTING';
+    if (method === 'searchResults')
+      toHost(method, arg, JSON.stringify({ results: [], error }));
+    else {
+      let reqId = null;
+      try {
+        reqId = JSON.parse(String(arg)).reqId ?? null;
+      } catch {
+        reqId = null;
+      }
+      toHost(method, JSON.stringify({ reqId, routes: [], error }));
+    }
+  }
 
   // The car display is a second screen on the phone's GPU, rendering while the
   // phone may render too: the lightest tier, a fixed budget of rendered pixels
@@ -130,7 +191,14 @@ export async function mountShell(root, bootOpts = {}) {
   const marker = h('div.car-self', { hidden: true, 'aria-hidden': 'true' });
   marker.innerHTML =
     '<svg viewBox="0 0 32 32" width="34" height="34"><path d="M16 2 27 29 16 22 5 29Z" fill="#fff" stroke="#0e0e0e" stroke-width="2" stroke-linejoin="round"/></svg>';
-  hud.append(status, readout, notify, marker);
+  // Inside the app Android Auto draws the routing card; the page's own
+  // maneuver banner (with its ETA line) is for the browser only. VEHICLE sits
+  // on the right while parked.
+  const inApp = Boolean(window.ArgusCarHost);
+  const banner = createNavBanner({ units });
+  const vehiclePanel = createVehiclePanel();
+  const topLeft = h('div.car-topleft', {}, inApp ? null : banner.el, status);
+  hud.append(topLeft, readout, vehiclePanel.el, notify, marker);
 
   // ---------------------------------------------------------------- state
   let fix = null; // { lat, lon, heading, speed, accuracy, t }
@@ -144,6 +212,12 @@ export async function mountShell(root, bootOpts = {}) {
   let layerTimer = null;
   const menus = []; // main's layer menu: kept off screen, driven by setLayers
   const insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  let nav = null; // the navigator (setNavigator)
+  let navState = null; // its latest NavState
+  let preview = null; // { routes, selectedId, dest } while the host previews routes
+  let drive = null; // { route, ix, dest, at, atT } while following a route
+  let carInfo = null; // the car's own data (setCarInfo)
+  let carInfoAt = 0;
 
   // ------------------------------------------------------------ following
   const view = { lat: 0, lon: 0, heading: 0, pitch: VIEW_MODES['3d'].pitch, range: 0 };
@@ -190,15 +264,48 @@ export async function mountShell(root, bootOpts = {}) {
     Math.abs(view.pitch - target.pitch) < 0.05 &&
     Math.abs(view.range - target.range) < 1;
 
+  // Navigating: where the vehicle is along the route, carried forward since
+  // the last nav update at its speed, for the look-ahead and the zoom.
+  function routeAlong(now) {
+    if (!drive?.at) return null;
+    const moved = clamp((now - drive.atT) / 1000, 0, DEAD_RECKON_S) * (fix.speed || 0);
+    return drive.at.along + moved;
+  }
+
   function tick(t) {
     raf = 0;
     if (!following || !fix) return;
     const now = performance.now();
     const pos = predicted(now);
+    const along = routeAlong(now);
+    let heading = fix.heading;
+    let scale = rangeScale;
+    let ahead = null;
+    if (along !== null) {
+      // GPS course is noise at a crawl: steer by the road instead.
+      if (!((fix.speed || 0) > 3)) heading = bearingAlong(drive.ix, along) ?? heading;
+      scale *= navZoom(navState?.progress?.distanceToStepM, fix.speed);
+      ahead = (m) => pointAlong(drive.ix, along + m);
+    }
     const target = followPose(
-      { lat: pos.lat, lon: pos.lon, heading: fix.heading, speed: fix.speed },
-      { scale: rangeScale, mode: viewMode },
+      { lat: pos.lat, lon: pos.lon, heading, speed: fix.speed },
+      { scale, mode: viewMode, ahead },
     );
+    // Centre the vehicle in what the host leaves free (its routing card and
+    // controls cover the sides): slide the view sideways by half the
+    // difference between the left and right insets.
+    const dx = (insets.left - insets.right) / 2;
+    if (Math.abs(dx) >= 1) {
+      const mpp = metresPerPixel(
+        target.range,
+        cam.frustum?.fov,
+        scene.canvas.clientWidth,
+        scene.canvas.clientHeight,
+      );
+      const moved = destination(target.lat, target.lon, target.heading - 90, dx * mpp);
+      target.lat = moved.lat;
+      target.lon = moved.lon;
+    }
     // 20 updates a second on the move or in a turn, 12 when creeping.
     const frameMs = followFrameMs(
       fix.speed,
@@ -386,6 +493,31 @@ export async function mountShell(root, bootOpts = {}) {
     if (next.speed === null) next.speed = speedBetween(fix, next);
     next.heading = courseFor(fix, next);
     fix = next;
+    const fixOut = {
+      lat: fix.lat,
+      lon: fix.lon,
+      heading: fix.heading,
+      speed: fix.speed,
+      accuracy: fix.accuracy,
+      t: Date.now(),
+    };
+    // The route follows the vehicle (progress, off route, arrival), and the
+    // rest of the app sees the phone's fix (core/geo/selfPosition.js; the
+    // browser fallback's own fixes reach it without this).
+    if (nav && drive) {
+      try {
+        nav.update(fixOut);
+      } catch (err) {
+        console.warn('[car] nav update failed', err);
+      }
+    }
+    if (pushed) {
+      try {
+        shellApp?.selfPosition?.push?.({ ...fixOut, source: 'car' });
+      } catch {
+        // a main without a self position
+      }
+    }
     refreshStatus();
     startFollow();
   }
@@ -497,6 +629,8 @@ export async function mountShell(root, bootOpts = {}) {
     root.style.setProperty('--car-bottom', `${insets.bottom}px`);
     root.style.setProperty('--car-left', `${insets.left}px`);
     layoutOverlay();
+    // The free part of the screen moved: the follow view re-centres on it.
+    startFollow();
   }
 
   function layoutOverlay() {
@@ -525,9 +659,46 @@ export async function mountShell(root, bootOpts = {}) {
     put(cells.speed, formatSpeed(fresh ? fix.speed : NaN, units));
     put(cells.heading, formatHeading(fresh ? fix.heading : NaN));
     put(cells.view, VIEW_MODES[viewMode].label);
-    put(cells.mode, !fix ? 'NO FIX' : following ? 'FOLLOW' : 'FREE');
+    put(cells.mode, !fix ? 'NO FIX' : drive ? 'ROUTE' : following ? 'FOLLOW' : 'FREE');
     status.classList.toggle('is-stale', !fresh);
+    refreshVehicle();
   }
+
+  // ------------------------------------------------------------- vehicle
+  // The VEHICLE panel: shown once the car has stood still for three seconds
+  // (its own speedometer when the app reads it, else the GPS), hidden the
+  // moment it moves, and never over an active route.
+  const parked = createParkedTracker();
+  const imperialGallon = usesImperialGallon(navigator.language);
+  function speedNow(now) {
+    if (carInfo && Number.isFinite(carInfo.speedMps) && now - carInfoAt < 3000)
+      return carInfo.speedMps;
+    return fix && now - fix.t < FIX_STALE_MS ? fix.speed : null;
+  }
+  function refreshVehicle() {
+    const now = performance.now();
+    const still = parked.update(speedNow(now), now);
+    const routing = preview || (drive && navState?.status !== 'arrived');
+    const view = carInfo ? vehicleView(carInfo, { units, imperialGallon }) : null;
+    if (still && !routing && view?.known) vehiclePanel.show(view);
+    else vehiclePanel.hide();
+  }
+
+  function setCarInfo(json) {
+    let info = json;
+    if (typeof json === 'string') {
+      try {
+        info = JSON.parse(json);
+      } catch {
+        return;
+      }
+    }
+    if (!info || typeof info !== 'object') return;
+    carInfo = info;
+    carInfoAt = performance.now();
+    refreshVehicle();
+  }
+
   setInterval(refreshStatus, 1000);
   refreshStatus();
 
@@ -546,10 +717,21 @@ export async function mountShell(root, bootOpts = {}) {
   };
 
   let lastReadout = 0;
+  // While previewing routes the readout steps aside for them; on a route it
+  // keeps to two rows, and only where the routing card leaves room for it
+  // beside the vehicle.
+  const READOUT_ROUTE_MIN_PX = 900;
   function renderReadout() {
     const now = performance.now();
     if (now - lastReadout < 500) return; // calm: twice a second at most
     lastReadout = now;
+    const free = (scene.canvas.clientWidth || 0) - insets.left - insets.right;
+    if (preview || (drive && free < READOUT_ROUTE_MIN_PX)) {
+      readout.hidden = true;
+      return;
+    }
+    const max = drive ? 2 : 3;
+    readout.classList.toggle('is-route', Boolean(drive));
     const here = fix ? predicted(now) : null;
     const rows = [];
     const hub = summary?.hub;
@@ -572,7 +754,7 @@ export async function mountShell(root, bootOpts = {}) {
       .map((c) => ({ ...c, ...latLonOf(c.target) }));
     // What lies ahead first: a driver acts on what is coming (model.js).
     const course = fix && fix.speed > 1 ? fix.heading : null;
-    for (const c of nearestContacts(contacts, here, hub?.target ? 2 : 3, {
+    for (const c of nearestContacts(contacts, here, hub?.target ? max - 1 : max, {
       heading: course,
     })) {
       rows.push(
@@ -615,6 +797,251 @@ export async function mountShell(root, bootOpts = {}) {
     );
   }
 
+  // ----------------------------------------------------------- navigation
+  // The Android Auto screens drive this through the bridge: search(query,
+  // reqId) -> ArgusCarHost.searchResults(reqId, json); preview(place, opts)
+  // -> ArgusCarHost.routes(json); navigate(routeId); stopNav(). Progress goes
+  // back as ArgusCarHost.nav(json), at most once a second plus at once on a
+  // new step or status (nav.js createNavGate).
+  const side = drivingSideFor(navigator.language);
+  const routeView = createRouteView(viewer);
+  const navGate = createNavGate();
+  let navUnsub = null;
+  let navTimer = 0;
+  let previewSeq = 0;
+
+  function log(level, title, err) {
+    if (level === 'warn') console.warn(`[car] ${title}`, err);
+    try {
+      shellApp?.logs?.add?.({
+        level,
+        source: 'car',
+        title,
+        body: String(err?.message ?? err ?? ''),
+      });
+    } catch {
+      // no log store in this build
+    }
+  }
+
+  function parseJson(v) {
+    if (v && typeof v === 'object') return v;
+    try {
+      return JSON.parse(String(v));
+    } catch {
+      return null;
+    }
+  }
+
+  // Where to plan from and search near: the car's fix, else the app's.
+  function currentPosition() {
+    if (fix) return { lat: fix.lat, lon: fix.lon };
+    try {
+      const p = shellApp?.selfPosition?.get?.();
+      if (Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+        return { lat: p.lat, lon: p.lon };
+    } catch {
+      // no self position
+    }
+    return null;
+  }
+
+  function setNavigator(next) {
+    if (next === nav) return;
+    navUnsub?.();
+    navUnsub = null;
+    nav = next && typeof next.plan === 'function' ? next : null;
+    if (typeof nav?.subscribe === 'function') navUnsub = nav.subscribe(onNavState);
+  }
+
+  async function search(query, reqId) {
+    const id = String(reqId ?? '');
+    const q = String(query ?? '')
+      .trim()
+      .slice(0, 200);
+    const reply = (body) => toHost('searchResults', id, JSON.stringify(body));
+    if (!q) return reply({ results: [] });
+    if (!nav) return reply({ results: [], error: 'NAVIGATION OFFLINE' });
+    const here = currentPosition();
+    try {
+      const places = await nav.search(q, { near: here ?? undefined, limit: 8 });
+      reply(searchPayload(places, here, units));
+    } catch (err) {
+      log('warn', 'SEARCH FAILED', err);
+      reply({ results: [], error: 'SEARCH FAILED' });
+    }
+  }
+
+  async function previewRoutes(placeJson, optsJson) {
+    const place = parseJson(placeJson);
+    const opts = parseJson(optsJson) ?? {};
+    const reqId = opts.reqId ?? null;
+    const reply = (body) => toHost('routes', JSON.stringify(body));
+    const lat = Number(place?.lat);
+    const lon = Number(place?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon))
+      return reply({ reqId, routes: [], error: 'NO DESTINATION' });
+    const dest = { ...place, lat, lon, name: String(place.name ?? '') };
+    if (!nav) return reply({ reqId, routes: [], error: 'NAVIGATION OFFLINE' });
+    const from = currentPosition();
+    if (!from) return reply({ reqId, routes: [], error: 'NO POSITION' });
+    const seq = (previewSeq += 1);
+    try {
+      const routes = await nav.plan(from, dest, {
+        mode: 'drive',
+        avoidHighways: Boolean(opts.avoidHighways),
+        traffic: true,
+      });
+      if (seq !== previewSeq) return; // a newer request (or a stop) came first
+      const list = (routes || []).filter((r) => r?.geometry?.length >= 2).slice(0, 3);
+      if (!list.length) return reply({ reqId, routes: [], error: 'NO ROUTE' });
+      showPreview(list, dest);
+      reply(routesPayload(list, units, reqId));
+    } catch (err) {
+      if (seq !== previewSeq) return;
+      log('warn', 'ROUTE FAILED', err);
+      reply({ reqId, routes: [], error: 'NO ROUTE' });
+    }
+  }
+
+  function showPreview(routes, dest) {
+    preview = { routes, selectedId: routes[0].id, dest };
+    if (drive) endDrive();
+    routeView.showPreview(routes, preview.selectedId, dest);
+    fitPreview();
+  }
+
+  // Frame the routes in the part of the screen the host's cards leave free:
+  // the box is widened by the share of the screen each inset covers.
+  function fitPreview() {
+    const b = preview && routeView.bounds(preview.routes, preview.dest);
+    if (!b) return;
+    let [w, s, e, n] = b;
+    const padX = (e - w) * 0.1 + 0.002;
+    const padY = (n - s) * 0.1 + 0.002;
+    w -= padX;
+    e += padX;
+    s -= padY;
+    n += padY;
+    const W = scene.canvas.clientWidth || 1;
+    const H = scene.canvas.clientHeight || 1;
+    const top = Math.max(insets.top, topLeft.getBoundingClientRect().bottom);
+    const fullX = (e - w) / Math.max(0.25, 1 - (insets.left + insets.right) / W);
+    const fullY = (n - s) / Math.max(0.25, 1 - (top + insets.bottom) / H);
+    w -= (fullX * insets.left) / W;
+    e += (fullX * insets.right) / W;
+    n += (fullY * top) / H;
+    s -= (fullY * insets.bottom) / H;
+    setFollowing(false);
+    cam.flyTo({
+      destination: Cesium.Rectangle.fromDegrees(w, Math.max(-89, s), e, Math.min(89, n)),
+      duration: 1.2,
+    });
+  }
+
+  function selectRoute(id) {
+    if (!preview) return;
+    const key = String(id);
+    if (!preview.routes.some((r) => r.id === key) || preview.selectedId === key) return;
+    preview.selectedId = key;
+    routeView.showPreview(preview.routes, key, preview.dest);
+  }
+
+  function navigateTo(routeId) {
+    const routes = preview?.routes ?? navState?.routes ?? [];
+    const route = routes.find((r) => r.id === String(routeId)) ?? routes[0];
+    if (!nav || !route) {
+      log('warn', 'NAVIGATE: NO ROUTE', routeId);
+      navState = { status: 'idle' };
+      pushNav(true);
+      return;
+    }
+    const dest = preview?.dest ?? navState?.destination ?? null;
+    preview = null;
+    startDrive(route, dest);
+    try {
+      nav.start(route);
+    } catch (err) {
+      log('warn', 'NAVIGATE FAILED', err);
+    }
+    // Back to the vehicle, closer in, heading up.
+    rangeScale = 1;
+    viewSet = false;
+    setFollowing(true);
+  }
+
+  function startDrive(route, dest) {
+    drive = { route, ix: indexRoute(route.geometry), dest, at: null, atT: 0 };
+    routeView.showActive(route, dest);
+    navGate.reset();
+    refreshStatus();
+  }
+
+  function endDrive() {
+    if (!drive && !preview) return;
+    drive = null;
+    routeView.clear();
+    banner.hide();
+    refreshStatus();
+  }
+
+  function onNavState(state) {
+    navState = state;
+    const status = state?.status ?? 'idle';
+    if (['navigating', 'rerouting', 'arrived'].includes(status) && state.route) {
+      // A reroute brings a new route: draw it in place of the old one.
+      if (!drive || drive.route.id !== state.route.id)
+        startDrive(state.route, state.destination ?? drive?.dest ?? null);
+      const s = state.progress?.snapped;
+      if (s && drive.ix.n >= 2) {
+        drive.at = locateOnRoute(drive.ix, s.lat, s.lon, drive.at?.index ?? 0);
+        drive.atT = performance.now();
+        routeView.setProgress(drive.at);
+      }
+    } else if (status === 'idle' && drive) {
+      endDrive();
+    }
+    pushNav();
+  }
+
+  function stopNav() {
+    previewSeq += 1; // a plan still on its way is dropped
+    const had = Boolean(drive || preview);
+    navState = { status: 'idle' };
+    try {
+      nav?.stop?.();
+    } catch (err) {
+      log('warn', 'STOP FAILED', err);
+    }
+    preview = null;
+    endDrive();
+    routeView.clear();
+    navGate.reset();
+    pushNav(true);
+    if (had) ctl.recenter();
+  }
+
+  function pushNav(force = false) {
+    clearTimeout(navTimer);
+    navTimer = 0;
+    const payload = navPayload(navState ?? { status: 'idle' }, { units, side });
+    if (!inApp) {
+      const was = banner.el.hidden;
+      banner.update(payload);
+      // The banner pushes the strip down: the overlay's frame follows.
+      if (was !== banner.el.hidden) layoutOverlay();
+      return;
+    }
+    const now = performance.now();
+    const verdict = force ? 'send' : navGate.decide(payload, now);
+    if (verdict === 'skip') return;
+    if (verdict === 'later') {
+      navTimer = setTimeout(() => pushNav(), navGate.wait(now));
+      return;
+    }
+    if (toHost('nav', JSON.stringify(payload))) navGate.sent(payload, now);
+  }
+
   // ------------------------------------------------------------- control
   ctl = {
     pan,
@@ -630,6 +1057,12 @@ export async function mountShell(root, bootOpts = {}) {
     setLayers,
     setInsets,
     setView,
+    search,
+    preview: previewRoutes,
+    selectRoute,
+    navigate: navigateTo,
+    stopNav,
+    setCarInfo,
     state: () => ({
       following,
       rangeScale,
@@ -637,20 +1070,14 @@ export async function mountShell(root, bootOpts = {}) {
       fix: fix && { ...fix },
       layers: wantLayers ? [...wantLayers] : null,
       insets: { ...insets },
+      nav: navState?.status ?? (nav ? 'idle' : 'offline'),
+      route: drive ? drive.route.id : null,
+      preview: preview ? preview.routes.map((r) => r.id) : null,
+      vehicle: vehiclePanel.shown,
     }),
   };
-  if (early.insets) setInsets(...early.insets);
-  if (early.view) setView(early.view);
-  if (early.location) setLocation(...early.location);
-  if (early.layers) setLayers(early.layers);
-  // Tell the app the page is listening, so it sends the current state.
-  try {
-    window.ArgusCarHost?.ready?.();
-  } catch {
-    // not inside the app
-  }
 
-  return {
+  shellApp = {
     ...app,
     shell: 'car',
     /**
@@ -681,7 +1108,27 @@ export async function mountShell(root, bootOpts = {}) {
     setClean() {},
     // Satellite pass predictions: the vehicle's own position.
     observer: async () => (fix ? { latitude: fix.lat, longitude: fix.lon } : null),
+    /**
+     * Hand the car its navigator (core/nav/navigator.js createNavigator), once
+     * main has a proxy client; until then searches and plans answer
+     * NAVIGATION OFFLINE. Anything with search/plan/start/stop/update/
+     * subscribe will do (the harness passes a fake with canned routes).
+     */
+    setNavigator,
   };
+  if (early.insets) setInsets(...early.insets);
+  if (early.view) setView(early.view);
+  if (early.location) setLocation(...early.location);
+  if (early.layers) setLayers(early.layers);
+  if (early.carInfo) setCarInfo(early.carInfo);
+  if (bootOpts.navigator) setNavigator(bootOpts.navigator);
+  // Tell the app the page is listening, so it sends the current state.
+  try {
+    window.ArgusCarHost?.ready?.();
+  } catch {
+    // not inside the app
+  }
+  return shellApp;
 }
 
 export const shellName = 'car';
