@@ -63,8 +63,17 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("carLayers", null)?.toSet() ?: CAR_DEFAULT_LAYERS
         set(v) = sp.edit().putStringSet("carLayers", v.toSet()).apply()
 
+    /** The car map's view: "3d" (tilted, heading up), "2d" (flat, heading up) or "north". */
+    var carView: String
+        get() = sp.getString("carView", null)?.takeIf { it in CAR_VIEWS } ?: CAR_VIEWS.first()
+        set(v) = sp.edit().putString("carView", v).apply()
+
     companion object {
-        val CAR_DEFAULT_LAYERS = setOf("flights", "quakes")
+        /** The DRIVE preset: what matters on the road (shell-car, CarLayers). */
+        val CAR_DEFAULT_LAYERS = setOf("incidents", "chp", "trafficcams", "surveillance")
+
+        /** The car's views, in the VIEW button's order (shell-car/model.js VIEW_ORDER). */
+        val CAR_VIEWS = listOf("3d", "2d", "north")
     }
 }
 
