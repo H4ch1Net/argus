@@ -631,6 +631,26 @@ async function setupScene(app, splash) {
           : Promise.resolve(null),
     },
     {
+      key: 'waze',
+      group: 'Ground & sea',
+      label: 'Waze alerts (unofficial)',
+      loadDef: () =>
+        import('./core/layers/waze/definition.js').then((m) => m.wazeDefinition),
+      // Waze's live map (unofficial, personal use), or your own waze-server when
+      // the proxy has LOCAL_WAZE_URL. Road alerts and jams only.
+      proxy: async (c) => {
+        const { createWazeSource } = await import('./core/layers/waze/source.js');
+        return createWazeSource({
+          proxyClient: c,
+          local: Boolean(health && feedConfigured(health, 'waze-local')),
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/waze/source.js').then((m) => m.createWazeMockSource())
+          : Promise.resolve(null),
+    },
+    {
       key: 'borderwaits',
       group: 'Ground & sea',
       label: 'Border waits',

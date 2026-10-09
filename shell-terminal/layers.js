@@ -146,6 +146,13 @@ import {
 } from '../core/layers/constellations/groups.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
 import { parseTomTomIncidents } from '../core/layers/incidents/parse.js';
+import { parseWaze } from '../core/layers/waze/parse.js';
+import {
+  describeWaze,
+  wazeColorHex,
+  wazeSearchText,
+} from '../core/layers/waze/format.js';
+import { createWazeSource, createWazeMockSource } from '../core/layers/waze/source.js';
 import {
   describeIncident,
   incidentColorHex,
@@ -1112,6 +1119,39 @@ export function buildLayers({
       priority: incidentPriority,
       legend: () =>
         `${g.incident.accident} CHP dispatch incidents, California (red = critical)`,
+    },
+    {
+      // Waze's live map, unofficial (personal use); your own waze-server when
+      // the proxy has LOCAL_WAZE_URL. Road alerts and jams only: never users,
+      // never police reports (core/layers/waze/parse.js).
+      key: 'waze',
+      label: 'Waze alerts (unofficial)',
+      mode: 'poll',
+      intervalMs: 2 * 60_000,
+      viewportBounded: true,
+      maxEntities: 1500,
+      makeSource: async () =>
+        demo
+          ? createWazeMockSource()
+          : createWazeSource({ proxyClient: client, local: keyed('waze-local') }),
+      normalize: (raw) => parseWaze(raw?.json ?? raw),
+      describe: (n) => describeWaze(n),
+      searchText: wazeSearchText,
+      glyph: (n) => ({
+        ch: g.incident[n.meta.kind] ?? g.incident.hazard,
+        color: wazeColorHex(n.meta.severity),
+        bold: n.meta.severity === 'critical',
+      }),
+      priority: incidentPriority,
+      statusNote: (_q, raw) =>
+        [
+          raw?.via === 'local' ? 'your waze-server' : '',
+          raw?.clipped ? 'nearest 100 km' : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      legend: () =>
+        `${g.incident.accident} accident ${g.incident.jam} jam ${g.incident.hazard} hazard ${g.incident.closure} closed (Waze, unofficial; red = critical)`,
     },
     {
       key: 'tor',

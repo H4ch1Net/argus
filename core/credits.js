@@ -302,6 +302,17 @@ export const CREDITS = [
     attribution: 'courtesy',
   },
   {
+    id: 'waze',
+    name: 'Waze (live map, unofficial)',
+    terms:
+      'Read from the endpoint behind the public Waze live map: not a documented API and outside Waze terms for automated use; personal, educational use only, off by default. Road alerts and jams only (never user positions or police reports), nothing archived. Or your own waze-server on this machine or the LAN (LOCAL_WAZE_URL)',
+    url: 'https://www.waze.com/live-map',
+    layers: ['waze'],
+    feeds: ['waze', 'waze-local'],
+    hosts: ['www.waze.com'],
+    attribution: 'required',
+  },
+  {
     id: 'osrm',
     name: 'OSRM on the FOSSGIS servers',
     terms:

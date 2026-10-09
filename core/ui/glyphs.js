@@ -820,6 +820,28 @@ const OSM_SHAPES = {
     g.fillRect(6.4, 10.2, 3.2, 2.6);
     g.globalAlpha = 1;
   },
+  // A square speech bubble with three dots: a crowd report (the Waze layer).
+  report: (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 1.5, 14, 10.5);
+    path(g, [
+      [3, 11],
+      [8, 11],
+      [3, 15.5],
+    ]);
+    g.fill();
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(2.2, 2.7, 11.6, 8.1);
+    g.fillStyle = INK;
+    path(g, [
+      [4, 10.8],
+      [6.8, 10.8],
+      [4, 13.4],
+    ]);
+    g.fill();
+    for (const x of [4.6, 7.3, 10]) g.fillRect(x, 5.8, 1.6, 1.6);
+  },
 };
 for (const [name, draw] of Object.entries(OSM_SHAPES)) SHAPES[name] ??= draw;
 

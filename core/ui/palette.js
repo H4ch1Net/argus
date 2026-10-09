@@ -78,6 +78,8 @@ export const LAYER_INK = Object.freeze({
   // Simulated traffic (gray vehicles; roads tint by congestion) and street
   // photos (Mapillary).
   simtraffic: INK.gray,
+  // Waze alerts and jams (crowd reports): white like the other road reports.
+  waze: INK.white,
   streetphotos: INK.pale,
 });
 

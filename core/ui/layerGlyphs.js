@@ -52,6 +52,7 @@ const LAYER_GLYPH = {
   gdelt: 'news',
   signals: 'signal',
   simtraffic: 'vehicle',
+  waze: 'report',
   streetphotos: 'photo',
 };
 

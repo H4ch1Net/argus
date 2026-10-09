@@ -100,7 +100,83 @@ export const feeds = [
     governor: { ratePerMinute: 6 },
     cache: { ttlMs: MINUTE, staleMs: HOUR, maxEntries: 2 },
   },
+  {
+    // Waze alerts and jams from the endpoint Waze's public live map draws from
+    // (waze.com/live-map). Unofficial: not a documented API and outside Waze's
+    // terms for automated use; added for the owner's personal, educational use
+    // and off by default in the app. Pinned to alerts and jams only (never
+    // "users", the nearby Wazers' positions the endpoint can also return), a
+    // box of at most about a degree, and the three server regions. Argus sends
+    // its own User-Agent (it never poses as a browser); Waze answered 403 to
+    // that from a cloud host in Oct 2026, so it may only work, if at all, from
+    // a home connection. Cached a minute per box (the client snaps boxes to a
+    // 0.01 degree grid), 6 a minute, 1,500 a day. Not live-tested here.
+    id: 'waze',
+    baseUrl: 'https://www.waze.com',
+    methods: ['GET'],
+    allowPaths: [exactPath('/live-map/api/georss')],
+    allowQuery: (q) =>
+      wazeLiveQuery(q) &&
+      wazeSpanOk(q.get('bottom'), q.get('top'), q.get('left'), q.get('right')),
+    headers: { ...UA, accept: 'application/json' },
+    governor: {
+      ratePerMinute: 6,
+      creditBudget: 1500,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: { ttlMs: MINUTE, staleMs: 10 * MINUTE, maxEntries: 64 },
+  },
+  {
+    // Your own waze-server (Nimrod007/waze-api, the companion server
+    // JMoore335/waze_traffic_api runs): LOCAL_WAZE_URL=http://localhost:8080.
+    // It must be on this machine or the LAN (localOnly); without it the feed is
+    // not configured. Same box pins as above.
+    id: 'waze-local',
+    baseUrl: 'http://localhost:8080',
+    baseUrlEnv: 'LOCAL_WAZE_URL',
+    localOnly: true,
+    methods: ['GET'],
+    allowPaths: [exactPath('/waze/traffic-notifications')],
+    allowQuery: (q) =>
+      wazeLocalQuery(q) &&
+      wazeSpanOk(
+        q.get('latBottom'),
+        q.get('latTop'),
+        q.get('lonLeft'),
+        q.get('lonRight'),
+      ),
+    headers: UA,
+    governor: { ratePerMinute: 12 },
+    cache: { ttlMs: MINUTE, staleMs: 10 * MINUTE, maxEntries: 64 },
+  },
 ];
+
+// The Waze pins: degrees with two decimals (core/layers/waze/parse.js snaps
+// boxes to 0.01), a box of at most about a degree each way.
+const DEG2 = /^-?\d{1,3}\.\d{2}$/;
+const wazeLat = (v) => DEG2.test(v) && Math.abs(Number(v)) <= 85;
+const wazeLon = (v) => DEG2.test(v) && Math.abs(Number(v)) <= 180;
+const wazeLiveQuery = pinnedQuery({
+  top: wazeLat,
+  bottom: wazeLat,
+  left: wazeLon,
+  right: wazeLon,
+  env: ['na', 'row', 'il'],
+  types: 'alerts,traffic',
+});
+const wazeLocalQuery = pinnedQuery({
+  latBottom: wazeLat,
+  latTop: wazeLat,
+  lonLeft: wazeLon,
+  lonRight: wazeLon,
+});
+
+/** South < north and west < east, each span at most 1.02 degrees. */
+export function wazeSpanOk(south, north, west, east) {
+  const [s, n, w, e] = [south, north, west, east].map(Number);
+  return n > s && e > w && n - s <= 1.02 && e - w <= 1.02;
+}
 
 /** True when a CHP sa.xml body ends with its closing </State> (not cut off). */
 export function chpDocumentComplete(body) {
