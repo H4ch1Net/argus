@@ -3092,55 +3092,91 @@ async function setupScene(app, splash) {
       track: tk ? { layer: tk, id: String(t.id) } : undefined,
     });
   }
+  // ---------------------------------------------------- session memory (W4)
+  // The app reopens as it was left (SETTINGS > Start in: where I left, the
+  // default): the view as a share hash, the VIEW display controls that have
+  // no setting of their own, the camera filter chips and the preset, in one
+  // record on this device (core/share/session.js). Saved on every change
+  // (debounced) and at once when the page is hidden or closed, since the
+  // Android WebView can be killed in the background without an unload. The
+  // car shares this origin and storage but keeps its own state: it never
+  // reads or writes the record.
+  const sessionMod = await import('./core/share/session.js');
+  const viewState = await import('./core/ui/viewState.js');
+  const [{ webcamFilter }, { trafficCamKindFilter }] = await Promise.all([
+    import('./core/layers/webcams/categories.js'),
+    import('./core/layers/trafficcams/kinds.js'),
+  ]);
+  const chipFilters = { webcams: webcamFilter, trafficcams: trafficCamKindFilter };
+  const controlAllow = {
+    switches: sessionMod.SESSION_SWITCHES,
+    choices: sessionMod.SESSION_CHOICES,
+  };
+  let sessionStore = null;
+  try {
+    sessionStore = window.localStorage;
+  } catch {
+    sessionStore = null;
+  }
+  const keepsSession = app.shell !== 'car';
+  const sessionSaver = keepsSession
+    ? sessionMod.createSessionSaver({
+        storage: sessionStore,
+        collect: () => ({
+          hash: encodeView(),
+          controls: viewState.readControls(view, controlAllow),
+          filters: Object.fromEntries(
+            Object.entries(chipFilters).map(([k, f]) => [k, [...f.selected()]]),
+          ),
+          preset: activePreset
+            ? {
+                id: activePreset,
+                before: before ? { layers: [...before.layers], view: before.view } : null,
+                staged: staged ? [...staged] : null,
+              }
+            : null,
+        }),
+      })
+    : null;
   let hashTimer = null;
   const writeHash = () => {
     clearTimeout(hashTimer);
-    hashTimer = setTimeout(() => {
-      const hash = encodeView();
-      history.replaceState(null, '', hash);
-      // For "Start in: last view" (an installed app opens without the hash).
-      // Not in the car shell: it shares one origin and localStorage with the
-      // phone WebView, so its follow view must not become the phone's start.
-      if (app.shell !== 'car') {
-        try {
-          localStorage.setItem('argus.lastView', hash);
-        } catch {
-          // storage blocked: the address bar still holds the view
-        }
-      }
-    }, 800);
+    hashTimer = setTimeout(() => history.replaceState(null, '', encodeView()), 800);
+    sessionSaver?.schedule();
   };
 
-  const startView = app.settings?.get('startView') ?? 'default';
-  let lastView = null;
-  if (location.hash.length <= 1 && startView === 'last') {
-    try {
-      lastView = localStorage.getItem('argus.lastView');
-    } catch {
-      lastView = null;
-    }
-  }
-  const startHash = location.hash.length > 1 ? location.hash : lastView;
-  const shared =
-    startHash && startHash.length > 1
-      ? share.decodeShareHash(startHash, {
-          layerKeys: manager.keys(),
-          imageryIds: IMAGERY_SOURCES.map((x) => x.id),
-          terrainIds: TERRAIN_SOURCES.map((x) => x.id),
-          labelKeys: ['cities', 'places', 'roads'],
-          sensorModes: shaders?.modes ?? ['none'],
-        })
-      : null;
+  const startView = app.settings?.get('startView') ?? 'last';
+  const stored = keepsSession
+    ? sessionMod.readSession(sessionStore, {
+        presetIds: PRESETS.map((p) => p.id),
+        layerKeys: manager.keys(),
+      })
+    : { session: null, legacyView: null };
+  const plan = sessionMod.startPlan({
+    shell: app.shell,
+    hash: location.hash,
+    startView,
+    session: stored.session,
+    legacyView: stored.legacyView,
+  });
+  const shared = plan.hash
+    ? share.decodeShareHash(plan.hash, {
+        layerKeys: manager.keys(),
+        imageryIds: IMAGERY_SOURCES.map((x) => x.id),
+        terrainIds: TERRAIN_SOURCES.map((x) => x.id),
+        labelKeys: ['cities', 'places', 'roads'],
+        sensorModes: shaders?.modes ?? ['none'],
+      })
+    : null;
 
   // Default state (master plan 8): flights + earthquakes + transit on. The
-  // mobile shell launches into the "Around Me" preset itself (geolocation, and
-  // its layer set, so the highlighted preset matches what is on); desktop starts
-  // at the world view with the defaults. A shared link wins over both.
+  // mobile shell's first launch goes into the "Around Me" preset itself
+  // (geolocation, and its layer set, so the highlighted preset matches what
+  // is on); desktop starts at the world view with the defaults. A shared link
+  // wins over everything, then the saved session.
   splash?.step('GREETER_UI_INITIALIZING', 85);
   const aroundMe =
-    (!desktop || startView === 'aroundme') &&
-    app.aroundMe &&
-    PRESETS.find((p) => p.id === 'around-me');
+    plan.kind === 'aroundme' && app.aroundMe && PRESETS.find((p) => p.id === 'around-me');
   if (shared) {
     if (shared.camera) {
       camera.lookFrom({
@@ -3155,7 +3191,8 @@ async function setupScene(app, splash) {
       imagery.set(shared.imagery);
       imageryChoice.paint(shared.imagery);
     }
-    if (shared.terrain) terrainChoice.set(shared.terrain);
+    // Terrain is a setting of its own: a resumed session leaves it to SETTINGS.
+    if (shared.terrain && plan.kind === 'link') terrainChoice.set(shared.terrain);
     if (shared.sensor && shaders) {
       shaders.setSensor(shared.sensor);
       syncSensorUi();
@@ -3182,6 +3219,20 @@ async function setupScene(app, splash) {
   } else {
     for (const key of DEFAULT_LAYERS) await manager.enable(key);
   }
+  // The rest of a resumed session: display controls (pressed as a person
+  // would), the camera filter chips, and the preset with the view it gives back.
+  const resumed = plan.kind === 'session' ? plan.session : null;
+  if (resumed) {
+    for (const [k, f] of Object.entries(chipFilters))
+      if (resumed.filters[k]) f.set(resumed.filters[k]);
+    viewState.applyControls(view, resumed.controls, controlAllow);
+    if (resumed.preset) {
+      setPreset(resumed.preset.id);
+      const b = resumed.preset.before;
+      before = b ? { layers: new Set(b.layers), view: b.view } : null;
+      staged = before ? new Set(resumed.preset.staged ?? enabledKeys()) : null;
+    }
+  }
   app.viewer.camera.moveEnd.addEventListener(writeHash);
   manager.subscribe(writeHash);
   let lastHub = null;
@@ -3192,6 +3243,19 @@ async function setupScene(app, splash) {
       writeHash();
     }
   });
+  if (sessionSaver) {
+    // Any press in the interface may change what is remembered (a switch, a
+    // chip, a preset): save soon after. Hidden or closing: save now.
+    document.addEventListener('click', () => sessionSaver.schedule(), true);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') sessionSaver.flush();
+    });
+    window.addEventListener('pagehide', () => sessionSaver.flush());
+    document.addEventListener('freeze', () => sessionSaver.flush());
+    // The state this launch settled into is itself worth keeping.
+    sessionSaver.schedule();
+    if (dev && window.__argus) window.__argus.session = sessionSaver;
+  }
 
   if (dev && window.__argus)
     Object.assign(window.__argus, {
