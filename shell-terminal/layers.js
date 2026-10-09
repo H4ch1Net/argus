@@ -25,6 +25,7 @@ import {
   shipHeading,
   shipToNormalized,
   shipSearchText,
+  shipVelocity,
 } from '../core/layers/ships/format.js';
 import { parseOverpass } from '../core/layers/overpass/parse.js';
 import { createOverpassSource, areaTooLarge } from '../core/layers/overpass/client.js';
@@ -433,7 +434,9 @@ export function buildLayers({
       label: 'Ships',
       mode: 'push',
       interpolate: true,
-      interpolateLagMs: 5000,
+      interpolateLagMs: 8000,
+      extrapolateMs: 60_000,
+      velocityOf: shipVelocity,
       staleMs: 180_000,
       maxEntities: 3000,
       unavailable: streamIssue('ais', 'AISSTREAM_API_KEY'),

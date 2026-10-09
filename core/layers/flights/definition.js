@@ -26,6 +26,11 @@ export const flightsDefinition = {
   id: 'opensky-flights',
   fetch: { mode: 'poll', intervalMs: 15_000, viewportBounded: true },
   interpolate: true,
+  // Fixes keep the time the position was reported (OpenSky time_position,
+  // adsb.lol now - seen_pos), so a repeated report adds no stall; drawn one
+  // interval plus a margin behind, dead-reckoned when a poll is late.
+  fixTime: (n) => (n.meta.timePosition ? n.meta.timePosition * 1000 : null),
+  interpolateLagMs: 18_000,
   // OpenSky states or the keyless adsb.lol fallback; both parse to one shape.
   normalize: (raw) => parseFlights(raw).aircraft.map(aircraftToNormalized),
   render: {

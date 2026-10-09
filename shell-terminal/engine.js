@@ -12,7 +12,7 @@
 // Timers and the clock are injectable so the engine is testable without waiting.
 
 import { createRingBuffer } from '../core/layers/sdk/ringBuffer.js';
-import { interpolateFix } from '../core/layers/sdk/interpolate.js';
+import { moverPositionInto } from '../core/layers/sdk/interpolate.js';
 
 const DEFAULT_INTERVAL_MS = 15_000;
 const DEFAULT_HISTORY = 40;
@@ -143,7 +143,25 @@ export function createTerminalLayer(def, env = {}) {
     const curr = rec.history.last();
     if (!curr) return null;
     if (!def.interpolate) return curr;
-    return interpolateFix(rec.history.prev(), curr, t - lagMs);
+    // Bracketed across the retained fixes, dead-reckoned when a poll is late
+    // (the same smooth-motion rules as the globe, core/layers/sdk).
+    const v = rec.normalized.velocity;
+    const vel = def.velocityOf
+      ? def.velocityOf(rec.normalized)
+      : Number.isFinite(v?.speed) && Number.isFinite(v?.heading ?? v?.course)
+        ? { mps: v.speed, headingDeg: v.heading ?? v.course }
+        : null;
+    return moverPositionInto(
+      rec.history,
+      t - lagMs,
+      vel,
+      def.extrapolateMs ?? intervalMs,
+      {
+        longitude: 0,
+        latitude: 0,
+        altitude: 0,
+      },
+    );
   }
 
   return {

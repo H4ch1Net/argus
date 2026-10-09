@@ -1,6 +1,6 @@
 import * as Cesium from 'cesium';
 import { createRingBuffer } from './ringBuffer.js';
-import { interpolateInto } from './interpolate.js';
+import { interpolateInto, median, moverPositionInto, smoothInto } from './interpolate.js';
 import { computeViewportQuery, viewportShift } from './viewport.js';
 import { getRenderer, isPrimitiveRenderType } from './renderers.js';
 import { createRasterLayer } from './rasterLayer.js';
@@ -19,6 +19,10 @@ import {
 //   normalize(raw) -> NormalizedEntity[],
 //   render:{ renderType, style(normalized)->styleProps, ...renderConfig },
 //   interpolate?:boolean, historyCapacity?, interpolateLagMs?, maxEntities?,
+//   fixTime?(normalized) -> ms|null       (the source's own time of the fix)
+//   velocityOf?(normalized) -> { mps, headingDeg }|null   (dead reckoning;
+//     default: normalized.velocity { speed m/s, heading|course deg })
+//   extrapolateMs?, smoothMs?              (see "smooth motion" below)
 //   positionAt?(normalized, timeMs), positionCacheMs?, animationFps?,
 //   describe?(normalized) -> cardModel   (for the interaction spine)
 //   statusNote?(query, raw) -> string     (a hint shown beside the count)
@@ -77,6 +81,16 @@ export function createLayer(viewer, def, ctx) {
   // movers at once) or real time. Feed ingest/staleness always use real time.
   const sceneNow = () => (ctx.clock ? ctx.clock.now() : Date.now());
   const positionCacheMs = def.positionCacheMs ?? 0;
+  // Smooth motion from choppy data (interpolate.js): fixes stamped with the
+  // source's own time when the definition knows it (fixTime), placed by
+  // bracketing the render time across all retained fixes, dead-reckoned past
+  // the newest (or before the first) for up to extrapolateMs along the
+  // contact's velocity, and drawn with a short ease so a correction when the
+  // next fix lands never jumps.
+  const maxAheadMs = def.interpolate ? (def.extrapolateMs ?? intervalMs) : 0;
+  const smoothMs = def.interpolate ? (def.smoothMs ?? 700) : 0;
+  const velocityOf = def.velocityOf ?? defaultVelocity;
+  let fixOffset = null; // local clock minus source clock: the batch's median age
 
   const primitive = isPrimitiveRenderType(def.render.renderType);
   const renderer = getRenderer(def.render.renderType);
@@ -103,8 +117,11 @@ export function createLayer(viewer, def, ctx) {
 
   const fix = { longitude: 0, latitude: 0, altitude: 0 };
 
-  /** Geodetic position of a record now, into `fix`; false when unknown. */
-  function geodeticNow(rec) {
+  /**
+   * Geodetic position of a record now, into `fix`; false when unknown. The
+   * fleet tick passes advance: only it moves a mover's eased position on.
+   */
+  function geodeticNow(rec, advance = false) {
     if (def.positionAt) {
       const t = sceneNow();
       if (positionCacheMs && rec.cached && Math.abs(t - rec.cached.t) < positionCacheMs) {
@@ -135,17 +152,32 @@ export function createLayer(viewer, def, ctx) {
       fix.latitude = curr.latitude;
       fix.altitude = curr.altitude ?? 0;
     } else if (!ctx.clock || ctx.clock.isLive()) {
-      interpolateInto(rec.history.prev(), curr, sceneNow() - lagMs, fix);
+      moverPositionInto(rec.history, sceneNow() - lagMs, rec.vel, maxAheadMs, fix);
+      const sm = rec.sm;
+      if (smoothMs) {
+        if (advance) {
+          const t = performance.now();
+          smoothInto(sm, fix, t - sm.at, smoothMs);
+          sm.at = t;
+        }
+        if (sm.init) {
+          fix.longitude = sm.longitude;
+          fix.latitude = sm.latitude;
+          fix.altitude = sm.altitude;
+        }
+      }
     } else {
-      // Scrubbing: bracket the scrub time across the whole retained window.
+      // Scrubbing: bracket the scrub time across the whole retained window,
+      // and snap (no easing) when live play resumes.
       rec.history.sampleInto(sceneNow(), interpolateInto, fix);
+      rec.sm.init = false;
     }
     return true;
   }
 
   /** World position of a record now (Cartesian3 into `result`), or undefined. */
-  function positionOf(rec, result) {
-    if (!geodeticNow(rec)) return undefined;
+  function positionOf(rec, result, advance = false) {
+    if (!geodeticNow(rec, advance)) return undefined;
     return Cesium.Cartesian3.fromDegrees(
       fix.longitude,
       fix.latitude,
@@ -173,7 +205,7 @@ export function createLayer(viewer, def, ctx) {
 
   // --- records --------------------------------------------------------------
 
-  function upsert(normalized, batchTimeMs) {
+  function upsert(normalized, batchTimeMs, srcTimeMs = null) {
     let rec = records.get(normalized.id);
     if (!rec) {
       rec = {
@@ -185,6 +217,9 @@ export function createLayer(viewer, def, ctx) {
         visible: true,
         dispose: null,
         cached: null,
+        vel: null, // { mps, headingDeg } for dead reckoning
+        sm: { longitude: 0, latitude: 0, altitude: 0, init: false, at: 0 },
+        src: null, // source time of the newest fix
       };
       records.set(normalized.id, rec);
       if (primitive) {
@@ -209,16 +244,50 @@ export function createLayer(viewer, def, ctx) {
     rec.lastSeen = batchTimeMs; // for push-mode staleness removal
     if (primitive) renderer.update(rec.billboard, normalized, def.render);
     else renderer.update(rec.entity, normalized, def.render);
+    if (def.interpolate) rec.vel = velocityOf(normalized);
     // Compute-position layers keep no fix history (position is a function of time).
     if (!def.positionAt) {
-      rec.history.push({
-        t: batchTimeMs, // local ingest time: interpolation spacing is exactly one interval
-        longitude: normalized.position.longitude,
-        latitude: normalized.position.latitude,
-        altitude: normalized.position.altitude,
-      });
+      const last = rec.history.last();
+      if (srcTimeMs != null && rec.src != null && srcTimeMs <= rec.src) {
+        // The same report again (or an older one): no new fix, no stall.
+        if (srcTimeMs === rec.src && last) {
+          last.longitude = normalized.position.longitude;
+          last.latitude = normalized.position.latitude;
+          last.altitude = normalized.position.altitude;
+        }
+      } else {
+        // The source's time on the local clock, else the local ingest time.
+        let t = srcTimeMs != null ? srcTimeMs + fixOffset : batchTimeMs;
+        if (last && t <= last.t) t = last.t + 1;
+        rec.src = srcTimeMs;
+        rec.history.push({
+          t,
+          longitude: normalized.position.longitude,
+          latitude: normalized.position.latitude,
+          altitude: normalized.position.altitude,
+        });
+      }
     }
     dirty = true;
+  }
+
+  /** Source times for a batch, after updating the layer's clock offset from them. */
+  function sourceTimes(items, batchTimeMs) {
+    if (!def.fixTime || !def.interpolate) return null;
+    const times = items.map((n) => {
+      const t = def.fixTime(n);
+      return Number.isFinite(t) && Math.abs(batchTimeMs - t) < 15 * 60_000 ? t : null;
+    });
+    const age = median(times.filter((t) => t != null).map((t) => batchTimeMs - t));
+    if (Number.isFinite(age)) {
+      // A steady estimate: a few seconds of jitter in data age eases in; a
+      // jump (a clock change) resets it.
+      fixOffset =
+        fixOffset == null || Math.abs(age - fixOffset) > 30_000
+          ? age
+          : fixOffset + (age - fixOffset) * 0.3;
+    }
+    return fixOffset == null ? null : times;
   }
 
   function removeRecord(id) {
@@ -235,9 +304,11 @@ export function createLayer(viewer, def, ctx) {
   function ingest(list, batchTimeMs = Date.now()) {
     const items = list.length > maxEntities ? list.slice(0, maxEntities) : list;
     const seen = new Set();
-    for (const n of items) {
+    const src = sourceTimes(items, batchTimeMs);
+    for (let i = 0; i < items.length; i += 1) {
+      const n = items[i];
       seen.add(n.id);
-      upsert(n, batchTimeMs);
+      upsert(n, batchTimeMs, src?.[i] ?? null);
     }
     for (const id of [...records.keys()]) if (!seen.has(id)) removeRecord(id);
     if (holdsRender) moversActive(true); // the fleet size sets the pace
@@ -277,7 +348,7 @@ export function createLayer(viewer, def, ctx) {
     occluder.cameraPosition = cam;
     for (const rec of records.values()) {
       if (tick) {
-        if (!positionOf(rec, rec.world)) {
+        if (!positionOf(rec, rec.world, true)) {
           if (rec.billboard.show) rec.billboard.show = false;
           rec.visible = false;
           // Forget the old write, or camera-move frames would show it again.
@@ -349,9 +420,10 @@ export function createLayer(viewer, def, ctx) {
 
   function pushIngest(raw) {
     if (!running) return;
-    const list = def.normalize(raw);
+    const list = def.normalize(raw).slice(0, maxEntities);
     const now = Date.now();
-    for (const n of list.slice(0, maxEntities)) upsert(n, now);
+    const src = sourceTimes(list, now);
+    for (let i = 0; i < list.length; i += 1) upsert(list[i], now, src?.[i] ?? null);
     scene.requestRender();
     ctx.onStatus?.({ state: 'ok', count: records.size });
   }
@@ -586,4 +658,12 @@ export function createLayer(viewer, def, ctx) {
     // Dev-only: feed a normalized list straight in for verification.
     _ingest: import.meta.env.DEV ? (list) => ingest(list) : undefined,
   };
+}
+
+/** Dead-reckoning velocity from a normalized velocity { speed (m/s), heading|course }. */
+function defaultVelocity(n) {
+  const v = n?.velocity;
+  const mps = v?.speed;
+  const hdg = Number.isFinite(v?.heading) ? v.heading : v?.course;
+  return Number.isFinite(mps) && Number.isFinite(hdg) ? { mps, headingDeg: hdg } : null;
 }
