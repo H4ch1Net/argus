@@ -1,0 +1,84 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "N",
+        "osm_id": 6933256729,
+        "osm_key": "railway",
+        "osm_value": "stop",
+        "type": "house",
+        "name": "Ferry Building",
+        "street": "Harry Bridges Plaza",
+        "locality": "Financial District",
+        "city": "San Francisco",
+        "state": "California",
+        "country": "United States",
+        "postcode": "94111",
+        "countrycode": "US"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.393678, 37.7947815] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 69707607,
+        "osm_key": "man_made",
+        "osm_value": "pier",
+        "type": "house",
+        "name": "Ferry Building Gate D",
+        "street": "Ferry Plaza",
+        "locality": "Financial District",
+        "city": "San Francisco",
+        "state": "California",
+        "country": "United States",
+        "postcode": "94111",
+        "countrycode": "US",
+        "extent": [-122.3920756, 37.7962747, -122.3919088, 37.7960082]
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.3919899, 37.7961374] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 421576637,
+        "osm_key": "man_made",
+        "osm_value": "pier",
+        "type": "house",
+        "name": "Ferry Building Gate B",
+        "street": "The Nave",
+        "locality": "Financial District",
+        "city": "San Francisco",
+        "state": "California",
+        "country": "United States",
+        "postcode": "94111",
+        "countrycode": "US",
+        "extent": [-122.3935339, 37.7969522, -122.3930781, 37.7966425]
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.3933214, 37.7967883] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "N",
+        "osm_id": 11263551590,
+        "osm_key": "amenity",
+        "osm_value": "bicycle_rental",
+        "type": "house",
+        "housenumber": "1",
+        "name": "Ferry Building Bike Rentals",
+        "street": "Herb Caen Way...",
+        "locality": "Financial District",
+        "city": "San Francisco",
+        "state": "CA",
+        "country": "United States",
+        "postcode": "94111",
+        "countrycode": "US"
+      },
+      "geometry": { "type": "Point", "coordinates": [-122.3937493, 37.7955579] }
+    }
+  ]
+}

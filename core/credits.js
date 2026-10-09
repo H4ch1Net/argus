@@ -40,6 +40,7 @@ export const GROUP_LABELS = {
   cockpit: 'Cockpit briefing',
   terminal: 'Terminal map',
   models: '3D aircraft models',
+  directions: 'Directions and navigation',
 };
 
 const OSM_LAYERS = [
@@ -309,6 +310,30 @@ export const CREDITS = [
     feeds: ['osrm'],
     hosts: ['routing.openstreetmap.de'],
     attribution: 'required',
+  },
+  // Navigation (core/nav): Valhalla for avoid-highways and as OSRM's fallback,
+  // TomTom for traffic-aware routing and destination search when keyed.
+  {
+    id: 'valhalla',
+    name: 'Valhalla on the FOSSGIS servers',
+    terms:
+      'FOSSGIS routing usage policy: show this credit, a valid User-Agent, at most 1 request a second, no heavy use; data ODbL 1.0 from OpenStreetMap',
+    url: 'https://valhalla1.openstreetmap.de',
+    layers: ['directions'],
+    feeds: ['valhalla'],
+    hosts: ['valhalla1.openstreetmap.de'],
+    attribution: 'required',
+  },
+  {
+    id: 'tomtom-nav',
+    name: 'TomTom Routing and Search',
+    terms:
+      'TomTom for Developers terms with your own key (shares the free tier of about 2,500 non-tile requests a day); attribution "© TomTom" beside routes and results that use it',
+    url: 'https://docs.tomtom.com/legal/terms-and-conditions',
+    layers: ['directions', 'search'],
+    feeds: ['tomtom-routing', 'tomtom-search'],
+    attribution: 'required',
+    keyed: true,
   },
 
   // --- earth and weather ------------------------------------------------------

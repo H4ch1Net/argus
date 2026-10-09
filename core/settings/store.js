@@ -52,6 +52,10 @@ export const SETTINGS_SCHEMA = Object.freeze({
   survScope: { def: 'nearest', values: ['nearest', 'all'] },
   camPreviews: { def: true, values: [true, false] },
   camPreviewCount: { def: 4, values: [2, 4, 6, 8] },
+  // Navigation (core/ui/navPanel.js): the last travel mode and route options.
+  navMode: { def: 'drive', values: ['drive', 'walk', 'bike'] },
+  navAvoidHighways: { def: false, values: [true, false] },
+  navTraffic: { def: true, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

@@ -252,7 +252,7 @@ argus flights --near "Los Angeles" --radius 40
 argus sats --group stations
 argus fires --near 37.5,-119.6 --radius 200
 argus geocode "Brandenburg Gate"          # offline places first, then Photon, then Nominatim
-argus route "Oslo" "Bergen" --mode car    # OSRM turn-by-turn (car, foot or bike); or "A to B"
+argus route "Oslo" "Bergen" --mode car    # turn-by-turn (car, foot or bike; --avoid-highways); or "A to B"
 argus measure 51.5,-0.12 48.86,2.35       # great-circle distance and bearing, no network needed
 argus bgp --count 20                      # sampled RIPE RIS Live updates
 argus ct                                  # CT issuance stream (Ctrl-C to stop)
@@ -263,8 +263,11 @@ argus health                              # which feeds have their keys
 published indexes; nothing is sent to the host you ask about. `geocode`,
 `route` and `measure` take places or coordinates. `measure` on coordinates or
 bundled place names, and `geocode` on an exact bundled name, make no outbound
-request. `route` asks the FOSSGIS OSRM servers through the proxy and refuses
-legs over 600 km or routes over 2,500 km, to stay inside their usage policy.
+request. `route` plans like the app's navigation (core/nav): OSRM on the FOSSGIS
+servers, Valhalla (FOSSGIS) to avoid highways or when OSRM fails, TomTom with
+live traffic when the proxy has `TOMTOM_API_KEY`, and the OSM traffic signals
+on the way counted through the Overpass feed. It refuses legs over 600 km or
+routes over 2,500 km, to stay inside the FOSSGIS usage policy.
 
 ---
 
@@ -298,7 +301,7 @@ copies those into the browser bundle). Restart Argus after editing.
 | Landmarks, surveillance cameras, data centres, dams, installations | OpenStreetMap Overpass (see note)                                                                                                      |
 | Submarine cables                                                   | TeleGeography (CC BY-NC-SA 3.0, non-commercial)                                                                                        |
 | Search / fly-to                                                    | Bundled places (offline), then Photon (komoot), then OSM Nominatim                                                                     |
-| Directions (TOOLS > ROUTE, `argus route`)                          | OSRM on the FOSSGIS servers (routing.openstreetmap.de)                                                                                 |
+| Navigation (WHERE TO, TOOLS > ROUTE, `argus route`)                | OSRM and Valhalla on the FOSSGIS servers; TomTom Routing and Search with your key; OSM traffic signals via Overpass                    |
 | Cockpit briefing (desktop)                                         | Nominatim reverse, Open-Meteo, Google News RSS (personal use), GDELT                                                                   |
 | OSINT lookups + BGP activity                                       | RIPEstat / RIPE RIS Live                                                                                                               |
 | 3D aircraft models (close range)                                   | Bundled glTF files in `public/models` (CC BY 4.0, credited there and in DATA CREDITS); no network                                      |

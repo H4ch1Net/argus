@@ -1,178 +1,16 @@
 import { h } from './dom.js';
 import { section, createChoice } from './controls.js';
 
-// The TOOLS tab: route planning (OSRM), draw and measure, recent imagery,
-// share link, data credits. Tools that need a point on the map "arm" the next
-// tap (deps.armTap): while armed, a tap on the globe goes to the tool instead
-// of selecting a contact. Pure UI plus calls into the pure modules; drawing on
-// the globe goes through core/scene/sketch.js.
-
-const fmtLL = (p) =>
-  p
-    ? `${Math.abs(p.lat).toFixed(3)}${p.lat >= 0 ? 'N' : 'S'} ${Math.abs(p.lon).toFixed(3)}${p.lon >= 0 ? 'E' : 'W'}`
-    : '--';
+// The TOOLS tab: draw and measure, recent imagery, share link, data credits
+// (the ROUTE section is the navigation panel's, core/ui/navPanel.js). Tools
+// that need a point on the map "arm" the next tap (deps.armTap): while armed,
+// a tap on the globe goes to the tool instead of selecting a contact. Pure UI
+// plus calls into the pure modules; drawing on the globe goes through
+// core/scene/sketch.js.
 
 const note = (text) => h('div.ct-section__note', {}, text);
 const btn = (label, onclick, title = label) =>
   h('button.ct-btn', { type: 'button', title, onclick }, label);
-
-/**
- * Route planner: A and B by tapping the map (or the selected target), a mode,
- * GO. Draws the route and its turns, lists the steps, flies along it.
- * @param {{ proxyClient: object|null, sketch: object, armTap: Function,
- *   targetPoint: () => {lat:number,lon:number}|null, notify: Function,
- *   flyAlong: (coords: number[][]) => void }} deps
- */
-export function createRouteTool({
-  proxyClient,
-  sketch,
-  armTap,
-  targetPoint,
-  notify,
-  flyAlong,
-}) {
-  let mode = 'car';
-  const pts = { a: null, b: null };
-  const aVal = h('span.ct-tool__val', {}, '--');
-  const bVal = h('span.ct-tool__val', {}, '--');
-  const summary = h('div.ct-tool__summary');
-  const steps = h('div.ct-tool__steps.ct-scroll');
-  let lastRoute = null;
-
-  const setPoint = (k, p) => {
-    pts[k] = p;
-    (k === 'a' ? aVal : bVal).textContent = fmtLL(p);
-    sketch.clear(`route-${k}`);
-    if (p) sketch.marker(`route-${k}`, [p.lon, p.lat], k.toUpperCase());
-  };
-  const pick = (k) =>
-    armTap((p) => setPoint(k, p), `TAP THE MAP: ROUTE ${k.toUpperCase()}`);
-  const fromTarget = (k) => {
-    const p = targetPoint();
-    if (p) setPoint(k, p);
-    else notify({ title: 'NO TARGET', body: 'Select a contact first.', level: 'low' });
-  };
-
-  async function go() {
-    if (!pts.a || !pts.b) {
-      notify({ title: 'ROUTE', body: 'Set both A and B first.', level: 'low' });
-      return;
-    }
-    if (!proxyClient) {
-      notify({
-        title: 'ROUTE UNAVAILABLE',
-        body: 'Routing needs the live proxy.',
-        level: 'low',
-      });
-      return;
-    }
-    const m = await import('../route/osrm.js');
-    let r;
-    try {
-      r = m.routeRequest(mode, [pts.a, pts.b]);
-    } catch (err) {
-      notify({ title: 'ROUTE', body: String(err.message || err), level: 'low' });
-      return;
-    }
-    summary.textContent = 'ROUTING...';
-    try {
-      const json = await proxyClient.getJson(r.feed, r.path, { params: r.params });
-      const route = m.parseRoute(json);
-      if (!route) throw new Error(m.routeErrorMessage(json) || 'no route');
-      lastRoute = route;
-      sketch.clear('route');
-      sketch.line('route', route.coordinates, { width: 4 });
-      summary.textContent = `${m.ROUTE_MODES[mode].label}  ${m.formatRouteDistance(route.distanceM)}  ${m.formatRouteDuration(route.durationS)}`;
-      steps.innerHTML = '';
-      route.steps.slice(0, 60).forEach((s, i) => {
-        steps.appendChild(
-          h(
-            'div.ct-tool__step',
-            {},
-            h('span.ct-muted', {}, String(i + 1).padStart(2, '0')),
-            h('span', {}, s.instruction),
-            h('span.ct-muted', {}, m.formatRouteDistance(s.distanceM)),
-          ),
-        );
-      });
-    } catch (err) {
-      summary.textContent = '';
-      notify({
-        title: 'NO ROUTE',
-        body:
-          err?.status === 400
-            ? 'No route between these points.'
-            : String(err?.message || err),
-        level: 'low',
-      });
-    }
-  }
-
-  function clear() {
-    setPoint('a', null);
-    setPoint('b', null);
-    sketch.clear('route');
-    summary.textContent = '';
-    steps.innerHTML = '';
-    lastRoute = null;
-  }
-
-  const el = section(
-    'ROUTE',
-    createChoice({
-      label: 'Route mode',
-      options: [
-        { id: 'car', label: 'Drive' },
-        { id: 'foot', label: 'Walk' },
-        { id: 'bike', label: 'Bike' },
-      ],
-      current: mode,
-      onSelect: (id) => {
-        mode = id;
-      },
-    }).el,
-    h(
-      'div.ct-tool__pt',
-      {},
-      h('span.ct-muted', {}, 'A'),
-      aVal,
-      btn('MAP', () => pick('a'), 'Tap the map for A'),
-      btn('TGT', () => fromTarget('a'), 'Use the selected target'),
-    ),
-    h(
-      'div.ct-tool__pt',
-      {},
-      h('span.ct-muted', {}, 'B'),
-      bVal,
-      btn('MAP', () => pick('b'), 'Tap the map for B'),
-      btn('TGT', () => fromTarget('b'), 'Use the selected target'),
-    ),
-    h(
-      'div.ct-seg',
-      {},
-      btn('GO', go),
-      btn('FLY ALONG', () => lastRoute && flyAlong(lastRoute.coordinates)),
-      btn('CLEAR', clear),
-    ),
-    summary,
-    steps,
-    h(
-      'div.ct-section__note',
-      {},
-      'Routes: OSRM on routing.openstreetmap.de (FOSSGIS), OSM data. ',
-      h(
-        'a',
-        {
-          href: 'https://www.openstreetmap.org/fixthemap',
-          target: '_blank',
-          rel: 'noopener noreferrer',
-        },
-        'FIX THE MAP',
-      ),
-    ),
-  );
-  return { el, clear };
-}
 
 /**
  * Draw and measure: an area, a line or a pin by tapping vertices; the live
@@ -408,7 +246,14 @@ export function createCreditsView({ activeKeys, manager }) {
   async function render() {
     const { creditsByLayer } = await import('../credits.js');
     body.innerHTML = '';
-    const keys = [...activeKeys(), 'basemap', 'labels', 'terrain', 'search'];
+    const keys = [
+      ...activeKeys(),
+      'basemap',
+      'labels',
+      'terrain',
+      'search',
+      'directions',
+    ];
     for (const g of creditsByLayer(keys)) {
       const label =
         manager.list().find((l) => l.key === g.layer)?.label ?? g.label ?? g.layer;

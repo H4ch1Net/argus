@@ -110,12 +110,16 @@ export function routePath(mode, points) {
   return `/${m.service}/route/v1/${m.profile}/${coords}`;
 }
 
-/** Query for a route: full GeoJSON geometry, one route, maneuvers only when asked. */
-export function routeQuery({ steps = true } = {}) {
+/**
+ * Query for a route: full GeoJSON geometry, maneuvers only when asked, and
+ * OSRM's own alternatives (up to two more, computed in the same request) only
+ * when asked: the navigator's preview asks, a terminal route does not.
+ */
+export function routeQuery({ steps = true, alternatives = false } = {}) {
   return {
     overview: 'full',
     geometries: 'geojson',
-    alternatives: 'false',
+    alternatives: alternatives ? 'true' : 'false',
     steps: steps ? 'true' : 'false',
   };
 }
@@ -127,11 +131,11 @@ export function routeQuery({ steps = true } = {}) {
  *   const route = parseRoute(json);
  * Throws (with a readable message) on a bad mode or point list.
  */
-export function routeRequest(mode, points, { steps = true } = {}) {
+export function routeRequest(mode, points, { steps = true, alternatives = false } = {}) {
   return {
     feed: OSRM_FEED,
     path: routePath(mode, points),
-    params: routeQuery({ steps }),
+    params: routeQuery({ steps, alternatives }),
   };
 }
 

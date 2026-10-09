@@ -106,7 +106,7 @@ UAT) adds the aircraft your own antenna hears. Keys live in `.env` or
 | BGP activity                      | RIPE RIS Live via the proxy websocket                                             | none                  | Pulses at the route collector that saw each update                                                                    |
 | CT firehose                       | CertStream-compatible aggregator                                                  | none                  | Issuance ticker; set `CT_STREAM_URL` if the public server is silent                                                   |
 | OSINT console                     | RIPEstat (+ Shodan host data when keyed)                                          | none                  | `query` / `correlate` an IP, domain, or ASN: routing, registry, geo, exposure                                         |
-| Search and routes                 | Bundled places (~430), Photon, Nominatim; OSRM (FOSSGIS)                          | none                  | Places answer offline first; TOOLS > ROUTE for car, foot or bike, with FLY ALONG                                      |
+| Search and navigation             | Bundled places (~430), Photon, Nominatim; OSRM, Valhalla (FOSSGIS); OSM signals   | TomTom optional       | WHERE TO: drive, walk or bike, avoid highways, signals, turn by turn, reroute; TomTom traffic                         |
 | Cockpit briefing (desktop)        | Nominatim, Open-Meteo, Google News RSS, GDELT                                     | none                  | Nearest contacts, headlines and weather for the place below, each credited                                            |
 | CCTV projection, threat arcs      | none verified                                                                     | n/a                   | Simulated, labelled DEMO in the UI                                                                                    |
 | Globe                             | Esri dark canvas, imagery and elevation, OSM streets, Esri label tiles            | none                  | Google Photorealistic 3D Tiles optional (`GOOGLE_MAPS_API_KEY`)                                                       |
@@ -245,7 +245,7 @@ both receiver bands, the visual satellites) and its offline place list.
 The same engine answers one-shot commands, for example:
 
 ```bash
-argus route "San Francisco" "Los Angeles" --mode car   # OSRM turn-by-turn (needs the network)
+argus route "San Francisco" "Los Angeles" --mode car   # turn-by-turn (needs the network; --avoid-highways)
 argus measure London Paris     # great-circle distance and bearing, offline for bundled places
 argus help                     # everything else
 ```

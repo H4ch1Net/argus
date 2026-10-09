@@ -1380,7 +1380,11 @@ async function setupScene(app, splash) {
     tapOwner = { fn, repeat };
     notifier.push({ title: label, body: 'Esc cancels.', key: 'tap', timeoutMs: 20_000 });
   };
+  // Navigation hooks (set in the navigation block below): a tap that ends a
+  // long press or right click on the map is not a pick; ROUTE HERE on cards.
+  const navHooks = { swallowTap: () => false, cardAction: () => null };
   const interceptTap = (pos) => {
+    if (navHooks.swallowTap()) return true;
     if (!tapOwner || !pos) return false;
     const ll = sketchMod.windowToLatLon(app.viewer, pos);
     if (!ll) return true; // a tap on the sky: ignore, stay armed
@@ -1437,6 +1441,7 @@ async function setupScene(app, splash) {
     extras,
     interceptTap,
     proxyClient,
+    moreActions: (t, rec) => navHooks.cardAction(t, rec),
   });
   extras.setRefresh(() => tracking.tracker.refresh());
   tracker = tracking.tracker;
@@ -2293,21 +2298,111 @@ async function setupScene(app, splash) {
   const terminal = createTerminal({ run: (line) => termCommands.run(line) });
   app.mount('float', terminal.el);
 
+  // ------------------------------------------------------------- navigation
+  // WHERE TO, the route preview and turn-by-turn (core/nav, core/ui/navPanel.js).
+  // The navigator is app.nav in every shell (the car drives it too) and its
+  // routes are drawn on the globe everywhere (app.navView); the panels are for
+  // the desktop and the phone. With no proxy, a dev session plans on the
+  // labelled demo routes. TOOLS > ROUTE is the same trip from the menu.
+  const { alongRoute } = await import('./core/route/osrm.js');
+  const [{ createNavigator }, { createNavView }, { createFixSource }, navMock] =
+    await Promise.all([
+      import('./core/nav/navigator.js'),
+      import('./core/nav/view.js'),
+      import('./core/nav/fixSource.js'),
+      !proxyClient && dev ? import('./core/nav/mockProxy.js') : null,
+    ]);
+  app.nav = createNavigator({
+    proxyClient: proxyClient ?? navMock?.createNavMockProxy() ?? null,
+    hasFeed: (id) => Boolean(proxyClient && feedConfigured(health, id)),
+    log: (e) => {
+      console.warn(`[argus] nav: ${e.title}${e.body ? `: ${e.body}` : ''}`);
+      app.logs?.add?.(e);
+    },
+  });
+  let navUi = null;
+  // The car draws its own route (shell-car/routeView.js: framed beside Android
+  // Auto's lists, looking ahead along the road) and feeds the navigator its
+  // fixes: it takes the navigator, and no second route view.
+  if (app.shell === 'car') app.setNavigator?.(app.nav);
+  app.navView =
+    app.shell === 'car'
+      ? null
+      : createNavView(app.viewer, app.nav, {
+          follow: true,
+          fps: app.profile?.animationFps || 30,
+          // The self-position marker shows you; the puck stands in without it (and
+          // for a simulated drive, which is not where you are).
+          showPuck: () => !app.selfPosition || Boolean(navUi?.simulating),
+          onFollowStart: () => {
+            tracker.unfollow?.();
+            orbit.stop();
+          },
+          onFollowChange: (on) => navUi?.setFollowing(on),
+        });
+  const navFlyAlong = (coords) => {
+    tracker.unfollow?.();
+    app.navView.setFollow(false);
+    sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
+  };
+  const navTarget = () => {
+    const t = tracker.trackedEntity;
+    const p = sketchMod.targetLatLon(app.viewer, t);
+    return p ? { ...p, name: tracking.labelFor(t) ?? 'TARGET' } : null;
+  };
+  if (app.shell === 'desktop' || app.shell === 'mobile') {
+    const { createNavPanel } = await import('./core/ui/navPanel.js');
+    const cv = app.viewer.scene.canvas;
+    navUi = createNavPanel({
+      nav: app.nav,
+      view: app.navView,
+      fixes: createFixSource({ selfPosition: () => app.selfPosition ?? null }),
+      shell: app.shell,
+      settings: app.settings,
+      near: () =>
+        sketchMod.windowToLatLon(app.viewer, {
+          x: cv.clientWidth / 2,
+          y: cv.clientHeight / 2,
+        }),
+      armTap,
+      targetPoint: navTarget,
+      flyAlong: navFlyAlong,
+      notify,
+      canvas: cv,
+      pick: (pos) => sketchMod.windowToLatLon(app.viewer, pos),
+      demo: !proxyClient,
+      // On the phone the sheet makes way for the preview and the drive.
+      onActive: () => app.collapseSheet?.(),
+    });
+    app.mount('navTop', navUi.top);
+    app.mount('navBottom', navUi.bottom);
+    document.body.appendChild(navUi.ctx);
+    navHooks.swallowTap = () => navUi.swallowTap();
+    // ROUTE HERE on the card of anything on the ground (not satellites).
+    navHooks.cardAction = (target, rec) =>
+      (rec?.normalized?.position?.altitude ?? 0) > 100_000
+        ? null
+        : {
+            label: 'ROUTE HERE',
+            title: 'Plan a route to this target',
+            onClick: () => {
+              const p = sketchMod.targetLatLon(app.viewer, target);
+              if (p)
+                navUi.routeHere({
+                  ...p,
+                  name: String(rec.metadata?.title ?? 'TARGET'),
+                  kind: rec.key,
+                });
+            },
+          };
+  }
+  if (dev && window.__argus)
+    Object.assign(window.__argus, { nav: app.nav, navView: app.navView, navUi });
+
   const intel = [];
   const tools = await import('./core/ui/toolsMenu.js');
-  const { alongRoute } = await import('./core/route/osrm.js');
   intel.push(
-    tools.createRouteTool({
-      proxyClient,
-      sketch,
-      armTap,
-      notify,
-      targetPoint: () => sketchMod.targetLatLon(app.viewer, tracker.trackedEntity),
-      flyAlong: (coords) => {
-        tracker.unfollow?.();
-        sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
-      },
-    }).el,
+    navUi?.menuSection(),
     tools.createDrawTool({ sketch, armTap, disarm }).el,
     tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
     tools.createShareTool({ encode: () => encodeView(), notify }).el,
@@ -2945,7 +3040,16 @@ async function setupScene(app, splash) {
 async function attachTracking(
   app,
   manager,
-  { extraResolvers = [], panel, overlay, notify, extras, interceptTap, proxyClient },
+  {
+    extraResolvers = [],
+    panel,
+    overlay,
+    notify,
+    extras,
+    interceptTap,
+    proxyClient,
+    moreActions,
+  },
 ) {
   const [
     { createPicker },
@@ -3162,6 +3266,7 @@ async function attachTracking(
         ...(extras?.actions(target, rec) ?? []),
         rec.key === 'trafficcams' ? projectAction(rec) : null,
         pinAction(target, rec),
+        moreActions?.(target, rec),
       ].filter(Boolean),
     onChange: (target, rec) => {
       if (!quiet) app.focusTarget?.(Boolean(target));

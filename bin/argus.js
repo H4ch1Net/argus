@@ -44,7 +44,7 @@ running proxy instead of an embedded one)
   sats [--group stations|visual|active|starlink|gps-ops|weather] [--limit N]
   fires --near <LAT,LON|place> [--radius KM]
   geocode <place>              offline places, then Photon, then Nominatim
-  route <A> <B> [--mode car|foot|bike]
+  route <A> <B> [--mode car|foot|bike] [--avoid-highways] [--no-traffic]
                                turn-by-turn directions (OSRM, FOSSGIS servers);
                                quote multi-word places or write "A to B"
   measure <A> <B>              great-circle distance and bearing (offline when
