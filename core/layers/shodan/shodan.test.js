@@ -109,7 +109,7 @@ test('facets and counts read compactly', () => {
   ]);
   assert.equal(facetText(ports), '443 (1.2M), 80 (46K)');
   assert.equal(compactCount(999), '999');
-  assert.equal(facetText([]), '—');
+  assert.equal(facetText([]), '-');
 });
 
 test('the source: one count per snapshot, the sample only when switched on', async () => {

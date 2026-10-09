@@ -17,7 +17,7 @@ export function shodanColorHex(count) {
 
 /** 1234567 -> "1.2M", 45600 -> "45.6K". */
 export function compactCount(n) {
-  if (!Number.isFinite(n)) return '—';
+  if (!Number.isFinite(n)) return '-';
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K`;
   return String(n);
@@ -30,7 +30,7 @@ export const facetText = (list, n = 5) =>
         .slice(0, n)
         .map((f) => `${f.value} (${compactCount(f.count)})`)
         .join(', ')
-    : '—';
+    : '-';
 
 /** Rows for one country's facets (a /host/count narrowed to the country). */
 export function shodanFacetRows({ ports = [], orgs = [], products = [] }) {
@@ -65,13 +65,13 @@ export function describeShodan(n) {
 export function describeShodanHost(n) {
   const m = n.meta;
   const rows = [
-    ['Ports', m.ports?.length ? m.ports.join(', ') : '—'],
-    ['Operator', m.org || m.isp || '—'],
+    ['Ports', m.ports?.length ? m.ports.join(', ') : '-'],
+    ['Operator', m.org || m.isp || '-'],
   ];
   if (m.asn) rows.push(['ASN', m.asn]);
   if (m.products?.length) rows.push(['Products', m.products.slice(0, 3).join(', ')]);
   if (m.hostnames?.length) rows.push(['Hostnames', m.hostnames.slice(0, 3).join(', ')]);
-  rows.push(['Location', [m.city, m.country].filter(Boolean).join(', ') || '—']);
+  rows.push(['Location', [m.city, m.country].filter(Boolean).join(', ') || '-']);
   if (m.snapshot) rows.push(['Snapshot', m.snapshot]);
   return {
     id: n.id,

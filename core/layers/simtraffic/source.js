@@ -209,6 +209,9 @@ export function createTrafficModel({
 
   function apply(want) {
     const have = want.filter((t) => tiles.has(t.key));
+    // A new band or area with nothing loaded yet: keep driving on the roads
+    // already there until the first tile of the new set arrives.
+    if (!have.length && model.network?.edges.length) return;
     const key = `${model.band?.id}:${have.map((t) => t.key).join(',')}`;
     if (key === appliedKey) return;
     appliedKey = key;

@@ -110,9 +110,9 @@ export function describeSimVehicle(n, speedKmh = null) {
       : 'a model on OSM roads, not a real vehicle',
     rows: [
       ['Road', m.road],
-      ['Class', m.cls ?? '—'],
-      ['Speed', Number.isFinite(speedKmh) ? `${Math.round(speedKmh)} km/h` : '—'],
-      ['Free-flow', Number.isFinite(m.freeKmh) ? `${Math.round(m.freeKmh)} km/h` : '—'],
+      ['Class', m.cls ?? '-'],
+      ['Speed', Number.isFinite(speedKmh) ? `${Math.round(speedKmh)} km/h` : '-'],
+      ['Free-flow', Number.isFinite(m.freeKmh) ? `${Math.round(m.freeKmh)} km/h` : '-'],
       [
         'Congestion',
         level
