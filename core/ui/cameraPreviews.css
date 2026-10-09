@@ -1,0 +1,142 @@
+/* CAMERA PREVIEWS (core/ui/cameraPreviews.js): published camera stills beside
+   their icons, in the ctOS idiom: a dark plate, white L-corners (the theme's
+   .ct-frame), a mono id / name / age bar, a dashed hairline leader to the
+   icon. Lives in viewer.container: z-index 3 puts it above the tracking
+   overlay (1) and the Intel HUD (2), under the shell panels (10). Only the
+   cards take pointer input; the layer and the leaders pass it through. */
+
+.ct-campreviews {
+  --campreview-w: 128px;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint style;
+}
+.argus-shell-mobile .ct-campreviews {
+  --campreview-w: 104px;
+}
+
+.ct-campreviews__lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.ct-campreviews__line {
+  stroke: var(--ctosGray, #d9d9d9);
+  stroke-opacity: 0.75;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
+.ct-campreview {
+  --c: var(--textPrimary, #ffffff);
+  --arm: 7px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  width: var(--campreview-w);
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) top right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) top right / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom left / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--arm),
+    linear-gradient(var(--c), var(--c)) bottom right / var(--arm) 1px,
+    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--arm),
+    var(--panel-translucent, #0e0e0eee);
+  background-repeat: no-repeat;
+  box-shadow: var(--window-shadow, 0 0 4px #000000ee);
+  color: var(--textPrimaryDim, #cacaca);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 12px;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+}
+.ct-campreview:hover,
+.ct-campreview:focus-visible {
+  --c: var(--success, #00fa9a);
+  outline: none;
+}
+
+/* The still, 16:9, letterboxed on the ground colour while it loads. */
+.ct-campreview__frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--background, #0e0e0e);
+}
+.ct-campreview__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(0.25) contrast(1.05);
+}
+.ct-campreview__img[hidden] {
+  display: none;
+}
+.ct-campreview__note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--textSecondary, #7a7a7a);
+  font-size: 9px;
+}
+.ct-campreview__note:empty {
+  display: none;
+}
+
+.ct-campreview__bar {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  padding: 3px 1px 0;
+  white-space: nowrap;
+}
+.ct-campreview__id {
+  color: var(--textPrimary, #ffffff);
+  font-variant-numeric: tabular-nums;
+}
+.ct-campreview__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-campreview__age {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 1px 3px;
+  background: var(--panel-translucent, #0e0e0eee);
+  color: var(--textPrimaryDim, #cacaca);
+  font-size: 8.5px;
+  line-height: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ct-campreview__age:empty {
+  display: none;
+}
+
+[data-reduced-motion='true'] .ct-campreview {
+  will-change: auto;
+}

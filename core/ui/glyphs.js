@@ -578,6 +578,228 @@ const CAMERA_SHAPES = {
 };
 for (const [name, draw] of Object.entries(CAMERA_SHAPES)) SHAPES[name] ??= draw;
 
+// --- Surveillance kinds and street furniture (core/layers/surveillance,
+// core/layers/signals) ------------------------------------------------------
+// One silhouette per kind of mapped device, so the map tells an ALPR reader
+// from a dome camera, a speed camera or an acoustic sensor at a glance; the
+// layers tint them. Keyline first (a dark ground so they read on any imagery),
+// then the ink. LOCATIONS only: nothing reads what any device sees.
+
+/** A closed polygon path. */
+const path = (g, pts) => {
+  g.beginPath();
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (const [x, y] of pts.slice(1)) g.lineTo(x, y);
+  g.closePath();
+};
+/** Stroke a polyline twice: a wide keyline, then a thin ink line. */
+const twice = (g, draw, ink = 1.5, key = 3.6) => {
+  for (const [stroke, width] of [
+    [KEYLINE, key],
+    [INK, ink],
+  ]) {
+    g.strokeStyle = stroke;
+    g.lineWidth = width;
+    g.beginPath();
+    draw();
+    g.stroke();
+  }
+};
+
+const OSM_SHAPES = {
+  // A bullet camera on a wall arm, lens to the right: a fixed camera.
+  'cam-fixed': (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 2.5, 13.5, 8);
+    g.fillRect(13.5, 4, 2.5, 5);
+    g.fillRect(3, 9.5, 4, 6);
+    g.fillStyle = INK;
+    g.fillRect(2.3, 3.8, 10.4, 5.4);
+    g.fillRect(12.7, 5, 2.2, 3);
+    g.fillRect(4.4, 9.2, 1.4, 4.2);
+    g.fillRect(2.4, 12.8, 5.2, 1.4);
+    g.fillStyle = KEYLINE;
+    g.fillRect(4, 5.8, 5, 1.4);
+  },
+  // A dome hanging from its ceiling plate, the lens inside: a dome camera.
+  'cam-dome': (g) => {
+    const dome = [
+      [3.2, 5.6],
+      [12.8, 5.6],
+      [12.8, 8.4],
+      [10.4, 12],
+      [5.6, 12],
+      [3.2, 8.4],
+    ];
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 1.5, 14, 5);
+    path(g, dome);
+    g.lineWidth = 3.6;
+    g.strokeStyle = KEYLINE;
+    g.stroke();
+    g.fill();
+    g.fillStyle = INK;
+    g.fillRect(2.2, 2.8, 11.6, 1.8);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    path(g, dome);
+    g.stroke();
+    g.fillRect(6.6, 7, 2.8, 2.8);
+  },
+  // A small dome with pan arrows either side: a pan-tilt-zoom camera.
+  'cam-ptz': (g) => {
+    const dome = [
+      [5, 5.6],
+      [11, 5.6],
+      [11, 8.2],
+      [9.4, 10.6],
+      [6.6, 10.6],
+      [5, 8.2],
+    ];
+    g.fillStyle = KEYLINE;
+    g.fillRect(3, 1.5, 10, 5);
+    path(g, dome);
+    g.lineWidth = 3.6;
+    g.strokeStyle = KEYLINE;
+    g.stroke();
+    g.fill();
+    path(g, [
+      [0.4, 8],
+      [4.2, 4.6],
+      [4.2, 11.4],
+    ]);
+    g.fill();
+    path(g, [
+      [15.6, 8],
+      [11.8, 4.6],
+      [11.8, 11.4],
+    ]);
+    g.fill();
+    g.fillStyle = INK;
+    g.fillRect(4.2, 2.8, 7.6, 1.8);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.3;
+    path(g, dome);
+    g.stroke();
+    g.fillRect(7, 6.9, 2, 2);
+    path(g, [
+      [1.6, 8],
+      [3.4, 6.3],
+      [3.4, 9.7],
+    ]);
+    g.fill();
+    path(g, [
+      [14.4, 8],
+      [12.6, 6.3],
+      [12.6, 9.7],
+    ]);
+    g.fill();
+  },
+  // A camera box on a post with its lens and two speed strokes: a speed camera.
+  speedcam: (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1.5, 1, 13, 9.5);
+    g.fillRect(6, 10, 4, 6);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.5;
+    g.strokeRect(2.75, 2.25, 10.5, 7);
+    g.fillStyle = INK;
+    g.fillRect(8.8, 3.9, 3, 3.7);
+    g.fillRect(4.2, 4, 3.2, 1.3);
+    g.fillRect(4.2, 6.3, 2.2, 1.3);
+    g.fillRect(7.3, 9.6, 1.4, 5.2);
+  },
+  // A signal head beside a camera: a red-light camera.
+  redlight: (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(1, 0.5, 7, 15);
+    g.fillRect(7, 3.5, 8.5, 7);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(2.2, 1.7, 4.6, 12.6);
+    g.fillStyle = INK;
+    g.fillRect(3.5, 3, 2, 2.4);
+    g.strokeRect(3.6, 6.9, 1.8, 2);
+    g.strokeRect(3.6, 10.4, 1.8, 2);
+    g.fillRect(6.8, 6.3, 1.6, 1.4);
+    g.fillRect(8.4, 4.7, 5.8, 4.6);
+    g.fillStyle = KEYLINE;
+    g.fillRect(12.2, 6.2, 1.4, 1.6);
+  },
+  // A sensor square with sound chevrons either side: an acoustic (gunshot) sensor.
+  acoustic: (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(5, 5, 6, 6);
+    twice(g, () => {
+      g.moveTo(4, 4.6);
+      g.lineTo(2.4, 8);
+      g.lineTo(4, 11.4);
+      g.moveTo(12, 4.6);
+      g.lineTo(13.6, 8);
+      g.lineTo(12, 11.4);
+    });
+    twice(
+      g,
+      () => {
+        g.moveTo(2, 2.4);
+        g.lineTo(0.6, 4.6);
+        g.moveTo(14, 2.4);
+        g.lineTo(15.4, 4.6);
+        g.moveTo(2, 13.6);
+        g.lineTo(0.6, 11.4);
+        g.moveTo(14, 13.6);
+        g.lineTo(15.4, 11.4);
+      },
+      1.2,
+      3,
+    );
+    g.fillStyle = INK;
+    g.fillRect(6.2, 6.2, 3.6, 3.6);
+  },
+  // A sentry box: roof, walls and a window slot: a guard post.
+  guardpost: (g) => {
+    const roof = [
+      [1, 6.6],
+      [8, 1],
+      [15, 6.6],
+    ];
+    g.fillStyle = KEYLINE;
+    path(g, roof);
+    g.lineWidth = 2.5;
+    g.strokeStyle = KEYLINE;
+    g.stroke();
+    g.fill();
+    g.fillRect(2, 6, 12, 9.5);
+    g.fillStyle = INK;
+    path(g, [
+      [2.6, 6.2],
+      [8, 2],
+      [13.4, 6.2],
+    ]);
+    g.fill();
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(3.4, 6.9, 9.2, 7.6);
+    g.fillRect(5, 8.6, 6, 2.2);
+  },
+  // A signal head: housing and three lamps, the top one lit: traffic lights.
+  signal: (g) => {
+    g.fillStyle = KEYLINE;
+    g.fillRect(3.5, 0.5, 9, 15);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(4.7, 1.7, 6.6, 12.6);
+    g.fillStyle = INK;
+    g.fillRect(6.4, 3.2, 3.2, 2.6);
+    g.globalAlpha = 0.6;
+    g.fillRect(6.4, 6.7, 3.2, 2.6);
+    g.globalAlpha = 0.32;
+    g.fillRect(6.4, 10.2, 3.2, 2.6);
+    g.globalAlpha = 1;
+  },
+};
+for (const [name, draw] of Object.entries(OSM_SHAPES)) SHAPES[name] ??= draw;
+
 export const GLYPH_NAMES = Object.keys(SHAPES);
 
 const cache = new Map();

@@ -268,6 +268,68 @@ async function setupScene(app, splash) {
   // when the proxy reports the feed configured (its key is set).
   const keyed = (id) => Boolean(health && feedConfigured(health, id));
 
+  // OSM map objects (surveillance, traffic lights, landmarks): fetched once per
+  // tile and kept for hours (core/layers/overpass/tiles.js). "Nearest" counts
+  // from your own position while the view follows you (the car's follow view,
+  // or a shell that reports app.followingSelf()), else from the ground in the
+  // middle of the view. RELOAD (VIEW > SURVEILLANCE) fetches the areas again.
+  const [{ computeViewportQuery }, { windowToLatLon }, { createLandmarksLoader }] =
+    await Promise.all([
+      import('./core/layers/sdk/viewport.js'),
+      import('./core/scene/sketch.js'),
+      import('./core/layers/landmarks/parse.js'),
+    ]);
+  const followFix = () => {
+    const car = app.shell === 'car' ? window.argusCar?.state?.() : null;
+    if (car?.following && car.fix) return { lat: car.fix.lat, lon: car.fix.lon };
+    const f = app.followingSelf?.() ? app.selfPosition?.get?.() : null;
+    return f ? { lat: f.lat, lon: f.lon } : null;
+  };
+  const osm = {
+    sources: {},
+    // One tile loader for the Landmarks layer and TOOLS > LANDMARKS.
+    landmarks: proxyClient ? createLandmarksLoader({ proxyClient }) : null,
+    middle: () => {
+      const cv = app.viewer.scene.canvas;
+      return windowToLatLon(app.viewer, {
+        x: cv.clientWidth / 2,
+        y: cv.clientHeight / 2,
+      });
+    },
+    anchor: () => followFix() ?? osm.middle(),
+    view: () => computeViewportQuery(app.viewer).bbox,
+    scope: (key) => ({
+      mode: () =>
+        key === 'surveillance' ? (app.settings?.get('survScope') ?? 'nearest') : 'all',
+      anchor: osm.anchor,
+      view: osm.view,
+    }),
+    keep: (key, source) => (osm.sources[key] = source),
+    refresh: (key) => manager.getLayer(key)?.refresh?.(),
+    reload() {
+      osm.landmarks?.reload();
+      for (const [key, source] of Object.entries(osm.sources)) {
+        source.reload?.();
+        osm.refresh(key);
+      }
+    },
+  };
+  // Following yourself never settles the camera (no moveEnd): re-pick the
+  // nearest surveillance every few seconds once you have moved 150 m.
+  let lastFollow = null;
+  setInterval(() => {
+    if (document.hidden || !manager.isEnabled('surveillance')) return;
+    const f = followFix();
+    if (!f || app.settings?.get('survScope') === 'all') return;
+    const k = Math.cos((f.lat * Math.PI) / 180);
+    const moved = lastFollow
+      ? Math.hypot((f.lon - lastFollow.lon) * k, f.lat - lastFollow.lat) * 111_000
+      : Infinity;
+    if (moved < 150) return;
+    lastFollow = f;
+    osm.refresh('surveillance');
+  }, 4000);
+
   const registrations = [
     {
       key: 'flights',
@@ -442,6 +504,34 @@ async function setupScene(app, splash) {
         import.meta.env.DEV
           ? import('./core/layers/bikeshare/mockSource.js').then((m) =>
               m.createBikeshareMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'signals',
+      group: 'Ground & sea',
+      label: 'Traffic lights',
+      loadDef: () =>
+        import('./core/layers/signals/definition.js').then((m) =>
+          m.createSignalsDefinition({ tier: app.tier, scope: osm.scope('signals') }),
+        ),
+      // OSM traffic signals, only in views about 20 km across or less, each
+      // tile fetched once and kept for a day.
+      proxy: async (c) => {
+        const { createSignalsSource } = await import('./core/layers/signals/parse.js');
+        return osm.keep(
+          'signals',
+          createSignalsSource({
+            proxyClient: c,
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('signals'),
+          }),
+        );
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/signals/mockSource.js').then((m) =>
+              m.createSignalsMockSource({ viewer: app.viewer }),
             )
           : Promise.resolve(null),
     },
@@ -778,14 +868,32 @@ async function setupScene(app, splash) {
       label: 'Surveillance',
       loadDef: () =>
         import('./core/layers/surveillance/definition.js').then((m) =>
-          m.createSurveillanceDefinition({ tier: app.tier }),
+          m.createSurveillanceDefinition({
+            tier: app.tier,
+            scope: osm.scope('surveillance'),
+          }),
         ),
+      // OSM cameras, ALPR readers (DeFlock's mapping), acoustic sensors, guard
+      // posts, speed and red-light cameras; each tile fetched once, kept 12 h.
       proxy: async (c) => {
-        const { createOverpassSource } = await import('./core/layers/overpass/client.js');
-        return createOverpassSource({
-          proxyClient: c,
-          filters: ['node["man_made"="surveillance"]', 'way["man_made"="surveillance"]'],
-        });
+        const {
+          createSurveillanceSource,
+          SURVEILLANCE_VIEW_TILES: SURV_VIEW_TILES,
+          SURVEILLANCE_NEAREST_TILES: SURV_NEAR_TILES,
+        } = await import('./core/layers/surveillance/source.js');
+        return osm.keep(
+          'surveillance',
+          createSurveillanceSource({
+            proxyClient: c,
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('surveillance'),
+            // NEAREST needs only the tiles around the anchor; ALL IN VIEW more.
+            viewTiles: () =>
+              app.settings?.get('survScope') === 'all'
+                ? SURV_VIEW_TILES
+                : SURV_NEAR_TILES,
+          }),
+        );
       },
       mock: () =>
         import.meta.env.DEV
@@ -802,12 +910,18 @@ async function setupScene(app, splash) {
         import('./core/layers/landmarks/definition.js').then(
           (m) => m.landmarksDefinition,
         ),
-      proxy: async (c) => {
-        const { createOverpassSource } = await import('./core/layers/overpass/client.js');
-        return createOverpassSource({
-          proxyClient: c,
-          filters: ['node["tourism"]', 'node["historic"]'],
-        });
+      // Named OSM landmarks; the same tiles as TOOLS > LANDMARKS (NEARBY).
+      proxy: async () => {
+        if (!osm.landmarks) return null;
+        const { createLandmarksSource } =
+          await import('./core/layers/landmarks/parse.js');
+        return osm.keep(
+          'landmarks',
+          createLandmarksSource(osm.landmarks, {
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('landmarks'),
+          }),
+        );
       },
       mock: () =>
         import.meta.env.DEV
@@ -1654,6 +1768,97 @@ async function setupScene(app, splash) {
     ),
   );
 
+  // SURVEILLANCE: the nearest 60 (to the middle of the view, or to you while
+  // the view follows you) or everything in view, re-picked from the tiles
+  // already held; RELOAD OSM fetches the OSM layers' areas again.
+  // CAMERA PREVIEWS: stills beside the nearest traffic cameras and webcams when
+  // zoomed in (core/ui/cameraPreviews.js); off in the car (driver distraction).
+  const [{ createCameraPreviews }, { loadStill: loadPreviewStill }] = await Promise.all([
+    import('./core/ui/cameraPreviews.js'),
+    import('./core/layers/trafficcams/still.js'),
+  ]);
+  view.push(
+    section(
+      'SURVEILLANCE',
+      createChoice({
+        label: 'Surveillance shows',
+        options: [
+          {
+            id: 'nearest',
+            label: 'Nearest 60',
+            title: 'The 60 nearest the middle of the view',
+          },
+          { id: 'all', label: 'All in view', title: 'Every mapped device in view' },
+        ],
+        current: settings?.get('survScope') ?? 'nearest',
+        onSelect: (id) => {
+          settings?.set('survScope', id);
+          osm.refresh('surveillance');
+        },
+      }).el,
+      h(
+        'button.ct-btn',
+        {
+          type: 'button',
+          title: 'Fetch the surveillance, traffic light and landmark areas again',
+          onclick: () => {
+            osm.reload();
+            notify({ title: 'OSM LAYERS RELOADING', level: 'low', timeoutMs: 2000 });
+          },
+        },
+        'RELOAD OSM',
+      ),
+      h(
+        'div.ct-section__note',
+        {},
+        'OpenStreetMap and DeFlock mapping: locations only. Each area is fetched once and kept for 12 to 24 h.',
+      ),
+    ),
+  );
+  let hubAt = null;
+  overlay.subscribe((sum) => (hubAt = sum.hub?.visible ? sum.hub : null));
+  const previews = createCameraPreviews(app.viewer, {
+    getLayers: () => manager.active(),
+    loadStill: loadPreviewStill,
+    getInsets: () => overlay.geometry().insets,
+    idFor: (t) => overlay.idFor(t),
+    onSelect: (t) => tracker?.select(t),
+    isBusy: () => Boolean(tracking?.cockpit?.isActive?.()),
+    // Keep clear of the selected target's name on the map.
+    avoid: () => (hubAt ? [{ x: hubAt.x - 24, y: hubAt.y - 26, w: 280, h: 52 }] : []),
+    enabled: app.shell !== 'car' && settings?.get('camPreviews') !== false,
+    count: settings?.get('camPreviewCount') ?? 4,
+  });
+  app.cameraPreviews = previews;
+  view.push(
+    section(
+      'CAMERA PREVIEWS',
+      createSwitch({
+        label: 'Show stills',
+        on: previews.enabled,
+        title: 'Stills beside the nearest traffic cameras and webcams when zoomed in',
+        onToggle: (on) => {
+          settings?.set('camPreviews', on);
+          previews.setEnabled(on);
+        },
+      }).el,
+      createChoice({
+        caption: 'Previews',
+        options: [2, 4, 6, 8].map((n) => ({ id: n, label: String(n) })),
+        current: settings?.get('camPreviewCount') ?? 4,
+        onSelect: (n) => {
+          settings?.set('camPreviewCount', n);
+          previews.setCount(n);
+        },
+      }).el,
+      h(
+        'div.ct-section__note',
+        {},
+        'Under 15 km across. Each still refreshes at most once a minute while its layer is on. Display only.',
+      ),
+    ),
+  );
+
   // Weather history: step the timed overlays (radar, clouds, lightning) back
   // through the last day of observations. Shown once a product reports times.
   const { createWeatherStrip } = await import('./core/ui/weatherStrip.js');
@@ -2229,22 +2434,56 @@ async function setupScene(app, splash) {
   });
   intel.push(tour.el);
 
-  // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
+  // LANDMARKS: the named landmarks nearby the middle of the view, from OSM
+  // (the Landmarks layer's tiles, fetched once); fly there or SAVE to MY PLACES.
+  const [landmarkParse, { categoryLabel }, { loadAround, viewSizeKm }, unitsFmt] =
+    await Promise.all([
+      import('./core/layers/landmarks/parse.js'),
+      import('./core/layers/landmarks/format.js'),
+      import('./core/layers/overpass/tiles.js'),
+      import('./core/settings/store.js'),
+    ]);
   intel.push(
     createPoiTool({
+      nearby: async (at, radiusKm) => {
+        if (osm.landmarks) {
+          const r = await loadAround(osm.landmarks, at, radiusKm);
+          if (!r.items.length && r.failed) throw new Error('the OSM areas did not load');
+          return r.items;
+        }
+        if (!dev) return [];
+        const { mockLandmarksAround } =
+          await import('./core/layers/landmarks/mockSource.js');
+        return landmarkParse.parseLandmarks(mockLandmarksAround(at, radiusKm));
+      },
+      centre: () => osm.middle(),
+      viewKm: () => viewSizeKm(osm.view()).w,
+      from: () => {
+        const g = camera.groundPosition();
+        return { lat: g.latitude, lon: g.longitude };
+      },
       flyTo: (v) => {
         orbit.stop();
         tracker.unfollow?.();
         camera.flyAround({
           longitude: v.lon,
           latitude: v.lat,
-          height: v.targetM ?? 0,
-          groundM: v.groundM ?? 0,
-          range: v.alt,
+          height: v.height,
+          range: v.range,
           heading: v.heading,
           pitch: v.pitch,
         });
       },
+      save: (n) =>
+        placesStore.add({
+          name: n.meta.name,
+          lat: n.position.latitude,
+          lon: n.position.longitude,
+          kind: 'landmark',
+          note: `${categoryLabel(n.meta.category)} (OpenStreetMap)`,
+        }),
+      notify,
+      formatDistance: (m) => unitsFmt.formatDistance(m, settings?.get('units')),
     }).el,
   );
   const { createRadioTuner } = await import('./core/ui/radioTuner.js');
@@ -2618,6 +2857,7 @@ async function setupScene(app, splash) {
       notifier,
       imagery,
       labels,
+      cameraPreviews: previews,
     });
 }
 

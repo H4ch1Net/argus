@@ -73,6 +73,8 @@ export const LAYER_INK = Object.freeze({
   terminator: INK.slate,
   tor: INK.teal,
   gdelt: INK.dimmer,
+  // Traffic lights (OSM): street furniture, a quiet pale ink.
+  signals: INK.pale,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

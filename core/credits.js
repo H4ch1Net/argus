@@ -45,6 +45,7 @@ export const GROUP_LABELS = {
 const OSM_LAYERS = [
   'surveillance',
   'landmarks',
+  'signals',
   'datacenters',
   'installations',
   'dams',
@@ -456,9 +457,29 @@ export const CREDITS = [
     terms:
       'Public instance under its usage policy (fair use, about 10,000 queries and 1 GB a day); data ODbL 1.0 from OpenStreetMap',
     url: 'https://overpass-api.de',
-    layers: ['surveillance', 'landmarks', 'datacenters', 'installations', 'dams'],
+    layers: [
+      'surveillance',
+      'landmarks',
+      'signals',
+      'datacenters',
+      'installations',
+      'dams',
+    ],
     feeds: ['overpass'],
     hosts: ['overpass-api.de'],
+    attribution: 'courtesy',
+  },
+  {
+    // DeFlock maps ALPR readers into OpenStreetMap (surveillance:type=ALPR with
+    // manufacturer / operator tags); the surveillance layer reads them from OSM
+    // through Overpass and never contacts deflock.me itself.
+    id: 'deflock',
+    name: 'DeFlock (ALPR mapping in OpenStreetMap)',
+    terms:
+      'Crowd-sourced ALPR locations contributed to OpenStreetMap; the data is ODbL 1.0 as part of OSM',
+    url: 'https://deflock.me',
+    layers: ['surveillance'],
+    hosts: ['deflock.me'],
     attribution: 'courtesy',
   },
   {

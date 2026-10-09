@@ -47,6 +47,11 @@ export const SETTINGS_SCHEMA = Object.freeze({
   atmosphere: { def: true, values: [true, false] },
   stars: { def: true, values: [true, false] },
   exaggeration: { def: 1, values: [1, 1.5, 2, 3] },
+  // Map objects (VIEW): surveillance draws the nearest 60 or all in view;
+  // camera previews show stills beside the nearest cameras (off in the car).
+  survScope: { def: 'nearest', values: ['nearest', 'all'] },
+  camPreviews: { def: true, values: [true, false] },
+  camPreviewCount: { def: 4, values: [2, 4, 6, 8] },
 });
 
 /** The defaults, as a fresh object. */

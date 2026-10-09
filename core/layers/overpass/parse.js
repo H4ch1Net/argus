@@ -20,3 +20,11 @@ export function parseOverpass(json) {
   }
   return out;
 }
+
+/** The OSM page of a record ({ meta: { osmType, osmId } }) as a card link, or null. */
+export function osmLink(n) {
+  const t = n?.meta?.osmType;
+  const id = n?.meta?.osmId;
+  if (!/^(node|way|relation)$/.test(t || '') || !Number.isFinite(Number(id))) return null;
+  return { label: 'OpenStreetMap', url: `https://www.openstreetmap.org/${t}/${id}` };
+}
