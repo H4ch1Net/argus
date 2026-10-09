@@ -2,9 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { feeds } from '../feeds.js';
-import { osrmStopsAllowed } from '../feeds/nav.js';
+import { osrmStopsAllowed, valhallaQueryOk } from '../feeds/nav.js';
 import { createRequestHandler } from '../lib/app.js';
 import { loadConfig } from '../lib/config.js';
+import { buildUpstreamUrl } from '../lib/relay.js';
+import { createGovernor } from '../lib/governor.js';
+import * as nav from '../../core/nav/providers.js';
+import { tomtomSearchRequest } from '../../core/nav/search.js';
 
 const feed = (id) => feeds.find((f) => f.id === id);
 const pathOk = (id, p) => feed(id).allowPaths.some((re) => re.test(p));
@@ -127,4 +131,170 @@ test('a route request crosses the relay with its stops intact', async (t) => {
   );
   assert.equal(badQuery.status, 403);
   assert.equal(seen.length, 1);
+});
+
+// --- Valhalla, TomTom Routing and TomTom Search: exactly what core/nav builds ---
+
+/** Whether the feed admits a request as core/nav builds it ({ feed, path, params }). */
+function admits(req) {
+  const f = feed(req.feed);
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.params ?? {})) q.set(k, String(v));
+  const target = buildUpstreamUrl(f, req.path, `?${q}`);
+  return (
+    f.allowPaths.some((re) => re.test(target.pathname)) &&
+    f.allowQuery(target.searchParams)
+  );
+}
+
+const A = { lat: 37.7749, lon: -122.4194 };
+const B = { lat: 37.7599, lon: -122.4148 };
+
+test('valhalla: every request core sends passes; other shapes do not', () => {
+  for (const mode of ['drive', 'walk', 'bike'])
+    for (const avoidHighways of [false, true])
+      for (const heading of [null, 359.6, 12])
+        assert.equal(
+          admits(nav.valhalla.request(A, B, { mode, avoidHighways, heading })),
+          true,
+        );
+  const ok = JSON.parse(nav.valhalla.request(A, B, { avoidHighways: true }).params.json);
+  const bad = (patch) => valhallaQueryOk(JSON.stringify({ ...ok, ...patch }));
+  assert.equal(bad({}), true);
+  assert.equal(
+    bad({ locations: [...ok.locations, ok.locations[1]] }),
+    false,
+    'three stops',
+  );
+  assert.equal(
+    bad({ locations: [ok.locations[0], { lat: 40.4, lon: -3.7 }] }),
+    false,
+    'too far',
+  );
+  assert.equal(bad({ locations: [{ lat: 91, lon: 0 }, ok.locations[1]] }), false);
+  assert.equal(bad({ costing: 'truck' }), false);
+  assert.equal(bad({ costing: 'pedestrian' }), false, 'use_highways is for driving');
+  assert.equal(
+    bad({ costing_options: { auto: { use_highways: 0, top_speed: 300 } } }),
+    false,
+  );
+  assert.equal(bad({ alternates: 5 }), false);
+  assert.equal(bad({ directions_options: { units: 'miles' } }), false);
+  assert.equal(bad({ id: 'x' }), false);
+  assert.equal(
+    bad({ locations: [{ ...ok.locations[0], heading: 400 }, ok.locations[1]] }),
+    false,
+  );
+  assert.equal(valhallaQueryOk('{not json'), false);
+  assert.equal(valhallaQueryOk('x'.repeat(2000)), false);
+  assert.equal(pathOk('valhalla', '/route'), true);
+  assert.equal(pathOk('valhalla', '/sources_to_targets'), false);
+  assert.equal(pathOk('valhalla', '/isochrone'), false);
+  const one = encodeURIComponent(JSON.stringify(ok));
+  assert.equal(queryOk('valhalla', `json=${one}`), true);
+  assert.equal(queryOk('valhalla', `json=${one}&json=1`), false);
+  const f = feed('valhalla');
+  assert.match(f.headers['user-agent'], /^Argus\//);
+  assert.equal(f.inject, undefined, 'keyless');
+  assert.ok(f.governor.ratePerMinute <= 30 && f.cache.ttlMs >= 60_000);
+});
+
+test('osrm: the alternatives core asks for now pass', () => {
+  for (const mode of ['drive', 'walk', 'bike'])
+    assert.equal(admits(nav.osrm.request(A, B, { mode })), true);
+});
+
+test('tomtom-routing: what core sends passes; the key is injected, budgeted', () => {
+  for (const mode of ['drive', 'walk', 'bike'])
+    for (const avoidHighways of [false, true])
+      for (const traffic of [true, false])
+        assert.equal(
+          admits(
+            nav.tomtom.request(A, B, { mode, avoidHighways, traffic, heading: 270.4 }),
+          ),
+          true,
+        );
+  const req = nav.tomtom.request(A, B, {});
+  assert.equal(
+    admits({ ...req, path: '/calculateRoute/51.5,-0.13:40.4,-3.7/json' }),
+    false,
+    'leg over 600 km',
+  );
+  assert.equal(
+    admits({ ...req, path: '/calculateRoute/1,1:2,2:3,3/json' }),
+    false,
+    'via points',
+  );
+  assert.equal(admits({ ...req, path: '/calculateReachableRange/1,1/json' }), false);
+  assert.equal(admits({ ...req, params: { ...req.params, key: 'mine' } }), false);
+  assert.equal(
+    admits({ ...req, params: { ...req.params, maxAlternatives: '5' } }),
+    false,
+  );
+  assert.equal(admits({ ...req, params: { ...req.params, avoid: 'tollRoads' } }), false);
+  const f = feed('tomtom-routing');
+  assert.deepEqual(f.inject, [{ secret: 'TOMTOM_API_KEY', as: 'query', name: 'key' }]);
+  let t = 0;
+  const gov = createGovernor([f], () => t);
+  let granted = 0;
+  for (let i = 0; i < 260; i += 1) {
+    t += 7000;
+    if (gov.acquire('tomtom-routing', '/x').ok) granted += 1;
+  }
+  assert.equal(granted, 200);
+});
+
+test('tomtom-search: what core sends passes; nothing else', () => {
+  for (const q of ['ferry building', 'Zürich HB', '1600 Amphitheatre Pkwy', 'a/b?c#d'])
+    for (const near of [null, { lat: 37.78123, lon: -122.41 }])
+      assert.equal(admits(tomtomSearchRequest(q, near, 8)), true, q);
+  const req = tomtomSearchRequest('cafe', { lat: 1, lon: 2 });
+  assert.equal(admits({ ...req, params: { ...req.params, radius: '100' } }), false);
+  assert.equal(admits({ ...req, params: { ...req.params, limit: '100' } }), false);
+  const halfBias = { ...req.params };
+  delete halfBias.lon;
+  assert.equal(admits({ ...req, params: halfBias }), false, 'half a bias');
+  assert.equal(admits({ ...req, path: '/nearbySearch/.json' }), false);
+  assert.equal(admits({ ...req, path: '/search/a/b.json' }), false);
+  assert.deepEqual(feed('tomtom-search').inject, [
+    { secret: 'TOMTOM_API_KEY', as: 'query', name: 'key' },
+  ]);
+  assert.equal(feed('tomtom-search').governor.creditBudget, 250);
+});
+
+test('TomTom routing through the relay: key server side, 502 without it', async (t) => {
+  const seen = [];
+  const upstream = await listen((req, res) => {
+    seen.push(req.url);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{"routes":[]}');
+  });
+  const local = {
+    ...feed('tomtom-routing'),
+    baseUrl: `http://127.0.0.1:${upstream.address().port}/routing/1`,
+  };
+  const proxy = await listen(
+    createRequestHandler({ config: loadConfig({}), feeds: [local], tokenManagers: {} }),
+  );
+  const saved = process.env.TOMTOM_API_KEY;
+  t.after(() => {
+    upstream.close();
+    proxy.close();
+    if (saved === undefined) delete process.env.TOMTOM_API_KEY;
+    else process.env.TOMTOM_API_KEY = saved;
+  });
+  const req = nav.tomtom.request(A, B, {});
+  const url = `${base(proxy)}/feed/tomtom-routing${req.path}?${new URLSearchParams(req.params)}`;
+  delete process.env.TOMTOM_API_KEY;
+  assert.equal((await fetch(url)).status, 502);
+  process.env.TOMTOM_API_KEY = 'tt-secret';
+  const res = await fetch(url);
+  assert.equal(res.status, 200);
+  const sent = new URL(seen[0], 'http://x');
+  assert.equal(
+    sent.pathname,
+    '/routing/1/calculateRoute/37.7749,-122.4194:37.7599,-122.4148/json',
+  );
+  assert.equal(sent.searchParams.get('key'), 'tt-secret');
+  assert.equal(sent.searchParams.get('computeTravelTimeFor'), 'all');
 });
