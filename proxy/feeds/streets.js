@@ -56,7 +56,7 @@ export const feeds = [
     // TomTom Traffic Flow Segment Data (Traffic API v4): current and free-flow
     // speed of the road segment nearest a point, with the segment's geometry.
     // The simulated traffic samples a few points per view (bigger roads first,
-    // two-minute cache per point) and the VIEW flow readout asks for the road
+    // each answer kept five minutes) and the VIEW flow readout asks for the road
     // under the middle of the view. Same free TOMTOM_API_KEY as the flow tiles
     // and incidents, injected as ?key=. TomTom's free tier allows about 2,500
     // non-tile requests a day across incidents and this feed: incidents keep

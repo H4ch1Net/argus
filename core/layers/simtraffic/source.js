@@ -30,7 +30,7 @@ import {
 //            30 minutes per tile; at most a handful of tiles per view, nearest
 //            first, fetched one at a time so Overpass is never hammered.
 //   flow     TomTom Flow Segment Data at a budgeted few points per view
-//            (flow.js), each answer cached two minutes and re-matched onto
+//            (flow.js), each answer kept five minutes and re-matched onto
 //            every network built while it is fresh. Without a TomTom key the
 //            simulation runs at free-flow speeds and says so.
 
@@ -224,7 +224,7 @@ export function createTrafficModel({
     const t = now();
     const out = [];
     for (const [k, v] of segments) {
-      if (t - v.at > FLOW_TTL_MS * 1.5) segments.delete(k);
+      if (t - v.at > FLOW_TTL_MS * 1.2) segments.delete(k);
       else out.push(v.seg);
     }
     return out;

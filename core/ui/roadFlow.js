@@ -11,7 +11,7 @@ import { CONGESTION_COLORS } from '../layers/simtraffic/format.js';
 // (current / free-flow, and the ratio), from the same pinned, budgeted
 // 'tomtom-flowseg' feed the simulated traffic samples. Off by default (VIEW >
 // ROAD FLOW): it spends a TomTom request when the view settles somewhere new
-// below 25 km, at most one every 15 s, and reuses an answer for two minutes
+// below 25 km, at most one every 15 s, and reuses an answer for five minutes
 // within about 30 m. On the desktop it sits in the bottom strip, on the phone
 // in the intel pane (the shells' 'strip' slot).
 

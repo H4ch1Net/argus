@@ -18,7 +18,12 @@ import { toLocal } from './roads.js';
 export const FLOW_ZOOMS = [10, 12, 14, 16];
 /** Points sampled per view change, by capability tier. */
 export const FLOW_BUDGET = { minimal: 3, balanced: 5, full: 8 };
-export const FLOW_TTL_MS = 2 * 60_000;
+/**
+ * How long a measured segment stands: congestion changes over minutes, and a
+ * still view should cost a handful of requests every few minutes, not a
+ * stream (the feed's daily cap is shared with the flow readout).
+ */
+export const FLOW_TTL_MS = 5 * 60_000;
 export const TOMTOM_FLOW_CREDIT = 'Traffic flow © TomTom';
 
 /** The flowSegmentData sub-path for a road rank (bigger roads at lower zoom). */
