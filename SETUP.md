@@ -455,7 +455,9 @@ on screen.
 - **Zoom and view**: the view stack's **+ / -** cells are the dependable option
   on a laptop trackpad (hold to repeat). Mouse wheel and two-finger scroll also
   zoom; left-drag rotates; right-drag (or middle-drag) tilts. On the phone:
-  pinch to zoom, two fingers to tilt. Below the zoom cells: **N** turns north up,
+  pinch to zoom, twist two fingers to turn, slide two fingers up or down
+  together to tilt (each starts past a small dead zone, so a pinch never turns
+  the map). Below the zoom cells: **N** turns north up,
   **TLT** switches between straight down and an oblique view, **⌂** returns to
   the whole Earth, **GEO** flies to your position (it asks for location).
 - **Selecting a contact**: click or tap it. The camera does not move: the target
