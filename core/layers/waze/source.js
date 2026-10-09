@@ -44,6 +44,7 @@ const DEMO_ALERTS = [
   ['JAM', 'JAM_HEAVY_TRAFFIC'],
   ['WEATHERHAZARD', 'HAZARD_WEATHER_FOG'],
   ['CONSTRUCTION', ''],
+  ['POLICE', 'POLICE_VISIBLE'],
 ];
 
 /** Dev / demo stand-in: Waze-shaped alerts and jams over the requested view. */

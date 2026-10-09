@@ -237,6 +237,7 @@ export const GLYPHS = {
       closure: '⊘',
       hazard: '!',
       weather: '≈',
+      police: '⊽',
     },
     relay: { exit: '»', guard: '◙', middle: '∙' },
     news: '¶',
@@ -283,6 +284,7 @@ export const GLYPHS = {
       closure: '0',
       hazard: '!',
       weather: '~',
+      police: 'P',
     },
     relay: { exit: '>', guard: 'g', middle: 'o' },
     news: 'n',
@@ -1122,8 +1124,8 @@ export function buildLayers({
     },
     {
       // Waze's live map, unofficial (personal use); your own waze-server when
-      // the proxy has LOCAL_WAZE_URL. Road alerts and jams only: never users,
-      // never police reports (core/layers/waze/parse.js).
+      // the proxy has LOCAL_WAZE_URL. The alerts and jams Waze shows drivers:
+      // never users or reporter names (core/layers/waze/parse.js).
       key: 'waze',
       label: 'Waze alerts (unofficial)',
       mode: 'poll',
@@ -1151,7 +1153,7 @@ export function buildLayers({
           .filter(Boolean)
           .join(' · '),
       legend: () =>
-        `${g.incident.accident} accident ${g.incident.jam} jam ${g.incident.hazard} hazard ${g.incident.closure} closed (Waze, unofficial; red = critical)`,
+        `${g.incident.accident} accident ${g.incident.jam} jam ${g.incident.hazard} hazard ${g.incident.closure} closed ${g.incident.police} police (Waze, unofficial; red = critical)`,
     },
     {
       key: 'tor',

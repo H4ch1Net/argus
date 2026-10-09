@@ -88,11 +88,12 @@ const LIVE = {
   users: [{ id: 'u1', location: { x: -122.4, y: 37.7 }, userName: 'wazer' }],
 };
 
-test('alerts and jams normalize; police, chatter, users and reporters never do', () => {
+test('alerts and jams normalize; chatter, users and reporters never do', () => {
   const list = parseWaze(LIVE);
   const ids = list.map((n) => n.id);
   assert.deepEqual(ids, [
     'waze/a/a1',
+    'waze/a/a2',
     'waze/a/a4',
     'waze/a/a5',
     'waze/a/a6',
@@ -100,7 +101,7 @@ test('alerts and jams normalize; police, chatter, users and reporters never do',
     'waze/j/j2',
   ]);
   const text = JSON.stringify(list);
-  for (const banned of ['POLICE', 'someone', 'free text', 'wazer', 'u1']) {
+  for (const banned of ['someone', 'free text', 'wazer', 'u1']) {
     assert.equal(text.includes(banned), false, banned);
   }
   const a1 = list[0];
@@ -110,14 +111,15 @@ test('alerts and jams normalize; police, chatter, users and reporters never do',
   assert.equal(a1.meta.label, 'Major accident');
   assert.equal(a1.meta.thumbs, 4);
   assert.deepEqual(
-    list.slice(1, 4).map((n) => [n.meta.kind, n.meta.label]),
+    list.slice(1, 5).map((n) => [n.meta.kind, n.meta.label]),
     [
+      ['police', 'Police (visible)'],
       ['hazard', 'Pothole'],
       ['weather', 'Fog'],
       ['closure', 'Road closed (construction)'],
     ],
   );
-  const [j1, j2] = list.slice(4);
+  const [j1, j2] = list.slice(5);
   assert.equal(j1.type, 'waze-jam');
   assert.equal(j1.meta.speedKmh, 9);
   assert.equal(j1.meta.severity, 'notable');
@@ -136,8 +138,9 @@ test('a waze-server answer (flat latitude / longitude, subType) reads the same',
       { type: 'POLICE', subType: 'POLICE_HIDING', latitude: 33.8, longitude: -84.3 },
     ],
   });
-  assert.equal(list.length, 1);
+  assert.equal(list.length, 2);
   assert.equal(list[0].meta.label, 'Minor accident');
+  assert.equal(list[1].meta.label, 'Police (hidden)');
   assert.equal(list[0].id, 'waze/a/ACCIDENT:33.7,-84.4');
   assert.deepEqual(parseWaze(null), []);
   assert.deepEqual(parseWaze({ alerts: 'x', jams: {} }), []);
@@ -177,8 +180,10 @@ test('boxes snap to 0.01 degree, clip to a degree, and pick the server region', 
 });
 
 test('kinds, labels, glyphs and the card', () => {
-  assert.equal(wazeKind('POLICE', ''), null);
-  assert.equal(wazeKind('HAZARD', 'POLICE_VISIBLE'), null);
+  assert.equal(wazeKind('POLICE', ''), 'police');
+  assert.equal(wazeKind('CHIT_CHAT', ''), null);
+  assert.equal(wazeLabel('POLICE', ''), 'Police reported');
+  assert.equal(wazeGlyph('police'), 'police');
   assert.equal(wazeKind('HAZARD', 'HAZARD_ON_ROAD_LANE_CLOSED'), 'closure');
   assert.equal(wazeKind('CONSTRUCTION', ''), 'roadworks');
   assert.equal(wazeLabel('HAZARD', 'HAZARD_ON_ROAD_SOMETHING_NEW'), 'Something new');
@@ -188,7 +193,7 @@ test('kinds, labels, glyphs and the card', () => {
   assert.equal(reportedAgo(T - 6 * 60_000, T), '6 min ago');
   assert.equal(reportedAgo(T - 3 * 3600_000, T), '3 h ago');
   assert.equal(reportedAgo(null, T), null);
-  const [a1, , , , j1] = parseWaze(LIVE);
+  const [a1, , , , , j1] = parseWaze(LIVE);
   const card = describeWaze(a1, T);
   assert.equal(card.title, 'Major accident');
   assert.equal(card.subtitle, 'Market St, San Francisco');
@@ -231,5 +236,5 @@ test('the source asks the live map, or your waze-server when configured', async 
   assert.deepEqual(none.json, { alerts: [], jams: [] });
   assert.equal(calls.length, 2, 'no request without a view');
   const demo = await createWazeMockSource()({ bbox });
-  assert.equal(parseWaze(demo.json).length, 10);
+  assert.equal(parseWaze(demo.json).length, 11);
 });

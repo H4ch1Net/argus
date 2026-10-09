@@ -1,7 +1,7 @@
 // Waze alert and jam styling and cards. Pure: no Cesium, no DOM (the terminal
 // uses it too). Glyphs are the road incident kinds (core/layers/incidents/
-// format.js); colour is severity from the ctOS palette, red only for a
-// closure, a major accident or a standstill.
+// format.js) plus a shield for police reported; colour is severity from the
+// ctOS palette, red only for a closure, a major accident or a standstill.
 
 import { INK } from '../../ui/palette.js';
 import { INCIDENT_KINDS, formatDelay, formatLength } from '../incidents/format.js';
@@ -10,7 +10,8 @@ import { JAM_LEVELS } from './parse.js';
 const SEVERITY_INK = { critical: 'error', notable: 'white', minor: 'dim' };
 
 /** Glyph name (core/ui/glyphs.js) for a Waze record's kind. */
-export const wazeGlyph = (kind) => INCIDENT_KINDS[kind]?.glyph ?? 'triangle';
+export const wazeGlyph = (kind) =>
+  kind === 'police' ? 'police' : (INCIDENT_KINDS[kind]?.glyph ?? 'triangle');
 
 /** Palette ink name for a severity. */
 export const wazeInkName = (severity) => SEVERITY_INK[severity] ?? 'dim';

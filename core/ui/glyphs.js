@@ -820,6 +820,27 @@ const OSM_SHAPES = {
     g.fillRect(6.4, 10.2, 3.2, 2.6);
     g.globalAlpha = 1;
   },
+  // A square-shouldered shield with a filled core: police reported (Waze).
+  police: (g) => {
+    const shield = (i) => {
+      g.beginPath();
+      g.moveTo(2 + i, 1.5 + i);
+      g.lineTo(14 - i, 1.5 + i);
+      g.lineTo(14 - i, 8.5);
+      g.lineTo(8, 15 - i * 1.3);
+      g.lineTo(2 + i, 8.5);
+      g.closePath();
+    };
+    shield(0);
+    g.fillStyle = KEYLINE;
+    g.fill();
+    shield(1.4);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.stroke();
+    g.fillStyle = INK;
+    g.fillRect(6, 5, 4, 4);
+  },
   // A square speech bubble with three dots: a crowd report (the Waze layer).
   report: (g) => {
     g.fillStyle = KEYLINE;

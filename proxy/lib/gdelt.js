@@ -114,7 +114,10 @@ export function parseLastUpdate(text) {
 
 const clean = (s, n) =>
   String(s ?? '')
-    .replace(/\p{Cc}/gu, ' ')
+    // Control characters (U+0000-001F, U+007F-009F), spelled out: the Node 18
+    // in the Android app has no Unicode property data for \p{Cc}.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, n);

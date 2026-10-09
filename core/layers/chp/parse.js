@@ -61,25 +61,30 @@ const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
 /** Element text: CDATA unwrapped, the five XML entities and numeric refs decoded once, quotes and tags stripped. */
 export function chpText(raw, n = 120) {
-  return String(raw ?? '')
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(
-      /&(?:#(\d{1,6})|#x([0-9a-fA-F]{1,5})|(amp|lt|gt|quot|apos));/g,
-      (_, d, h, e) => {
-        if (e) return ENTITIES[e];
-        const c = d ? Number(d) : parseInt(h, 16);
-        return c > 31 && c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff)
-          ? String.fromCodePoint(c)
-          : ' ';
-      },
-    )
-    .replace(/\p{Cc}/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^"(.*)"$/, '$1')
-    .trim()
-    .slice(0, n);
+  return (
+    String(raw ?? '')
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(
+        /&(?:#(\d{1,6})|#x([0-9a-fA-F]{1,5})|(amp|lt|gt|quot|apos));/g,
+        (_, d, h, e) => {
+          if (e) return ENTITIES[e];
+          const c = d ? Number(d) : parseInt(h, 16);
+          return c > 31 && c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff)
+            ? String.fromCodePoint(c)
+            : ' ';
+        },
+      )
+      // Control characters (U+0000-001F, U+007F-009F), spelled out: the Node 18
+      // in the Android app has no Unicode property data for \p{Cc}.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^"(.*)"$/, '$1')
+      .trim()
+      .slice(0, n)
+  );
 }
 
 const field = (body, tag) => {

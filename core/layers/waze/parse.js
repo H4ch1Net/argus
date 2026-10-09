@@ -14,11 +14,11 @@
 //   GET /waze/traffic-notifications?latBottom&latTop&lonLeft&lonRight, set with
 //   LOCAL_WAZE_URL (this machine or the LAN only).
 //
-// Guardrails: only alerts and jams are ever asked for, never "users" (the live
-// map can also return nearby Wazers' positions); police reports are dropped
-// (locating officers is tracking people, the one thing that script logs);
-// reporter names, free-text descriptions and comments are never read; nothing
-// is archived (the layer shows road conditions now, no history).
+// What is read: the alerts Waze itself shows every driver on its live map
+// (accidents, jams, hazards, closures, construction, police reported), as they
+// stand now. Never "users" (the endpoint can also return nearby Wazers'
+// positions), never reporter names, free-text descriptions or comments, and
+// nothing is archived (no history, unlike that script's CSV log).
 
 export const WAZE_FEED = 'waze';
 export const WAZE_PATH = '/live-map/api/georss';
@@ -112,6 +112,9 @@ const SUBTYPE_LABELS = {
   JAM_MODERATE_TRAFFIC: 'Moderate traffic',
   JAM_HEAVY_TRAFFIC: 'Heavy traffic',
   JAM_STAND_STILL_TRAFFIC: 'Standstill traffic',
+  POLICE_VISIBLE: 'Police (visible)',
+  POLICE_HIDING: 'Police (hidden)',
+  POLICE_WITH_MOBILE_CAMERA: 'Police (mobile camera)',
   HAZARD_ON_ROAD_POT_HOLE: 'Pothole',
   HAZARD_ON_ROAD_OBJECT: 'Object on road',
   HAZARD_ON_ROAD_CAR_STOPPED: 'Stopped vehicle',
@@ -131,6 +134,7 @@ const SUBTYPE_LABELS = {
 const TYPE_LABELS = {
   ACCIDENT: 'Accident',
   JAM: 'Traffic jam',
+  POLICE: 'Police reported',
   HAZARD: 'Hazard',
   WEATHERHAZARD: 'Hazard',
   ROAD_CLOSED: 'Road closed',
@@ -154,12 +158,12 @@ export function wazeLabel(type, subtype) {
 }
 
 /**
- * Kind (one of the road incident kinds) for an alert. Null for what the layer
- * never shows: police reports and chatter.
+ * Kind (the road incident kinds plus police) for an alert. Null for chatter,
+ * which the layer never shows.
  */
 export function wazeKind(type, subtype = '') {
-  if (type === 'POLICE' || /^POLICE/.test(subtype)) return null;
   if (type === 'CHIT_CHAT' || type === 'MISC') return null;
+  if (type === 'POLICE' || /^POLICE/.test(subtype)) return 'police';
   if (type === 'ACCIDENT') return 'accident';
   if (type === 'JAM') return 'jam';
   if (type === 'ROAD_CLOSED') return 'closure';
@@ -173,6 +177,7 @@ function alertSeverity(kind, subtype) {
   if (kind === 'closure' || subtype === 'ACCIDENT_MAJOR') return 'critical';
   if (subtype === 'JAM_STAND_STILL_TRAFFIC') return 'critical';
   if (kind === 'accident' || subtype === 'JAM_HEAVY_TRAFFIC') return 'notable';
+  if (kind === 'police') return 'notable';
   return 'minor';
 }
 
