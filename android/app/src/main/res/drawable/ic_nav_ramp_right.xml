@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Maneuver glyph "ramp_right" for the Android Auto routing card, ctOS style.
+     Generated from shell-car/maneuvers.js (the browser draws the same paths). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:pathData="M2,10V2H10M38,2H46V10M46,38V46H38M10,46H2V38"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter"
+        android:strokeAlpha="0.6" />
+    <path
+        android:pathData="M18,44V8"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter"
+        android:strokeAlpha="0.4" />
+    <path
+        android:pathData="M18,42V30L28.5,19.5"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M37,11L35.2,27.6L20.4,12.8Z" />
+</vector>

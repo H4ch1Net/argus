@@ -77,16 +77,18 @@ export function followAltitude(speed) {
  * Where the follow camera looks: a point ahead of the vehicle (so the vehicle
  * sits in the lower part of the view, as in a navigation app), with the range
  * that puts the eye at followAltitude() above it. `scale` is the driver's zoom.
+ * While navigating, `ahead(metres)` gives the point that far along the route,
+ * so the view looks round the next bend instead of straight on.
  */
 export function followPose(
   { lat, lon, heading = 0, speed = 0 },
-  { scale = 1, mode = '3d' } = {},
+  { scale = 1, mode = '3d', ahead = null } = {},
 ) {
   const view = VIEW_MODES[mode] ?? VIEW_MODES['3d'];
   const alt = followAltitude(speed) * clamp(scale, 0.05, 20);
   const range = alt / Math.sin(rad(-view.pitch));
   // Look ahead of the vehicle along its course, so it sits low in the view.
-  const look = destination(lat, lon, heading, alt * 0.25);
+  const look = ahead?.(alt * 0.25) ?? destination(lat, lon, heading, alt * 0.25);
   return {
     lat: look.lat,
     lon: look.lon,
@@ -94,6 +96,21 @@ export function followPose(
     pitch: view.pitch,
     range,
   };
+}
+
+/**
+ * Ground metres per screen pixel across the view at `range` from the camera,
+ * for Cesium's `fov` (the wider of the two axes; radians) on a width x height
+ * canvas. Used to slide the follow view's centre into the part of the screen
+ * the host's cards leave free.
+ */
+export function metresPerPixel(range, fov, width, height) {
+  const w = Math.max(1, width);
+  const aspect = w / Math.max(1, height);
+  const f = Number.isFinite(fov) && fov > 0 ? fov : Math.PI / 3;
+  // Cesium's fov spans the wider axis: the horizontal one on a landscape screen.
+  const fovx = aspect >= 1 ? f : 2 * Math.atan(Math.tan(f / 2) * aspect);
+  return (2 * Math.max(0, range) * Math.tan(fovx / 2)) / w;
 }
 
 /**
@@ -215,6 +232,7 @@ const CODES = {
   trafficcams: 'CAM',
   surveillance: 'SRV',
   incidents: 'INC',
+  signals: 'SIG',
   chp: 'CHP',
   borderwaits: 'BDR',
   webcams: 'WEB',

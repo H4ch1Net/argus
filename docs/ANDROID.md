@@ -55,10 +55,13 @@ screen on/off**, and **Restart proxy**.
 | Location (while in use)    | Around Me, the GEO button, satellite passes, and your position on the car map. Optional. |
 | Internet, network state    | The proxy on the phone reaches the public feeds; the page reaches the proxy.             |
 | Android Auto map templates | Declared so the app can draw its own map in the car (no prompt).                         |
+| Car information            | The car's make, model, fuel, range, odometer and speed for the VEHICLE panel. Optional.  |
 
-Location is asked the first time the globe (or the car) needs it. There is no
-background location, no notification, no storage permission (scene import uses
-the system file picker), and no Google Play services.
+Location is asked the first time the globe (or the car) needs it; the car's
+information (Android Auto's fuel, mileage and speed permissions) once, the
+first time Argus opens in the car. There is no background location, no
+notification, no storage permission (scene import uses the system file
+picker), and Argus itself needs no Google Play services.
 
 ## Keys
 
@@ -82,8 +85,9 @@ Which key unlocks what: [SETUP.md, Keys](../SETUP.md#3-keys).
 ## Android Auto
 
 Argus is an Android Auto **navigation-category** app: its map is the globe, in
-a car version built for a glance. It is not a turn-by-turn navigator (there is
-no routing in the car); think of it as the live picture of what is around you.
+a car version built for a glance, and it navigates: search a place, pick a
+route (traffic and traffic lights counted, highways avoided if you like), and
+follow the turn-by-turn card. Parked, it shows your car's own readouts.
 
 ### One-time setup (unknown sources)
 
@@ -103,7 +107,42 @@ them:
    launcher**.
 
 The first time Argus opens in the car without location permission, the car
-says to check the phone, and the phone asks for it.
+says to check the phone, and the phone asks for it (with the car information
+permissions, asked once).
+
+### Navigation
+
+- **WHERE TO** (top right) opens a search bar. Before you type it lists your
+  last five destinations; type (or speak, when the car allows no keyboard
+  while moving) and places near you appear, each with its distance and where
+  it is. Tap one.
+- **Route preview:** up to three routes, fastest first, each with its time,
+  distance, the roads it takes, its traffic delay and the traffic lights on
+  it; the map shows them (the selected one in white). **Avoid hwy** plans
+  again without highways and freeways, and stays as you set it. **Navigate**
+  starts the route.
+- **On the route:** Android Auto's routing card shows the next maneuver
+  (ctOS arrows), its distance and road, the one after, and the remaining
+  distance, time and arrival. The map follows closer in, looks ahead along
+  the route (round the next bend), and zooms in on the approach to a turn;
+  the route ahead is white, what you have driven grey. Off the route it plans
+  again on its own. **End** stops; on arrival it ends by itself after a
+  while. The car's cluster display, where it has one, gets the same steps.
+- Routes come from the same navigator as the globe on the phone, through the
+  phone's proxy. If the car map reloads mid-route, it plans to the same place
+  again and carries on.
+
+### Vehicle
+
+When the car stands still for three seconds (and is not on a route), a
+**VEHICLE** panel slides in on the right: make, model and year, a silhouette
+(sedan, SUV or EV, guessed from the car's fuels; set it in Settings), fuel and
+battery level, range, odometer, and the average consumption since your last
+fill-up (MPG, or L/100 km by region). It hides the moment you drive off.
+Everything comes from the car through Android Auto (car API level 3 and up);
+what a car does not report reads `--`. The average needs your tank size:
+long-press the Argus icon, **Settings and keys**, **VEHICLE**, then drive
+some distance after a fill-up.
 
 ### In the car
 
@@ -115,7 +154,7 @@ says to check the phone, and the phone asks for it.
 - **Map buttons** (right side): pan, re-centre, zoom in, zoom out. Zooming
   while following changes the follow distance; dragging or panning switches to
   free look (MODE FREE); re-centre flies back and follows again.
-- **LAYERS** (top right): two one-tap presets first, **Drive** (traffic
+- **LAYERS** (top right, beside WHERE TO and VIEW): two one-tap presets first, **Drive** (traffic
   incidents, CHP incidents, traffic cameras, surveillance and ALPR locations;
   the default) and **Sky** (aircraft overhead), then a switch for each layer.
   The list shows only layers this build can show: traffic incidents appear
@@ -132,9 +171,10 @@ says to check the phone, and the phone asks for it.
   lies on the map.
 
 Driver-distraction rules shape the car screen: the map, the status strip and
-the nearest-contacts readout only. No text entry, no menus, no video, no camera
-stills, and only critical notices (a missing proxy, say); feed errors stay on
-the phone.
+the nearest-contacts readout (two rows on a route, none while you compare
+routes), plus Android Auto's own search, route and routing-card screens. No
+video, no camera stills, and only critical notices (a missing proxy, say);
+feed errors stay on the phone.
 
 ### Performance
 
@@ -167,7 +207,8 @@ Android Auto's developer settings start the head unit server, connect the
 phone by USB, then `adb forward tcp:5277 tcp:5277` and run `desktop-head-unit`
 from the SDK's `extras/google/auto` folder. The car version also runs in any
 browser at `http://localhost:8787/?shell=car` (it then follows the browser's
-own location, and a drag on the globe leaves follow mode).
+own location, a drag on the globe leaves follow mode, and a route shows the
+page's own maneuver banner instead of Android Auto's card).
 
 ## What runs where
 

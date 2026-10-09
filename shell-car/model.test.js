@@ -16,6 +16,7 @@ import {
   formatHeading,
   formatSpeed,
   isParkedJitter,
+  metresPerPixel,
   layerCode,
   nearestContacts,
   nextViewMode,
@@ -66,6 +67,34 @@ test('followPose looks ahead of the vehicle along its heading', () => {
   near(bearingDeg(51.5, -0.12, pose.lat, pose.lon), 90, 0.05);
   // The driver's zoom scales it.
   near(followPose({ lat: 0, lon: 0 }, { scale: 2 }).range, 3600 * Math.SQRT2, 1e-6);
+  // Navigating, it looks at the route that far ahead (here: round a bend north).
+  const asked = [];
+  const bend = followPose(
+    { lat: 51.5, lon: -0.12, heading: 90, speed: 0 },
+    { ahead: (m) => (asked.push(m), destination(51.5, -0.12, 0, m)) },
+  );
+  assert.deepEqual(asked, [450]);
+  near(angleDelta(0, bearingDeg(51.5, -0.12, bend.lat, bend.lon)), 0, 0.05);
+  assert.equal(bend.heading, 90);
+  // A 60 degree view 2 km out spans 2309 m: 1.5 m a pixel on a 1536 px canvas.
+  near(
+    metresPerPixel(2000, Math.PI / 3, 1536, 576),
+    (2 * 2000 * Math.tan(Math.PI / 6)) / 1536,
+    1e-9,
+  );
+  // Portrait: the fov is the vertical one, so the horizontal span is narrower.
+  assert.ok(
+    metresPerPixel(2000, Math.PI / 3, 576, 1536) <
+      (2 * 2000 * Math.tan(Math.PI / 6)) / 576,
+  );
+  near(
+    metresPerPixel(2000, undefined, 1536, 576),
+    metresPerPixel(2000, Math.PI / 3, 1536, 576),
+    1e-12,
+  );
+  // No route point (past the end, say): straight ahead as before.
+  const none = followPose({ lat: 51.5, lon: -0.12, heading: 90 }, { ahead: () => null });
+  near(bearingDeg(51.5, -0.12, none.lat, none.lon), 90, 0.05);
 });
 
 test('the flat views look straight down; north up ignores the course', () => {

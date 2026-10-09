@@ -1,6 +1,7 @@
 package net.h4ch1.argus
 
 import android.app.Activity
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -11,23 +12,31 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 /**
  * Native settings: the keys file the proxy reads (app-private, never backed
- * up, never sent to the page), sharing the proxy on Wi-Fi, full screen, and
- * the proxy log. Saving restarts the app so the proxy reloads its keys. (The
+ * up, never sent to the page), sharing the proxy on Wi-Fi, full screen, the
+ * vehicle for the car screen's VEHICLE panel (tank size, silhouette), and the
+ * proxy log. Saving restarts the app so the proxy reloads its keys. (The
  * globe's own SETUP tab, where present, writes the same file.)
  */
 class SettingsActivity : Activity() {
     private lateinit var keys: EditText
     private lateinit var lan: Switch
     private lateinit var fullscreen: Switch
+    private lateinit var tank: EditText
+    private lateinit var tankGallons: Switch
+    private lateinit var body: RadioGroup
+    private val bodyIds = HashMap<Int, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +89,59 @@ class SettingsActivity : Activity() {
         column.addView(lan)
         column.addView(note(getString(R.string.settings_lan_help)))
 
+        column.addView(heading(getString(R.string.settings_vehicle), 14f))
+        column.addView(note(getString(R.string.settings_tank_help)))
+        tank = EditText(this).apply {
+            val litres = prefs.tankLitres
+            setText(if (litres > 0f) formatTank(if (prefs.tankGallons) litres / LITRES_PER_GALLON else litres) else "")
+            hint = getString(R.string.settings_tank_hint)
+            typeface = Typeface.MONOSPACE
+            textSize = 14f
+            setTextColor(Ink.TEXT)
+            setHintTextColor(Ink.SECONDARY)
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+            background = GradientDrawable().apply {
+                setColor(Ink.PANEL)
+                setStroke(dp(1), Ink.SECONDARY)
+            }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        column.addView(label(getString(R.string.settings_tank)))
+        column.addView(tank, LinearLayout.LayoutParams(dp(140), WRAP))
+        tankGallons = switch(getString(R.string.settings_tank_gallons), prefs.tankGallons).apply {
+            // Switching the unit converts what is typed.
+            setOnCheckedChangeListener { _, gallons ->
+                val v = parseTank() ?: return@setOnCheckedChangeListener
+                tank.setText(formatTank(if (gallons) v / LITRES_PER_GALLON else v * LITRES_PER_GALLON))
+            }
+        }
+        column.addView(tankGallons)
+        column.addView(label(getString(R.string.settings_body)))
+        body = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        listOf(
+            "auto" to R.string.settings_body_auto,
+            "sedan" to R.string.settings_body_sedan,
+            "suv" to R.string.settings_body_suv,
+            "ev" to R.string.settings_body_ev,
+        ).forEach { (key, title) ->
+            val id = View.generateViewId()
+            bodyIds[id] = key
+            body.addView(
+                RadioButton(this).apply {
+                    this.id = id
+                    text = getString(title)
+                    typeface = Typeface.MONOSPACE
+                    textSize = 13f
+                    setTextColor(Ink.DIM)
+                    buttonTintList = ColorStateList.valueOf(Ink.TEXT)
+                    setPadding(0, 0, dp(12), 0)
+                },
+            )
+            if (key == prefs.vehicleBody) body.check(id)
+        }
+        column.addView(body)
+
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(20), 0, dp(8))
@@ -130,7 +192,30 @@ class SettingsActivity : Activity() {
         }
         prefs.immersive = fullscreen.isChecked
         prefs.lan = lan.isChecked
+        val size = parseTank()
+        prefs.tankGallons = tankGallons.isChecked
+        prefs.tankLitres = if (size == null || size <= 0f) {
+            0f
+        } else {
+            (if (tankGallons.isChecked) size * LITRES_PER_GALLON else size).coerceAtMost(MAX_TANK_LITRES)
+        }
+        prefs.vehicleBody = bodyIds[body.checkedRadioButtonId] ?: "auto"
         NodeRuntime.restartApp(this)
+    }
+
+    /** The tank size typed, in the unit shown; null when not a number. */
+    private fun parseTank(): Float? =
+        tank.text.toString().trim().replace(',', '.').toFloatOrNull()?.takeIf { it.isFinite() && it >= 0f }
+
+    private fun formatTank(v: Float): String =
+        String.format(Locale.ROOT, "%.1f", v).removeSuffix(".0")
+
+    private fun label(text: String) = TextView(this).apply {
+        this.text = text
+        typeface = Typeface.MONOSPACE
+        textSize = 12f
+        setTextColor(Ink.DIM)
+        setPadding(0, dp(10), 0, dp(4))
     }
 
     private fun heading(text: String, size: Float) = TextView(this).apply {
@@ -161,5 +246,7 @@ class SettingsActivity : Activity() {
     private companion object {
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
+        const val LITRES_PER_GALLON = 3.785411784f
+        const val MAX_TANK_LITRES = 500f
     }
 }

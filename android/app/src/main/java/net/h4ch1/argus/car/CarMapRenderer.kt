@@ -60,6 +60,10 @@ import kotlin.math.roundToInt
  * send many events per frame, each a round trip into the WebView), and it is
  * paused (no rendering, no polling, no location) whenever the car is not
  * showing it.
+ *
+ * The same bridge carries navigation (CarNav: search, route preview, the
+ * route's progress back) and the car's own data for the page's VEHICLE panel
+ * (CarStatsFeed).
  */
 class CarMapRenderer(
     private val carContext: CarContext,
@@ -67,6 +71,7 @@ class CarMapRenderer(
 ) : SurfaceCallback, DefaultLifecycleObserver {
     private val main = Handler(Looper.getMainLooper())
     private val location = CarLocationFeed(carContext) { onFix(it) }
+    private val stats = CarStatsFeed(carContext) { pushCarInfo(it) }
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private var webView: WebView? = null
@@ -80,6 +85,14 @@ class CarMapRenderer(
     private var unobserve: (() -> Unit)? = null
     private var paused = false
     private var started = true
+    private var lastCarInfo: String? = null
+
+    /** Where the page's answers go (search results, routes, nav state). */
+    var pageListener: CarPageListener? = null
+
+    /** The phone's last fix, for distances in the car's own lists. */
+    var lastLocation: Location? = null
+        private set
 
     // Gestures waiting for the next display frame, in CSS pixels.
     private var panX = 0f
@@ -100,6 +113,7 @@ class CarMapRenderer(
 
     override fun onDestroy(owner: LifecycleOwner) {
         location.stop()
+        stats.stop()
         unobserve?.invoke()
         unobserve = null
         release()
@@ -111,6 +125,7 @@ class CarMapRenderer(
         if (virtualDisplay?.surface != null) {
             resumePage()
             location.start()
+            stats.start()
         }
     }
 
@@ -118,6 +133,7 @@ class CarMapRenderer(
         started = false
         pausePage()
         location.stop()
+        stats.stop()
     }
 
     // ------------------------------------------------------------ controls
@@ -132,6 +148,33 @@ class CarMapRenderer(
 
     fun onLocationPermission() {
         if (virtualDisplay != null) location.start()
+    }
+
+    /** Car data permissions granted: subscribe again, now with access. */
+    fun onCarDataPermission() {
+        if (virtualDisplay != null && started) {
+            stats.stop()
+            stats.start()
+        }
+    }
+
+    // Navigation (CarNav). Each returns false when the page cannot take it yet.
+
+    fun search(query: String, reqId: String): Boolean =
+        js("search(${JSONObject.quote(query.take(200))},${JSONObject.quote(reqId)})")
+
+    fun preview(placeJson: String, optsJson: String): Boolean =
+        js("preview(${JSONObject.quote(placeJson)},${JSONObject.quote(optsJson)})")
+
+    fun selectRoute(id: String) = js("selectRoute(${JSONObject.quote(id)})")
+
+    fun navigate(routeId: String) = js("navigate(${JSONObject.quote(routeId)})")
+
+    fun stopNav() = js("stopNav()")
+
+    private fun pushCarInfo(json: String) {
+        lastCarInfo = json
+        js("setCarInfo(${JSONObject.quote(json)})")
     }
 
     // ------------------------------------------------------------- surface
@@ -165,6 +208,7 @@ class CarMapRenderer(
         showPresentation(created.display)
         if (unobserve == null) unobserve = NodeRuntime.observe { onRuntime(it) }
         location.start()
+        stats.start()
     }
 
     override fun onSurfaceDestroyed(container: SurfaceContainer) {
@@ -370,6 +414,7 @@ class CarMapRenderer(
         pushView()
         pushLayers()
         lastFix?.let { js(it) }
+        lastCarInfo?.let { js("setCarInfo(${JSONObject.quote(it)})") }
     }
 
     /** The area the host leaves uncovered (action strips, cards), as CSS-pixel insets. */
@@ -389,17 +434,19 @@ class CarMapRenderer(
         val accuracy = if (fix.hasAccuracy()) num(fix.accuracy) else "null"
         val call = "setLocation(${fix.latitude},${fix.longitude},$heading,$speed,$accuracy)"
         lastFix = call
+        lastLocation = fix
         js(call)
     }
 
-    private fun js(call: String) = jsAll(listOf(call))
+    private fun js(call: String): Boolean = jsAll(listOf(call))
 
-    /** Several window.argusCar calls in one round trip into the page. */
-    private fun jsAll(calls: List<String>) {
-        val wv = webView ?: return
-        if (!pageReady || calls.isEmpty()) return
+    /** Several window.argusCar calls in one round trip into the page; false when it is not ready. */
+    private fun jsAll(calls: List<String>): Boolean {
+        val wv = webView ?: return false
+        if (!pageReady || calls.isEmpty()) return false
         val body = calls.joinToString(";") { "c.$it" }
         wv.evaluateJavascript("(function(c){if(c){$body}})(window.argusCar)", null)
+        return true
     }
 
     private fun release() {
@@ -419,7 +466,10 @@ class CarMapRenderer(
 
     /**
      * window.ArgusCarHost: the car page says when it is mounted (to get the
-     * current state) and which layers it can show (for the LAYERS list).
+     * current state), which layers it can show (for the LAYERS list), and
+     * answers navigation (search results, routes, progress). Called on a
+     * WebView thread: everything moves to the main thread, and nothing larger
+     * than MAX_JSON is taken.
      */
     inner class HostBridge {
         @JavascriptInterface
@@ -427,7 +477,27 @@ class CarMapRenderer(
             main.post {
                 pageReady = true
                 pushState()
+                pageListener?.onPageMounted()
             }
+        }
+
+        @JavascriptInterface
+        fun searchResults(reqId: String?, json: String?) {
+            val id = reqId?.take(40) ?: return
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onSearchResults(id, body) }
+        }
+
+        @JavascriptInterface
+        fun routes(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onRoutes(body) }
+        }
+
+        @JavascriptInterface
+        fun nav(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onNav(body) }
         }
 
         @JavascriptInterface
@@ -450,6 +520,7 @@ class CarMapRenderer(
         const val UI_SCALE = 1.25f
         const val FLING_SECONDS = 0.25f
         const val FLING_MS = 450
+        const val MAX_JSON = 64 * 1024
         val KEY = Regex("^[a-z0-9]{1,32}$")
 
         fun num(v: Float): String = if (v.isFinite()) String.format(Locale.ROOT, "%.2f", v) else "0"

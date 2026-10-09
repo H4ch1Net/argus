@@ -37,9 +37,44 @@
     <string name="layer_incidents">Traffic incidents</string>
     <string name="layer_chp">CHP incidents (CA)</string>
     <string name="layer_surveillance">Surveillance and ALPR</string>
+    <string name="layer_signals">Traffic lights</string>
     <string name="layer_flights">Flights</string>
     <string name="layer_military">Military aircraft</string>
     <string name="layer_trafficcams">Traffic cameras</string>
     <string name="layer_radar">Weather radar</string>
     <string name="layer_quakes">Earthquakes</string>
+
+    <!-- Android Auto navigation (car/SearchScreen.kt, car/CarNav.kt) -->
+    <string name="car_where_to">Where to</string>
+    <string name="car_search_hint">Search places</string>
+    <string name="car_end">End</string>
+    <string name="car_navigate">Navigate</string>
+    <string name="car_retry">Retry</string>
+    <string name="car_avoid_on">Avoid hwy: on</string>
+    <string name="car_avoid_off">Avoid hwy: off</string>
+    <string name="car_no_results">No places found</string>
+    <string name="car_no_recents">Search for a place to go</string>
+    <string name="car_searching">Searching</string>
+    <string name="car_nav_offline">The map is still starting. Try again in a moment.</string>
+    <string name="car_no_route">No route found</string>
+    <string name="car_no_route_hwy">No route found without highways</string>
+    <string name="car_no_position">Waiting for your position</string>
+    <string name="car_arrived">Arrived</string>
+    <string name="car_destination">Destination</string>
+    <string name="car_route_via">via %1$s</string>
+    <string name="car_route_traffic">+%1$d min traffic</string>
+    <string name="car_route_lights">%1$d lights</string>
+    <string name="car_route_no_hwy">no highways</string>
+
+    <!-- Settings: the car's VEHICLE panel (shell-car/vehicle.js) -->
+    <string name="settings_vehicle">VEHICLE</string>
+    <string name="settings_tank">Fuel tank size</string>
+    <string name="settings_tank_hint">e.g. 50</string>
+    <string name="settings_tank_gallons">In US gallons (off: litres)</string>
+    <string name="settings_tank_help">For the average consumption on the car screen\'s VEHICLE panel: the drop in the fuel gauge times this size, over the distance driven since the last fill-up. Leave empty if unknown.</string>
+    <string name="settings_body">Silhouette</string>
+    <string name="settings_body_auto">AUTO</string>
+    <string name="settings_body_sedan">SEDAN</string>
+    <string name="settings_body_suv">SUV</string>
+    <string name="settings_body_ev">EV</string>
 </resources>
