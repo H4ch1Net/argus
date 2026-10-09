@@ -53,14 +53,15 @@ that commit, and it touches the same car files. Merging this branch brings
     navigator reaches the page a moment after it mounts).
 - **Maneuvers**: the page maps the OSRM vocabulary to `Maneuver.TYPE_*`
   (`shell-car/nav.js carManeuver`, tested); Kotlin checks the type range and
-  falls back from ENTER*AND_EXIT roundabouts without an exit number to
-  ENTER, never sends angle types. 22 white ctOS vector drawables
-  `res/drawable/ic_nav*\*.xml`(corner brackets, square caps, the road not
-taken dimmed), generated from`shell-car/maneuvers.js`(the browser banner
-draws the same paths): straight, turn/slight/sharp left and right, U-turn
-left/right, fork, merge (left, right, unspecified), ramp left/right,
-roundabout cw/ccw, depart, arrive, arrive left/right. Plus action icons`ic_car_search`, `ic_car_end`, `ic_car_navigate`, `ic_car_place`,
-`ic_car_recent`.
+  falls back from `ENTER_AND_EXIT` roundabouts without an exit number to
+  `ENTER`, never sends angle types. 22 white ctOS vector drawables
+  `res/drawable/ic_nav_*.xml` (corner brackets, square caps, the road not
+  taken dimmed), generated from `shell-car/maneuvers.js` (the browser banner
+  draws the same paths): straight, turn/slight/sharp left and right, U-turn
+  left/right, fork, merge (left, right, unspecified), ramp left/right,
+  roundabout cw/ccw, depart, arrive, arrive left/right. Plus action icons
+  `ic_car_search`, `ic_car_end`, `ic_car_navigate`, `ic_car_place`,
+  `ic_car_recent`.
 - **CarStats** (`CarStatsFeed`): `app-projected:1.4.0` added; on car API 3+
   `CarHardwareManager.carInfo`: `fetchModel`, `fetchEnergyProfile`, energy
   level (fuel %, battery %, range, low fuel), mileage (odometer), speed
