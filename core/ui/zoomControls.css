@@ -36,6 +36,45 @@
   color: var(--error);
   --c: var(--error);
 }
+/* GEO: green corners once centred on the user, solid green while following,
+   and a short note beside the cell (accuracy, LOCATING, DENIED). */
+.ct-viewstack__cell.is-live {
+  --c: var(--success);
+  color: var(--textPrimary);
+}
+.ct-viewstack__cell.is-follow,
+.ct-viewstack__cell.is-follow:hover {
+  --c: var(--background);
+  background-color: var(--success);
+  color: var(--background);
+  font-weight: 600;
+}
+.ct-viewstack__cell.is-pending {
+  --c: var(--success);
+}
+.ct-viewstack__note {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 9px);
+  transform: translateY(-50%);
+  padding: 3px 7px;
+  border: 1px solid var(--textSecondary);
+  background: var(--panel-translucent);
+  color: var(--textPrimaryDim);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: none;
+}
+.ct-viewstack__note[hidden] {
+  display: none;
+}
+.ct-viewstack__note.is-error {
+  border-color: var(--error);
+  color: var(--error);
+}
 @media (pointer: coarse) {
   .ct-viewstack {
     width: 42px;

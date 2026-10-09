@@ -88,6 +88,17 @@ async function main() {
       profile: profileOverrides(settings.all()),
     });
     app.settings = settings;
+    // The user's own position (core/geo/selfPosition.js): one model for every
+    // shell. Shells and the Android app feed it, GEO and navigation read it;
+    // it draws the marker except in the car, which draws its own (same icon).
+    const { createSelfPosition } = await import('./core/geo/selfPosition.js');
+    app.selfPosition = createSelfPosition(app.viewer, {
+      settings,
+      render: shellName !== 'car',
+      fps: app.profile?.animationFps,
+      onIcon: app.setSelfIcon,
+      log: (entry) => app.logs?.add?.(entry),
+    });
     if (import.meta.env.DEV) {
       // Expose for console poking during development only; never in a build.
       window.__argus = { shell: shellName, ...app };
@@ -2342,8 +2353,12 @@ async function setupScene(app, splash) {
     'stack',
     createZoomControls({
       camera,
-      onLocate: app.locate ? (report) => app.locate(camera, report) : undefined,
-      onNotify: notify,
+      // GEO: centre on me, again to follow (core/geo/geoControl.js).
+      geo: app.geo?.(camera, {
+        beforeFollow: () => tracker?.unfollow?.(),
+        log: (entry) => app.logs?.add?.(entry),
+        units: () => app.settings?.get('units'),
+      }),
     }).el,
   );
 

@@ -4,16 +4,23 @@ import { h } from './dom.js';
 // The view stack: a column of 37px framed cells (the bar's workspace cells,
 // stood on end) floating over the globe. + / − zoom (hold to repeat), N for
 // north up, TLT straight down / oblique, ⌂ the whole Earth, and GEO to centre
-// on the device position where the shell can read it. A reliable alternative
-// to wheel and pinch on trackpads and touch.
+// on the device position (and follow it) where the shell can read it. A
+// reliable alternative to wheel and pinch on trackpads and touch.
+
+const GEO_TITLES = {
+  idle: 'Centre on my location',
+  locating: 'Locating my position',
+  centered: 'Tap again to follow my position',
+  following: 'Following my position (tap to stop)',
+  error: 'No position (location is off, or no fix yet)',
+};
 
 /**
  * @param {{ camera: { zoomStep: (dir: number) => void, northUp?: Function,
  *   toggleTilt?: Function, flyHome?: Function },
- *   onLocate?: (report: (status: 'ok'|'denied'|'unavailable') => void) => void,
- *   onNotify?: (msg: { title: string, body?: string, level?: string }) => void }} opts
+ *   geo?: { press: () => any, subscribe: (fn: (s: { state: string, note: string }) => void) => any } | null }} opts
  */
-export function createZoomControls({ camera, onLocate, onNotify }) {
+export function createZoomControls({ camera, geo }) {
   const el = h('div.ct-viewstack', { role: 'group', 'aria-label': 'View controls' });
 
   const cell = (label, aria, extra = {}) =>
@@ -57,32 +64,32 @@ export function createZoomControls({ camera, onLocate, onNotify }) {
     );
   if (camera.flyHome)
     el.append(cell('⌂', 'Whole Earth', { onclick: () => camera.flyHome() }));
-  if (onLocate) {
-    let pending = false;
-    const geo = cell('GEO', 'Centre on my location');
-    geo.addEventListener('click', () => {
-      if (pending) return;
-      pending = true;
-      geo.classList.add('is-pending');
-      onLocate((status) => {
-        pending = false;
-        geo.classList.remove('is-pending');
-        geo.classList.toggle('is-error', status !== 'ok');
-        if (status !== 'ok') {
-          onNotify?.({
-            title: status === 'denied' ? 'LOCATION DENIED' : 'LOCATION UNAVAILABLE',
-            body:
-              status === 'denied'
-                ? 'The browser refused location access for this page.'
-                : 'This device could not report a position (it needs HTTPS on a phone).',
-            level: 'low',
-            key: 'geo',
-          });
-          setTimeout(() => geo.classList.remove('is-error'), 2500);
-        }
-      });
+  if (geo) {
+    // GEO (core/geo/geoControl.js): centre on me, then follow-me, then off.
+    // Its state shows on the cell, with a short note beside it (accuracy,
+    // LOCATING, DENIED); trouble goes to the log, never to a popup.
+    const btn = cell('GEO', GEO_TITLES.idle, { 'aria-pressed': 'false' });
+    const tag = h('span.ct-viewstack__note', { hidden: true, 'aria-live': 'polite' });
+    btn.appendChild(tag);
+    btn.addEventListener('click', () => geo.press());
+    let tagTimer = null;
+    geo.subscribe(({ state, note }) => {
+      btn.classList.toggle('is-pending', state === 'locating');
+      btn.classList.toggle('is-live', state === 'centered');
+      btn.classList.toggle('is-follow', state === 'following');
+      btn.classList.toggle('is-error', state === 'error');
+      btn.setAttribute('aria-pressed', String(state === 'following'));
+      btn.title = GEO_TITLES[state] ?? GEO_TITLES.idle;
+      btn.setAttribute('aria-label', btn.title);
+      clearTimeout(tagTimer);
+      tag.textContent = note || '';
+      tag.hidden = !note;
+      tag.classList.toggle('is-error', state === 'error');
+      // Notes fade; the ongoing states keep theirs while they last.
+      if (note && state !== 'locating' && state !== 'following')
+        tagTimer = setTimeout(() => (tag.hidden = true), 2600);
     });
-    el.append(geo);
+    el.append(btn);
   }
   return { el };
 }
