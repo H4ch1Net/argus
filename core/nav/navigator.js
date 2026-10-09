@@ -359,6 +359,12 @@ export function createNavigator({
     },
 
     // --- beyond the contract: what the panels use ---------------------------
+    /** Highlight one of the previewed routes (a route or its id). */
+    select(which) {
+      if (state.status !== 'previewing') return;
+      const r = state.routes?.find((x) => x === which || x.id === which);
+      if (r && r !== state.route) set({ route: r });
+    },
     /** Whether live traffic (TomTom) can be asked for. */
     get traffic() {
       return Boolean(proxyClient) && available('tomtom-routing');

@@ -53,7 +53,11 @@ export async function mountShell(root, bootOpts = {}) {
   const strip = createBar({ lockup: false, className: 'ct-bar--strip' });
   const notify = h('div.argus-notify');
   const floatEl = h('div.argus-float');
-  hud.append(bar.el, left, right, stack, strip.el, notify, floatEl);
+  // Navigation (core/ui/navPanel.js): WHERE TO, the preview and the turn
+  // banner at the top centre, the trip strip at the bottom centre.
+  const navTop = h('div.argus-navtop');
+  const navBottom = h('div.argus-navbottom');
+  hud.append(bar.el, left, right, stack, strip.el, navTop, navBottom, notify, floatEl);
 
   // Panel toggles in the bar (and on the keyboard).
   const setPanel = (el, on) => {
@@ -106,10 +110,12 @@ export async function mountShell(root, bootOpts = {}) {
   return {
     ...app,
     shell: 'desktop',
-    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float */
+    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float | navTop | navBottom */
     mount(slot, el) {
       if (!el) return;
-      if (slot === 'bar') bar.add(el, 'start');
+      if (slot === 'navTop') navTop.appendChild(el);
+      else if (slot === 'navBottom') navBottom.appendChild(el);
+      else if (slot === 'bar') bar.add(el, 'start');
       else if (slot === 'barEnd') bar.add(el, 'end');
       else if (slot === 'strip') strip.add(el, 'start');
       else if (slot === 'stripEnd') strip.add(el, 'end');

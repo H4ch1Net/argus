@@ -40,6 +40,7 @@ export const GROUP_LABELS = {
   cockpit: 'Cockpit briefing',
   terminal: 'Terminal map',
   models: '3D aircraft models',
+  directions: 'Directions and navigation',
 };
 
 const OSM_LAYERS = [

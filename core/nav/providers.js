@@ -275,7 +275,7 @@ export const valhalla = {
           );
         }
       }
-      const line = cleanLineKeepingIndex(geometry, steps);
+      const { line } = cleanLineKeepingIndex(geometry, steps);
       if (line.length < 2 || !steps.length) continue;
       out.push({
         id: '',
@@ -302,10 +302,11 @@ export const valhalla = {
 
 /**
  * Drop repeated or invalid vertices from a decoded line while keeping each
- * step's geometryIndex pointing at the same vertex.
+ * step's geometryIndex pointing at the same vertex. `map` (raw index ->
+ * cleaned index) is left on the returned array's `.map` for other indices.
  */
 function cleanLineKeepingIndex(line, steps) {
-  const map = new Int32Array(line.length);
+  const map = new Int32Array(Math.max(1, line.length));
   const out = [];
   for (let i = 0; i < line.length; i += 1) {
     const [lon, lat] = line[i];
@@ -319,7 +320,7 @@ function cleanLineKeepingIndex(line, steps) {
     map[i] = Math.max(0, out.length - 1);
   }
   for (const s of steps) s.geometryIndex = map[s.geometryIndex] ?? 0;
-  return out;
+  return { line: out, map };
 }
 
 // --- TomTom Routing --------------------------------------------------------------
@@ -403,8 +404,9 @@ export const tomtom = {
         );
         steps.push(makeStep(fromTomTom(a), text(name), dist, time, [lon, lat], idx));
       }
-      const geometry = cleanLineKeepingIndex(raw, steps);
+      const { line: geometry, map } = cleanLineKeepingIndex(raw, steps);
       if (geometry.length < 2 || !steps.length) continue;
+      const at = (i) => map[Math.max(0, Math.min(map.length - 1, i))];
       const sum = r.summary ?? {};
       const route = {
         id: '',
@@ -425,8 +427,8 @@ export const tomtom = {
         const sections = (Array.isArray(r.sections) ? r.sections : [])
           .filter((s) => String(s?.sectionType).toUpperCase() === 'TRAFFIC')
           .map((s) => ({
-            from: Math.max(0, Math.round(Number(s.startPointIndex) || 0)),
-            to: Math.max(0, Math.round(Number(s.endPointIndex) || 0)),
+            from: at(Math.round(Number(s.startPointIndex) || 0)),
+            to: at(Math.round(Number(s.endPointIndex) || 0)),
             delayS: Math.max(0, Math.round(Number(s.delayInSeconds) || 0)),
             kind: TRAFFIC_KIND[String(s.simpleCategory).toUpperCase()] ?? 'TRAFFIC',
           }))

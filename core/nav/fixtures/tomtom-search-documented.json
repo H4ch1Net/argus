@@ -1,1 +1,68 @@
-{"summary":{"query":"ferry building","queryType":"NON_NEAR","queryTime":40,"numResults":2,"offset":0,"totalResults":2,"fuzzyLevel":1,"geoBias":{"lat":37.78,"lon":-122.41}},"results":[{"type":"POI","id":"g6JpZK8xMjQwMDkwMDAzNTE5MTKhY6NVU0GhdqdVbmlmaWVk","score":9.6,"dist":1912.4,"info":"search:ta:840069001208917-US","poi":{"name":"Ferry Building Marketplace","categorySet":[{"id":9361}],"categories":["shop"],"classifications":[{"code":"SHOP","names":[{"nameLocale":"en-US","name":"shop"}]}]},"address":{"streetNumber":"1","streetName":"Ferry Building","municipality":"San Francisco","countrySubdivision":"CA","postalCode":"94111","countryCode":"US","country":"United States","freeformAddress":"1 Ferry Building, San Francisco, CA 94111"},"position":{"lat":37.79552,"lon":-122.39348},"viewport":{"topLeftPoint":{"lat":37.79642,"lon":-122.39462},"btmRightPoint":{"lat":37.79462,"lon":-122.39234}},"entryPoints":[{"type":"main","position":{"lat":37.79531,"lon":-122.39385}}]},{"type":"Street","id":"US/STR/p0/1234567","score":7.1,"dist":2100.0,"address":{"streetName":"Ferry Plaza","municipality":"San Francisco","countrySubdivision":"CA","countryCode":"US","country":"United States","freeformAddress":"Ferry Plaza, San Francisco, CA"},"position":{"lat":37.79599,"lon":-122.39201}},{"type":"POI","id":"broken","address":{"freeformAddress":"Nowhere"},"position":{"lat":"x"}}]}
+{
+  "summary": {
+    "query": "ferry building",
+    "queryType": "NON_NEAR",
+    "queryTime": 40,
+    "numResults": 2,
+    "offset": 0,
+    "totalResults": 2,
+    "fuzzyLevel": 1,
+    "geoBias": { "lat": 37.78, "lon": -122.41 }
+  },
+  "results": [
+    {
+      "type": "POI",
+      "id": "g6JpZK8xMjQwMDkwMDAzNTE5MTKhY6NVU0GhdqdVbmlmaWVk",
+      "score": 9.6,
+      "dist": 1912.4,
+      "info": "search:ta:840069001208917-US",
+      "poi": {
+        "name": "Ferry Building Marketplace",
+        "categorySet": [{ "id": 9361 }],
+        "categories": ["shop"],
+        "classifications": [
+          { "code": "SHOP", "names": [{ "nameLocale": "en-US", "name": "shop" }] }
+        ]
+      },
+      "address": {
+        "streetNumber": "1",
+        "streetName": "Ferry Building",
+        "municipality": "San Francisco",
+        "countrySubdivision": "CA",
+        "postalCode": "94111",
+        "countryCode": "US",
+        "country": "United States",
+        "freeformAddress": "1 Ferry Building, San Francisco, CA 94111"
+      },
+      "position": { "lat": 37.79552, "lon": -122.39348 },
+      "viewport": {
+        "topLeftPoint": { "lat": 37.79642, "lon": -122.39462 },
+        "btmRightPoint": { "lat": 37.79462, "lon": -122.39234 }
+      },
+      "entryPoints": [
+        { "type": "main", "position": { "lat": 37.79531, "lon": -122.39385 } }
+      ]
+    },
+    {
+      "type": "Street",
+      "id": "US/STR/p0/1234567",
+      "score": 7.1,
+      "dist": 2100.0,
+      "address": {
+        "streetName": "Ferry Plaza",
+        "municipality": "San Francisco",
+        "countrySubdivision": "CA",
+        "countryCode": "US",
+        "country": "United States",
+        "freeformAddress": "Ferry Plaza, San Francisco, CA"
+      },
+      "position": { "lat": 37.79599, "lon": -122.39201 }
+    },
+    {
+      "type": "POI",
+      "id": "broken",
+      "address": { "freeformAddress": "Nowhere" },
+      "position": { "lat": "x" }
+    }
+  ]
+}

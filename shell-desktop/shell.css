@@ -118,6 +118,26 @@
   pointer-events: auto;
 }
 
+/* Navigation: WHERE TO, the route preview and the turn banner in a column at
+   the top centre; the trip strip at the bottom centre, above the status strip. */
+.argus-navtop,
+.argus-navbottom {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.argus-navtop {
+  top: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  width: min(440px, calc(100vw - 2 * (var(--panel-w) + 3 * var(--hud-gap))));
+  min-width: 300px;
+}
+.argus-navbottom {
+  bottom: calc(var(--hud-gap) + var(--bar-height) + var(--gaps-in));
+  width: min(560px, calc(100vw - 2 * (var(--panel-w) + 3 * var(--hud-gap))));
+  min-width: 300px;
+}
+
 /* Narrow desktop windows: slimmer panels. */
 @media (max-width: 1180px) {
   :root {

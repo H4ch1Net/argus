@@ -57,7 +57,12 @@ export async function mountShell(root, bootOpts = {}) {
   const stack = h('div.argus-stack');
   const notify = h('div.argus-notify');
   const floatEl = h('div.argus-float');
-  hud.append(bar.el, stack, notify, floatEl, sheet.el);
+  // Navigation (core/ui/navPanel.js): WHERE TO and the turn banner under the
+  // bar; the route preview and the trip strip just above the sheet, in thumb
+  // reach. The sheet, when opened, covers the lower one.
+  const navTop = h('div.argus-navtop');
+  const navBottom = h('div.argus-navbottom');
+  hud.append(bar.el, stack, navTop, navBottom, notify, floatEl, sheet.el);
 
   let overlay = null;
   let clean = false;
@@ -81,10 +86,12 @@ export async function mountShell(root, bootOpts = {}) {
   return {
     ...app,
     shell: 'mobile',
-    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float */
+    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float | navTop | navBottom */
     mount(slot, el) {
       if (!el) return;
-      if (slot === 'bar') bar.add(el, 'start');
+      if (slot === 'navTop') navTop.appendChild(el);
+      else if (slot === 'navBottom') navBottom.appendChild(el);
+      else if (slot === 'bar') bar.add(el, 'start');
       else if (slot === 'barEnd') bar.add(el, 'end');
       else if (slot === 'strip' || slot === 'stripEnd') panes.intel.prepend(el);
       else if (slot === 'stack') stack.appendChild(el);
@@ -106,6 +113,8 @@ export async function mountShell(root, bootOpts = {}) {
       }
     },
     showTab: (id) => tabs.select(id),
+    /** Lower the sheet to its peek (navigation starting: the map comes first). */
+    collapseSheet: () => sheet.collapse(),
     /** Clean view: hide the interface, leaving the globe and the overlay. */
     setClean(on) {
       clean = Boolean(on);

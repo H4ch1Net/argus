@@ -1,0 +1,371 @@
+/* Navigation (core/ui/navPanel.js), ctOS: the WHERE TO prompt, results as
+   launcher rows, the route preview card, the turn banner and the strip.
+   Square, grays, success green for GO and the locked destination, red only
+   for traffic jams and failures. The shells place .ct-nav columns (top and
+   bottom); everything inside is laid out here. */
+
+.ct-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gaps-in);
+  pointer-events: none;
+}
+.ct-nav > * {
+  pointer-events: auto;
+}
+.ct-nav [hidden] {
+  display: none !important;
+}
+
+/* ---------- WHERE TO ---------- */
+.ct-nav__bar .ct-prompt {
+  border-bottom: 0;
+  padding: 6px var(--row-pad-x);
+  min-height: 24px;
+}
+.ct-nav__bar input {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.ct-nav__bar input::-webkit-search-cancel-button {
+  display: none;
+}
+.ct-nav__x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--textSecondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-nav__x:hover {
+  color: var(--textPrimary);
+  border-color: var(--textSecondary);
+}
+
+.ct-nav__results {
+  background: var(--panel-translucent);
+  border: 1px solid var(--ctosGray);
+  box-shadow: var(--window-shadow);
+  max-height: min(8 * 42px, 46vh);
+  padding: 4px 0;
+}
+.ct-nav__row .ct-row__label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ct-nav__name {
+  color: var(--textPrimary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-nav__detail {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-nav__note {
+  padding: 8px var(--row-pad-x);
+  color: var(--textSecondary);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- preview card ---------- */
+.ct-nav__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--panel-padding) 10px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ct-nav__cardhead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ct-nav__destwrap {
+  flex: 1;
+  min-width: 0;
+}
+.ct-nav__dest {
+  color: var(--textPrimary);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__dest::before {
+  content: '» ';
+  color: var(--success);
+}
+.ct-nav__destdetail {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__from {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.ct-nav__fromval {
+  flex: 1;
+  min-width: 0;
+  color: var(--textPrimaryDim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__from .ct-btn {
+  min-height: 24px;
+  padding: 0 7px;
+}
+.ct-nav__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ct-nav__opts > .ct-switch {
+  margin: 0 calc(-1 * var(--row-pad-x));
+  width: calc(100% + 2 * var(--row-pad-x));
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.ct-nav__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--textPrimaryDim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.ct-nav__status--err {
+  color: var(--error);
+}
+.ct-nav__routes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 calc(-1 * var(--panel-padding));
+}
+.ct-nav__route {
+  align-items: stretch;
+  padding: 6px var(--panel-padding);
+  min-height: 44px;
+}
+.ct-nav__letter {
+  align-self: center;
+  color: var(--textPrimaryDim);
+  font-weight: 700;
+  font-size: 11px;
+}
+.ct-nav__route[aria-pressed='true'] .ct-nav__letter {
+  background: var(--ctosGray);
+  color: var(--background);
+}
+.ct-nav__routemain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.ct-nav__routetop b {
+  color: var(--textPrimary);
+  font-size: 14px;
+}
+.ct-nav__via {
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__routeside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ct-nav__delay {
+  color: var(--error);
+}
+.ct-nav__warn {
+  color: var(--textPrimaryDim);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  border-left: 2px solid var(--textSecondary);
+  padding-left: 6px;
+}
+.ct-nav__actions .ct-btn {
+  min-height: 32px;
+}
+.ct-btn.ct-nav__go:not(:disabled) {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--background);
+  font-weight: 700;
+}
+.ct-nav__credit {
+  color: var(--textSecondary);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.ct-nav__credit a {
+  color: var(--textPrimaryDim);
+}
+
+/* ---------- turn banner ---------- */
+.ct-nav__banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-color: var(--ctosGray);
+}
+.ct-nav__banner.is-alert {
+  border-color: var(--error);
+}
+.ct-nav__bglyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 1px solid var(--textSecondary);
+  background: var(--background);
+}
+.ct-nav__btext {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ct-nav__bdist {
+  color: var(--textPrimary);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.ct-nav__banner.is-alert .ct-nav__bdist {
+  color: var(--error);
+}
+.ct-nav__blabel {
+  color: var(--textPrimaryDim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.ct-nav__broad {
+  color: var(--textPrimary);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__bthen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--backgroundBright);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--textPrimaryDim);
+}
+
+/* ---------- strip ---------- */
+.ct-nav__strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+}
+.ct-nav__facts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.ct-nav__facts b {
+  color: var(--success);
+  font-size: 16px;
+}
+.ct-nav__stripbtns {
+  display: flex;
+  gap: 4px;
+}
+.ct-nav__stripbtns .ct-btn {
+  min-height: 32px;
+}
+
+/* ---------- map menu (long press / right click) ---------- */
+.ct-nav__ctx {
+  position: fixed;
+  z-index: 50;
+  width: 190px;
+  padding: 4px 0;
+}
+.ct-nav__ctxhead {
+  padding: 4px var(--row-pad-x) 6px;
+  color: var(--textSecondary);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--backgroundBright);
+  margin-bottom: 2px;
+}
+
+/* ---------- phone ---------- */
+.ct-nav[data-shell='mobile'] .ct-nav__bar input {
+  font-size: 15px;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__x {
+  width: 34px;
+  height: 34px;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__card {
+  max-height: 48vh;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__actions .ct-btn,
+.ct-nav[data-shell='mobile'] .ct-nav__stripbtns .ct-btn {
+  min-height: 42px;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__route {
+  min-height: 52px;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__bdist {
+  font-size: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-nav * {
+    transition: none !important;
+  }
+}

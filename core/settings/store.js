@@ -42,6 +42,10 @@ export const SETTINGS_SCHEMA = Object.freeze({
   atmosphere: { def: true, values: [true, false] },
   stars: { def: true, values: [true, false] },
   exaggeration: { def: 1, values: [1, 1.5, 2, 3] },
+  // Navigation (core/ui/navPanel.js): the last travel mode and route options.
+  navMode: { def: 'drive', values: ['drive', 'walk', 'bike'] },
+  navAvoidHighways: { def: false, values: [true, false] },
+  navTraffic: { def: true, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */
