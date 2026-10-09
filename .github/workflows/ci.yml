@@ -35,8 +35,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # On a failure, show what Prettier would change (the version in the
+      # lockfile can format differently from a global one).
       - name: Format
-        run: npm run format:check
+        run: |
+          npm run format:check || {
+            npx prettier --write . > /dev/null
+            git --no-pager diff
+            exit 1
+          }
 
       - name: Core and shell tests
         run: npm test
