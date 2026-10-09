@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   parseChpXml,
   parseChpTime,
@@ -8,6 +9,7 @@ import {
   chpKind,
   chpSeverity,
   chpText,
+  chpPersonAlert,
 } from './parse.js';
 import { describeChp, chpTypeLabel, chpSearchText } from './format.js';
 import { demoChpXml } from './mockSource.js';
@@ -147,4 +149,67 @@ test('the card and the demo document', () => {
   assert.equal(demo.length, 6);
   assert.ok(demo.every((n) => n.meta.demo && n.meta.timeMs > 0));
   assert.equal(describeChp(demo[0]).rows.at(-1)[1], 'demo (simulated)');
+});
+
+// A trimmed copy of the live feed (Oct 2026): CRLF lines, `ID = "..."` with
+// spaces, Center = division and Dispatch = communications centre; the
+// narratives were replaced for the fixture. The old parser read none of it.
+const REAL = fs.readFileSync(
+  new URL('./fixtures/sa-sample.xml', import.meta.url),
+  'utf8',
+);
+
+test('the live document shape parses (spaced attributes, dispatch centres)', () => {
+  const list = parseChpXml(REAL);
+  assert.deepEqual(
+    list.map((n) => n.id),
+    [
+      'chp/YKCC/261008YK0110',
+      'chp/SACC/261008SA1256',
+      'chp/GGCC/261008GG2859',
+      'chp/GGCC/261008GG1643',
+      'chp/LACC/261008LA3104',
+      'chp/LACC/261008LA2234',
+      'chp/LACC/261008LA0056',
+    ],
+    'no position ("0:0") and the person alert are left out',
+  );
+  const [yreka, , brk, closure, crash, sig] = list;
+  assert.equal(yreka.meta.centerName, 'Yreka');
+  assert.equal(yreka.meta.location, 'Old Highway 99 S / Timmons Rd');
+  assert.equal(yreka.meta.area, 'Yreka');
+  assert.equal(yreka.position.latitude, 41.574673);
+  assert.equal(yreka.position.longitude, -122.525015);
+  assert.equal(
+    new Date(yreka.meta.timeMs).toISOString(),
+    '2026-10-09T05:46:00.000Z',
+    'double-spaced Pacific time',
+  );
+  assert.equal(brk.meta.kind, 'jam');
+  assert.equal(closure.meta.kind, 'closure');
+  assert.equal(closure.meta.severity, 'critical');
+  assert.equal(crash.meta.centerName, 'Los Angeles');
+  assert.equal(crash.meta.kind, 'accident');
+  assert.equal(sig.meta.severity, 'critical');
+  const text = JSON.stringify(list);
+  assert.equal(text.includes('NARRATIVE'), false);
+  assert.equal(text.includes('Unit '), false);
+  assert.equal(text.includes('SILVER'), false);
+  assert.ok(chpPersonAlert('SILVER-Missing Elderly'));
+  assert.ok(chpPersonAlert('AMBER Alert'));
+  assert.equal(chpPersonAlert('1125A-Animal Hazard'), false);
+  assert.equal(chpPersonAlert('BREAK-Traffic Break'), false);
+});
+
+test('a copy cut off mid-element still yields every complete log', () => {
+  const cut = REAL.slice(0, REAL.indexOf('261008LA2234') + 200);
+  const ids = parseChpXml(cut).map((n) => n.id);
+  assert.deepEqual(ids.slice(-1), ['chp/LACC/261008LA3104']);
+  assert.equal(ids.length, 5);
+  // No Dispatch level at all: the Center names the centre.
+  const flat = parseChpXml(
+    `<State><Center ID='VTCC'><Log ID='1'><LogType>"1125-Traffic Hazard"</LogType><LATLON>"34264570:119457810"</LATLON><LogDetails/></Log></Center></State>`,
+  );
+  assert.equal(flat[0].id, 'chp/VTCC/1');
+  assert.equal(flat[0].meta.centerName, 'Ventura');
 });

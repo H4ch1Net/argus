@@ -165,7 +165,7 @@ test('the context and traffic layers credit their sources', () => {
     ['openmeteo-aq', 'open-meteo-aq'],
     ['gibs-night', 'nasa-gibs'],
     ['onionoo', 'tor-metrics'],
-    ['gdelt-geo', 'gdelt'],
+    ['gdelt-events', 'gdelt'],
   ])
     assert.deepEqual(
       creditsForFeed(feed).map((c) => c.id),

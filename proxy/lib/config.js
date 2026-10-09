@@ -53,6 +53,23 @@ export function validateFeeds(feeds) {
     if (!URL.canParse(f.baseUrl)) {
       throw new Error(`feed ${f.id} has invalid baseUrl: ${f.baseUrl}`);
     }
+    // Mirrors are other public instances of the same API: never sent a
+    // secret, never on this machine or the LAN, https only.
+    if (f.mirrors) {
+      if (f.inject?.length || f.auth || f.localOnly)
+        throw new Error(`feed ${f.id}: mirrors cannot carry secrets or be local`);
+      for (const m of f.mirrors) {
+        if (!URL.canParse(m) || new URL(m).protocol !== 'https:')
+          throw new Error(`feed ${f.id} has an invalid mirror: ${m}`);
+      }
+    }
+    if (
+      f.produce &&
+      (typeof f.produce !== 'function' || (f.methods ?? ['GET']).join() !== 'GET')
+    )
+      throw new Error(`feed ${f.id}: produce must be a function on a GET-only feed`);
+    if (f.timeoutMs != null && !(f.timeoutMs > 0))
+      throw new Error(`feed ${f.id} has an invalid timeoutMs`);
   }
   return feeds;
 }

@@ -152,7 +152,7 @@ import {
   torNote,
   torSearchText,
 } from '../core/layers/tor/format.js';
-import { parseGdeltThemes } from '../core/layers/gdelt/parse.js';
+import { parseGdeltEvents, gdeltStatusNote } from '../core/layers/gdelt/parse.js';
 import {
   describeGdelt,
   gdeltColorHex,
@@ -1028,13 +1028,14 @@ export function buildLayers({
       maxEntities: 3000,
       makeSource: async () =>
         demo ? createGdeltMockSource() : createGdeltSource({ proxyClient: client }),
-      normalize: (raw) => parseGdeltThemes(raw),
-      describe: describeGdelt,
+      normalize: (raw) => parseGdeltEvents(raw),
+      statusNote: (_q, raw) => gdeltStatusNote(raw),
+      describe: (n) => describeGdelt(n),
       searchText: gdeltSearchText,
       glyph: (n) => ({ ch: g.news, color: gdeltColorHex(n) }),
       priority: (n) => Math.log10(Math.max(1, n.meta.count)),
       legend: () =>
-        `${g.news} GDELT event reports, 24 h (red conflict, white disaster, gray unrest)`,
+        `${g.news} GDELT events, last hour (red conflict, white humanitarian aid, gray protest)`,
     },
   ];
 

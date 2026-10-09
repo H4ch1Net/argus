@@ -1,11 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  feeds,
-  AQ_CURRENT,
-  ONIONOO_FIELDS,
-  GDELT_GEO_QUERIES,
-} from '../feeds/context.js';
+import fs from 'node:fs';
+import { feeds, AQ_CURRENT, ONIONOO_FIELDS } from '../feeds/context.js';
+import { gdeltTheme, mergeGdeltEvents, parseExportTsv } from '../lib/gdelt.js';
 import { feeds as registry } from '../feeds.js';
 import { validateFeeds } from '../lib/config.js';
 import { buildUpstreamUrl } from '../lib/relay.js';
@@ -26,9 +23,10 @@ import {
   ONIONOO_PATH,
 } from '../../core/layers/tor/parse.js';
 import {
+  GDELT_FEED,
   GDELT_THEMES,
-  gdeltQuery,
-  GDELT_GEO_PATH,
+  GDELT_EVENTS_PATH,
+  parseGdeltEvents,
 } from '../../core/layers/gdelt/parse.js';
 
 const feed = (id) => feeds.find((f) => f.id === id);
@@ -57,7 +55,7 @@ test('the context feeds validate, are in the registry, keyless, pinned and cache
   assert.equal(validateFeeds(feeds), feeds);
   assert.deepEqual(
     feeds.map((f) => f.id),
-    ['swpc', 'openmeteo-aq', 'gibs-night', 'onionoo', 'gdelt-geo'],
+    ['swpc', 'openmeteo-aq', 'gibs-night', 'onionoo', 'gdelt-events'],
   );
   const ids = new Set(registry.map((f) => f.id));
   assert.equal(ids.size, registry.length, 'no id clashes with the rest of the registry');
@@ -75,10 +73,26 @@ test('the context feeds validate, are in the registry, keyless, pinned and cache
 test('core and proxy agree on the pinned constants', () => {
   assert.equal(CORE_AQ, AQ_CURRENT);
   assert.equal(CORE_ONIONOO, ONIONOO_FIELDS);
-  assert.deepEqual(
-    GDELT_THEMES.map((t) => t.query),
-    GDELT_GEO_QUERIES,
+  // Every theme the proxy assigns is one core knows.
+  const core = new Set(GDELT_THEMES.map((t) => t.id));
+  for (const code of ['073', '0233', '0333', '141', '145', '180', '190', '195', '204'])
+    assert.ok(core.has(gdeltTheme(code)), code);
+});
+
+test("GDELT: the proxy's document from a real export is what core parses", () => {
+  const csv = fs.readFileSync(
+    new URL('./fixtures/gdelt-sample.export.CSV', import.meta.url),
+    'utf8',
   );
+  const events = mergeGdeltEvents(parseExportTsv(csv));
+  const doc = JSON.parse(
+    JSON.stringify({ v: 1, updated: '2026-10-09T06:00:00Z', windowMinutes: 15, events }),
+  );
+  const points = parseGdeltEvents(doc);
+  assert.equal(points.length, events.length);
+  assert.ok(points.every((n) => n.meta.codeLabel && !/^Event /.test(n.meta.codeLabel)));
+  assert.ok(points.some((n) => n.meta.articles.length));
+  assert.equal(GDELT_FEED, 'gdelt-events');
 });
 
 test('SWPC: the two files, nothing else', () => {
@@ -149,19 +163,25 @@ test('Onionoo: running relays, the public fields only', () => {
   );
 });
 
-test('GDELT GEO: the three fixed theme queries only, never free text', () => {
-  for (const theme of GDELT_THEMES) {
-    assert.equal(
-      admits('gdelt-geo', clientUrl('gdelt-geo', GDELT_GEO_PATH, gdeltQuery(theme))),
-      true,
-    );
-  }
-  const q = gdeltQuery(GDELT_THEMES[0]);
-  const url = (p) => clientUrl('gdelt-geo', GDELT_GEO_PATH, { ...q, ...p });
-  assert.equal(admits('gdelt-geo', url({ query: 'John Smith' })), false);
-  assert.equal(admits('gdelt-geo', url({ query: 'theme:PROTEST near:Paris' })), false);
-  assert.equal(admits('gdelt-geo', url({ format: 'html' })), false);
-  assert.equal(admits('gdelt-geo', url({ mode: 'ImageHTML' })), false);
-  assert.equal(admits('gdelt-geo', url({ timespan: '7d' })), false);
-  assert.equal(admits('gdelt-geo', clientUrl('gdelt-geo', '/../doc/doc', q)), false);
+test('GDELT events: the one document, no query, never free text', () => {
+  assert.equal(
+    admits('gdelt-events', clientUrl('gdelt-events', GDELT_EVENTS_PATH)),
+    true,
+  );
+  const url = (p) => clientUrl('gdelt-events', GDELT_EVENTS_PATH, p);
+  assert.equal(admits('gdelt-events', url({ query: 'John Smith' })), false);
+  assert.equal(admits('gdelt-events', url({ theme: 'PROTEST' })), false);
+  assert.equal(
+    admits('gdelt-events', clientUrl('gdelt-events', '/lastupdate.txt')),
+    false,
+    'the upstream files are fetched by the proxy, never asked for by the client',
+  );
+  assert.equal(
+    admits('gdelt-events', clientUrl('gdelt-events', '/20261009060000.export.CSV.zip')),
+    false,
+  );
+  assert.equal(
+    admits('gdelt-events', clientUrl('gdelt-events', '/../x/events.json')),
+    false,
+  );
 });

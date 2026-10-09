@@ -9,7 +9,9 @@
  * @param {{ maxEntries?: number, maxBytes?: number, now?: () => number }} [opts]
  */
 export function createResponseCache({
-  maxEntries = 200,
+  // Room for tile-sized static answers (Overpass) beside the live feeds; the
+  // byte cap below is what bounds memory.
+  maxEntries = 600,
   maxBytes = 48 * 1024 * 1024,
   now = () => Date.now(),
 } = {}) {
@@ -34,19 +36,30 @@ export function createResponseCache({
     /**
      * @param {string} key
      * @param {{ status: number, headers: object, body: Buffer }} entry
-     * @param {{ group?: string, groupMax?: number }} [opts] a group (the feed)
-     *   keeps at most groupMax entries, so a feed with many distinct URLs (map
-     *   viewports) evicts its own oldest entries, not another feed's long-lived
-     *   ones (satellite elements, cable routes).
+     * @param {{ group?: string, groupMax?: number, groupMaxBytes?: number }} [opts]
+     *   a group (the feed) keeps at most groupMax entries and groupMaxBytes, so
+     *   a feed with many distinct URLs (map viewports, Overpass tiles) evicts
+     *   its own oldest entries, not another feed's long-lived ones (satellite
+     *   elements, cable routes).
      */
-    set(key, { status, headers, body }, { group = null, groupMax = Infinity } = {}) {
+    set(
+      key,
+      { status, headers, body },
+      { group = null, groupMax = Infinity, groupMaxBytes = Infinity } = {},
+    ) {
       if (body.length > maxBytes / 4) return; // never let one body take the cache
       drop(key);
       entries.set(key, { at: now(), status, headers, body, group });
       bytes += body.length;
       if (group !== null) {
         const mine = [...entries.entries()].filter(([, e]) => e.group === group);
-        for (let i = 0; i < mine.length - groupMax; i++) drop(mine[i][0]);
+        let mineBytes = mine.reduce((n, [, e]) => n + e.body.length, 0);
+        for (let i = 0; i < mine.length - 1; i++) {
+          if (mine.length - i <= groupMax && mineBytes <= (groupMaxBytes ?? Infinity))
+            break;
+          mineBytes -= mine[i][1].body.length;
+          drop(mine[i][0]);
+        }
       }
       for (const k of entries.keys()) {
         if (entries.size <= maxEntries && bytes <= maxBytes) break;
