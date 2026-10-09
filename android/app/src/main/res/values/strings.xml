@@ -27,7 +27,18 @@
     <string name="shortcut_restart">Restart proxy</string>
 
     <string name="car_layers">Layers</string>
+    <string name="car_view_3d">3D</string>
+    <string name="car_view_2d">2D</string>
+    <string name="car_view_north">North</string>
+    <string name="car_preset_drive">Drive</string>
+    <string name="car_preset_drive_detail">Incidents, traffic cameras, ALPR</string>
+    <string name="car_preset_sky">Sky</string>
+    <string name="car_preset_sky_detail">Aircraft overhead</string>
+    <string name="layer_incidents">Traffic incidents</string>
+    <string name="layer_chp">CHP incidents (CA)</string>
+    <string name="layer_surveillance">Surveillance and ALPR</string>
     <string name="layer_flights">Flights</string>
+    <string name="layer_military">Military aircraft</string>
     <string name="layer_trafficcams">Traffic cameras</string>
     <string name="layer_radar">Weather radar</string>
     <string name="layer_quakes">Earthquakes</string>
