@@ -2,9 +2,10 @@ import './settings.css';
 import { h } from './dom.js';
 import { createChoice, createSwitch } from './controls.js';
 import { createSelfIconPicker } from './selfIcons.js';
+import { createIconSettings } from './iconSettings.js';
 
-// SETTINGS: a ctOS dialog over the globe with four pages (PERFORMANCE,
-// INTERFACE, DATA, ABOUT), each control writing straight to the settings
+// SETTINGS: a ctOS dialog over the globe with five pages (PERFORMANCE,
+// INTERFACE, ICONS, DATA, ABOUT), each control writing straight to the settings
 // store (core/settings/store.js), which remembers it on this device. What can
 // apply live applies live; a quality-tier change offers a reload, since the
 // tier shapes how the globe is built. Opens from the bar's SET cell, from
@@ -13,6 +14,7 @@ import { createSelfIconPicker } from './selfIcons.js';
 const PAGES = [
   { id: 'perf', label: 'PERF' },
   { id: 'ui', label: 'INTERFACE' },
+  { id: 'icons', label: 'ICONS' },
   { id: 'data', label: 'DATA' },
   { id: 'about', label: 'ABOUT' },
 ];
@@ -20,9 +22,11 @@ const PAGES = [
 const opt = (id, label = String(id).toUpperCase()) => ({ id, label });
 
 /**
- * @param {{ settings: object, tier: string, notify?: Function }} deps
+ * @param {{ settings: object, tier: string, notify?: Function,
+ *   layers?: () => { key: string, label: string, group?: string }[] }} deps
+ *   layers: the registered map layers (names and order for ICONS).
  */
-export function createSettingsPanel({ settings, tier, notify }) {
+export function createSettingsPanel({ settings, tier, notify, layers }) {
   const choice = (key, label, options) =>
     createChoice({
       caption: label,
@@ -44,6 +48,8 @@ export function createSettingsPanel({ settings, tier, notify }) {
     controls.push([key, control]);
     return control.el;
   };
+  // ICONS: size with zoom, one size for all, and per layer (core/ui/iconSettings.js).
+  const icons = createIconSettings({ settings, layers });
 
   const pages = {
     perf: h(
@@ -145,6 +151,7 @@ export function createSettingsPanel({ settings, tier, notify }) {
         'Your own marker on the map and in the car. GEO centres on you, again to follow.',
       ),
     ),
+    icons: h('div.ct-settings__page', {}, icons.el),
     data: h(
       'div.ct-settings__page',
       {},
@@ -232,6 +239,7 @@ export function createSettingsPanel({ settings, tier, notify }) {
   }
   function repaint() {
     for (const [key, c] of controls) (c.paint ?? c.set)?.(settings.get(key));
+    icons.repaint();
   }
 
   // Tabs inside the dialog, the kitty idiom.
