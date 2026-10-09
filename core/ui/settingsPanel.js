@@ -1,6 +1,7 @@
 import './settings.css';
 import { h } from './dom.js';
 import { createChoice, createSwitch } from './controls.js';
+import { createSelfIconPicker } from './selfIcons.js';
 
 // SETTINGS: a ctOS dialog over the globe with four pages (PERFORMANCE,
 // INTERFACE, DATA, ABOUT), each control writing straight to the settings
@@ -132,6 +133,16 @@ export function createSettingsPanel({ settings, tier, notify }) {
           opt('last', 'Last view'),
           opt('aroundme', 'Around me'),
         ]),
+      ),
+      keep(
+        'selfIcon',
+        createSelfIconPicker({
+          current: settings.get('selfIcon'),
+          onSelect: (id) => settings.set('selfIcon', id),
+        }),
+      ),
+      note(
+        'Your own marker on the map and in the car. GEO centres on you, again to follow.',
       ),
     ),
     data: h(

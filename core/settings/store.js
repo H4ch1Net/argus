@@ -22,6 +22,11 @@ export const SETTINGS_SCHEMA = Object.freeze({
   uiScale: { def: 100, values: [90, 100, 115, 130] },
   reducedMotion: { def: false, values: [true, false] },
   startView: { def: 'default', values: ['default', 'last', 'aroundme'] },
+  // The user's own map marker (core/ui/selfIcons.js SELF_ICONS, same order).
+  selfIcon: {
+    def: 'chevron',
+    values: ['chevron', 'triangle', 'diamond', 'car', 'crosshair', 'dot', 'beam'],
+  },
   // Earth.
   imagery: {
     def: 'auto',

@@ -3,6 +3,11 @@ import { bootGlobe } from '../core/index.js';
 import { createCameraControls } from '../core/scene/cameraControls.js';
 import { h } from '../core/ui/dom.js';
 import {
+  DEFAULT_SELF_ICON,
+  selfIconPreview,
+  turnsWithHeading,
+} from '../core/ui/selfIcons.js';
+import {
   VIEW_MODES,
   angleDelta,
   carResolutionScale,
@@ -127,9 +132,17 @@ export async function mountShell(root, bootOpts = {}) {
   );
   const readout = h('div.car-readout', { hidden: true });
   const notify = h('div.car-notify');
+  // The own-position marker: the icon chosen in SETTINGS (core/ui/selfIcons.js),
+  // the same one the phone's globe draws; main hands it over (setSelfIcon).
   const marker = h('div.car-self', { hidden: true, 'aria-hidden': 'true' });
-  marker.innerHTML =
-    '<svg viewBox="0 0 32 32" width="34" height="34"><path d="M16 2 27 29 16 22 5 29Z" fill="#fff" stroke="#0e0e0e" stroke-width="2" stroke-linejoin="round"/></svg>';
+  let selfIcon = DEFAULT_SELF_ICON;
+  const drawSelfIcon = (id) => {
+    selfIcon = id;
+    const art = selfIconPreview(id, 34);
+    art.style.display = 'block';
+    marker.replaceChildren(art);
+  };
+  drawSelfIcon(DEFAULT_SELF_ICON);
   hud.append(status, readout, notify, marker);
 
   // ---------------------------------------------------------------- state
@@ -425,7 +438,9 @@ export async function mountShell(root, bootOpts = {}) {
       return;
     }
     marker.hidden = false;
-    const turn = (fix.heading ?? 0) - Cesium.Math.toDegrees(cam.heading);
+    const turn = turnsWithHeading(selfIcon)
+      ? (fix.heading ?? 0) - Cesium.Math.toDegrees(cam.heading)
+      : 0;
     marker.style.transform = `translate(${s.x}px, ${s.y}px) rotate(${turn}deg)`;
   });
 
@@ -681,6 +696,8 @@ export async function mountShell(root, bootOpts = {}) {
     setClean() {},
     // Satellite pass predictions: the vehicle's own position.
     observer: async () => (fix ? { latitude: fix.lat, longitude: fix.lon } : null),
+    /** The own-position icon chosen in SETTINGS (main passes it on change). */
+    setSelfIcon: (id) => drawSelfIcon(id),
   };
 }
 
