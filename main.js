@@ -221,10 +221,17 @@ async function setupScene(app, splash) {
   const clock = createSceneClock();
   clock.subscribe(() => app.viewer.scene.requestRender());
 
+  // The car (Android Auto) shares this code and this origin's saved settings
+  // with the phone app, but draws on a second screen from the same phone GPU:
+  // it keeps its own fixed, light look (no saved imagery, relief, sun, stars),
+  // and draws aircraft on their ground track, since its camera looks down from
+  // below cruise altitude (shell-car/index.js).
+  const car = app.shell === 'car';
   const manager = createLayerManager(app.viewer, {
     readout: app.readout,
     clock,
     animationFps: app.profile?.animationFps,
+    groundClamp: car,
   });
   const camera = createCameraControls(app.viewer);
   const desktop = app.shell === 'desktop';
@@ -1491,7 +1498,8 @@ async function setupScene(app, splash) {
   const imagery = createImageryController(app.viewer, { mono: true });
   const settings = app.settings;
   const savedImagery = settings?.get('imagery') ?? 'auto';
-  if (savedImagery !== 'auto') imagery.set(savedImagery);
+  if (car) imagery.set('dark');
+  else if (savedImagery !== 'auto') imagery.set(savedImagery);
   else if (capable) imagery.set('dark');
   const labels = createLabelsController(app.viewer, { imagery });
 
@@ -1508,7 +1516,7 @@ async function setupScene(app, splash) {
     chosenTerrain !== 'auto'
       ? chosenTerrain
       : defaultTerrainId({ tier: app.tier, metered });
-  if (defTerrain !== 'flat') terrain.set(defTerrain);
+  if (!car && defTerrain !== 'flat') terrain.set(defTerrain);
   const terrainChoice = createChoice({
     caption: 'Terrain',
     options: TERRAIN_SOURCES,
@@ -1623,10 +1631,10 @@ async function setupScene(app, splash) {
     apply(value);
     settings?.set(key, value);
   };
-  earth.setLighting(settings?.get('lighting') ?? false);
-  earth.setAtmosphere(settings?.get('atmosphere') ?? true);
-  earth.setStars(settings?.get('stars') ?? true);
-  earth.setExaggeration(settings?.get('exaggeration') ?? 1);
+  earth.setLighting(!car && (settings?.get('lighting') ?? false));
+  earth.setAtmosphere(!car && (settings?.get('atmosphere') ?? true));
+  earth.setStars(!car && (settings?.get('stars') ?? true));
+  earth.setExaggeration(car ? 1 : (settings?.get('exaggeration') ?? 1));
   view.push(
     section(
       'EARTH',
@@ -2456,7 +2464,13 @@ async function setupScene(app, splash) {
       {
         label: 'reduced resolution',
         down: () => {
-          app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
+          // Never below 0.6 rendered pixels per CSS pixel. The floor is in CSS
+          // pixels, not a bare scale: the car budgets its pixels below 0.6 on a
+          // dense display, and this step must still lower it, never raise it.
+          app.viewer.resolutionScale = Math.max(
+            0.6 / (window.devicePixelRatio || 1),
+            app.profile.resolutionScale * 0.7,
+          );
         },
         up: () => {
           app.viewer.resolutionScale = app.profile.resolutionScale;
@@ -2886,6 +2900,7 @@ async function attachTracking(
     panel,
     overlay,
     notify,
+    groundClamp: app.shell === 'car',
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
     extraActions: (target, rec) =>
       [

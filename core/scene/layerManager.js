@@ -10,7 +10,10 @@ import { createLayer } from '../layers/sdk/index.js';
  * @param {import('cesium').Viewer} viewer
  * @param {{ readout?: { setLayerStatus?: (label: string, s: object) => void } }} [opts]
  */
-export function createLayerManager(viewer, { readout, clock, animationFps } = {}) {
+export function createLayerManager(
+  viewer,
+  { readout, clock, animationFps, groundClamp = false } = {},
+) {
   const entries = new Map(); // key -> { label, loadDef, makeSource, layer, enabled }
   const listeners = new Set();
   const emit = () => listeners.forEach((fn) => fn());
@@ -78,6 +81,7 @@ export function createLayerManager(viewer, { readout, clock, animationFps } = {}
             },
             clock,
             animationFps,
+            groundClamp,
           });
         } finally {
           e.pending = null;

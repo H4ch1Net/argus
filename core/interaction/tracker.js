@@ -23,10 +23,21 @@ const FOLLOW_MAX_RANGE_M = 600_000;
  * @param {(target: object) => void} [opts.onCockpit]
  * @param {(target: object, rec: object) => object[]} [opts.extraActions]
  * @param {(msg: { title: string, body?: string }) => void} [opts.notify]
+ * @param {boolean} [opts.groundClamp]  draw the trail at ground level, like
+ *   the layers (the car view: core/layers/sdk/createLayer.js groundClamp)
  */
 export function createTracker(
   viewer,
-  { resolve, panel, overlay, onChange, onCockpit, extraActions, notify },
+  {
+    resolve,
+    panel,
+    overlay,
+    onChange,
+    onCockpit,
+    extraActions,
+    notify,
+    groundClamp = false,
+  },
 ) {
   const scene = viewer.scene;
   let tracked = null; // { target, rec }
@@ -52,7 +63,7 @@ export function createTracker(
           Cesium.Cartesian3.fromDegrees(
             f.longitude,
             f.latitude,
-            Math.max(0, f.altitude ?? 0),
+            groundClamp ? 0 : Math.max(0, f.altitude ?? 0),
           ),
         ),
       };
