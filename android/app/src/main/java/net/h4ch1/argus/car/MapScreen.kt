@@ -36,6 +36,7 @@ object CarLayers {
     val ALL = listOf(
         Layer("incidents", R.string.layer_incidents),
         Layer("chp", R.string.layer_chp),
+        Layer("simtraffic", R.string.layer_simtraffic),
         Layer("trafficcams", R.string.layer_trafficcams),
         Layer("surveillance", R.string.layer_surveillance),
         Layer("flights", R.string.layer_flights),

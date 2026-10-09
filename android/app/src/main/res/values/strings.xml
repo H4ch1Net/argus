@@ -36,6 +36,7 @@
     <string name="car_preset_sky_detail">Aircraft overhead</string>
     <string name="layer_incidents">Traffic incidents</string>
     <string name="layer_chp">CHP incidents (CA)</string>
+    <string name="layer_simtraffic">Traffic (simulated)</string>
     <string name="layer_surveillance">Surveillance and ALPR</string>
     <string name="layer_flights">Flights</string>
     <string name="layer_military">Military aircraft</string>

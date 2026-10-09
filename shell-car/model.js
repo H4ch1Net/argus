@@ -216,6 +216,7 @@ const CODES = {
   surveillance: 'SRV',
   incidents: 'INC',
   chp: 'CHP',
+  simtraffic: 'SIM',
   borderwaits: 'BDR',
   webcams: 'WEB',
   quakes: 'EQ',
