@@ -1,8 +1,10 @@
 package net.h4ch1.argus.car
 
 import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
+import androidx.car.app.constraints.ConstraintManager
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.CarColor
@@ -13,32 +15,75 @@ import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.car.app.model.Toggle
 import androidx.car.app.navigation.model.NavigationTemplate
+import androidx.car.app.versioning.CarAppApiLevels
 import androidx.core.graphics.drawable.IconCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import net.h4ch1.argus.Prefs
 import net.h4ch1.argus.R
 
-/** The car-safe layers offered in the car, in list order. */
+/**
+ * The car-safe layers offered in the car, in list order (what matters on the
+ * road first), and the one-tap presets. The page reports which of them this
+ * build can show (a keyed layer only once the phone's proxy has its key), and
+ * the list offers only those.
+ */
 object CarLayers {
-    data class Layer(val key: String, val title: Int)
+    data class Layer(val key: String, @StringRes val title: Int)
+
+    data class Preset(@StringRes val title: Int, @StringRes val detail: Int, val keys: Set<String>)
 
     val ALL = listOf(
-        Layer("flights", R.string.layer_flights),
+        Layer("incidents", R.string.layer_incidents),
+        Layer("chp", R.string.layer_chp),
         Layer("trafficcams", R.string.layer_trafficcams),
+        Layer("surveillance", R.string.layer_surveillance),
+        Layer("flights", R.string.layer_flights),
+        Layer("military", R.string.layer_military),
         Layer("radar", R.string.layer_radar),
         Layer("quakes", R.string.layer_quakes),
     )
+
+    val PRESETS = listOf(
+        Preset(R.string.car_preset_drive, R.string.car_preset_drive_detail, Prefs.CAR_DEFAULT_LAYERS),
+        Preset(R.string.car_preset_sky, R.string.car_preset_sky_detail, setOf("flights", "military")),
+    )
+
+    /** The layers the car page can show; null until it has said. */
+    var available: Set<String>? = null
+        private set
+    private val listeners = mutableSetOf<() -> Unit>()
+
+    fun setAvailable(keys: Set<String>) {
+        if (keys == available) return
+        available = keys
+        listeners.toList().forEach { it() }
+    }
+
+    fun observe(fn: () -> Unit): () -> Unit {
+        listeners += fn
+        return { listeners -= fn }
+    }
 }
 
 private fun CarContext.icon(@DrawableRes res: Int): CarIcon =
     CarIcon.Builder(IconCompat.createWithResource(this, res)).setTint(CarColor.DEFAULT).build()
 
+@StringRes
+private fun viewTitle(mode: String): Int = when (mode) {
+    "2d" -> R.string.car_view_2d
+    "north" -> R.string.car_view_north
+    else -> R.string.car_view_3d
+}
+
 /**
  * The map screen: the globe fills the car display (CarMapRenderer), with the
- * map controls in the map action strip (pan, re-centre, zoom in, zoom out) and
- * LAYERS in the action strip. No text entry, no lists over the map.
+ * map controls in the map action strip (pan, re-centre, zoom in, zoom out),
+ * and LAYERS and VIEW in the action strip. No text entry, no lists over the map.
  */
 class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : Screen(carContext) {
     override fun onGetTemplate(): Template {
+        val prefs = Prefs(carContext)
         val mapActions = ActionStrip.Builder()
             .addAction(Action.PAN)
             .addAction(
@@ -68,6 +113,18 @@ class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : 
                     .setOnClickListener { screenManager.push(LayersScreen(carContext, renderer)) }
                     .build(),
             )
+            // VIEW cycles 3D -> 2D -> NORTH; its title is the view it is on.
+            .addAction(
+                Action.Builder()
+                    .setTitle(carContext.getString(viewTitle(prefs.carView)))
+                    .setOnClickListener {
+                        val views = Prefs.CAR_VIEWS
+                        prefs.carView = views[(views.indexOf(prefs.carView) + 1) % views.size]
+                        renderer.pushView()
+                        invalidate()
+                    }
+                    .build(),
+            )
             .build()
         return NavigationTemplate.Builder()
             .setActionStrip(actions)
@@ -80,32 +137,87 @@ class MapScreen(carContext: CarContext, private val renderer: CarMapRenderer) : 
     }
 }
 
-/** LAYERS: a short list of toggles; the choice is remembered for the next drive. */
+/**
+ * LAYERS: the presets (DRIVE, SKY) first, then a toggle per layer the page can
+ * show, within the host's list limit. The choice is remembered for the next drive.
+ */
 class LayersScreen(carContext: CarContext, private val renderer: CarMapRenderer) : Screen(carContext) {
+    init {
+        // The page may report its layers while this list is open.
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            private var stop: (() -> Unit)? = null
+
+            override fun onCreate(owner: LifecycleOwner) {
+                stop = CarLayers.observe { invalidate() }
+            }
+
+            override fun onDestroy(owner: LifecycleOwner) {
+                stop?.invoke()
+                stop = null
+            }
+        })
+    }
+
+    private fun listLimit(): Int =
+        if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_2) {
+            carContext.getCarService(ConstraintManager::class.java)
+                .getContentLimit(ConstraintManager.CONTENT_LIMIT_TYPE_LIST)
+        } else {
+            FALLBACK_LIST_LIMIT
+        }
+
+    private fun choose(prefs: Prefs, keys: Set<String>) {
+        prefs.carLayers = keys
+        renderer.pushLayers()
+        invalidate()
+    }
+
     // setTitle/setHeaderAction work on every host; their Header replacement
     // needs a newer one.
     @Suppress("DEPRECATION")
     override fun onGetTemplate(): Template {
         val prefs = Prefs(carContext)
+        val chosen = prefs.carLayers
+        val available = CarLayers.available
         val list = ItemList.Builder()
-        for (layer in CarLayers.ALL) {
+        val limit = listLimit().coerceAtLeast(CarLayers.PRESETS.size + 1)
+        for (preset in CarLayers.PRESETS) {
+            list.addItem(
+                Row.Builder()
+                    .setTitle(carContext.getString(preset.title))
+                    .addText(carContext.getString(preset.detail))
+                    .setOnClickListener { choose(prefs, preset.keys) }
+                    .build(),
+            )
+        }
+        var rows = CarLayers.PRESETS.size
+        // Layers this build can show, plus any still switched on (so they can
+        // be switched off); all of them until the page has said.
+        val offered = CarLayers.ALL.filter { available == null || it.key in available || it.key in chosen }
+        for (layer in offered) {
+            if (rows >= limit) break
             val toggle = Toggle.Builder { checked ->
                 val now = prefs.carLayers.toMutableSet()
                 if (checked) now += layer.key else now -= layer.key
-                prefs.carLayers = now
-                renderer.pushLayers()
-            }.setChecked(layer.key in prefs.carLayers).build()
+                choose(prefs, now)
+            }.setChecked(layer.key in chosen).build()
             list.addItem(
                 Row.Builder()
                     .setTitle(carContext.getString(layer.title))
                     .setToggle(toggle)
                     .build(),
             )
+            rows += 1
         }
         return ListTemplate.Builder()
             .setTitle(carContext.getString(R.string.car_layers))
             .setHeaderAction(Action.BACK)
             .setSingleList(list.build())
             .build()
+    }
+
+    private companion object {
+        // Hosts before car API level 2 cannot say; six rows is the usual floor.
+        const val FALLBACK_LIST_LIMIT = 6
     }
 }

@@ -1,19 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  VIEW_MODES,
   angleDelta,
   bearingDeg,
   cardinal,
+  carResolutionScale,
   courseFor,
   destination,
   distanceM,
   followAltitude,
+  followFrameMs,
   followPose,
   formatDistance,
   formatHeading,
   formatSpeed,
+  isParkedJitter,
   layerCode,
   nearestContacts,
+  nextViewMode,
   planLayerClicks,
   speedBetween,
   unitsForLocale,
@@ -41,26 +46,79 @@ test('distance, bearing and destination agree', () => {
   assert.ok(q.lon < -179 && q.lon >= -180, `lon ${q.lon}`);
 });
 
-test('the follow view rises from 3 km to 8 km with speed', () => {
-  assert.equal(followAltitude(0), 3000);
-  assert.equal(followAltitude(NaN), 3000);
-  assert.equal(followAltitude(33), 8000);
-  assert.equal(followAltitude(60), 8000);
+test('the follow view rises from 1.8 km to 6.5 km with speed', () => {
+  assert.equal(followAltitude(0), 1800);
+  assert.equal(followAltitude(NaN), 1800);
+  assert.equal(followAltitude(33), 6500);
+  assert.equal(followAltitude(60), 6500);
   const mid = followAltitude(17.5);
-  assert.ok(mid > 5000 && mid < 6000, String(mid));
+  assert.ok(mid > 3800 && mid < 4400, String(mid));
 });
 
 test('followPose looks ahead of the vehicle along its heading', () => {
   const pose = followPose({ lat: 51.5, lon: -0.12, heading: 90, speed: 0 });
   assert.equal(pose.pitch, -45);
   assert.equal(pose.heading, 90);
-  // Eye 3 km up at 45 degrees: range is 3000 / sin 45.
-  near(pose.range, 3000 * Math.SQRT2, 1e-6);
-  // The look point is 750 m east of the vehicle.
-  near(distanceM(51.5, -0.12, pose.lat, pose.lon), 750, 0.5);
+  // Eye 1.8 km up at 45 degrees: range is 1800 / sin 45.
+  near(pose.range, 1800 * Math.SQRT2, 1e-6);
+  // The look point is 450 m east of the vehicle.
+  near(distanceM(51.5, -0.12, pose.lat, pose.lon), 450, 0.5);
   near(bearingDeg(51.5, -0.12, pose.lat, pose.lon), 90, 0.05);
   // The driver's zoom scales it.
-  near(followPose({ lat: 0, lon: 0 }, { scale: 2 }).range, 6000 * Math.SQRT2, 1e-6);
+  near(followPose({ lat: 0, lon: 0 }, { scale: 2 }).range, 3600 * Math.SQRT2, 1e-6);
+});
+
+test('the flat views look straight down; north up ignores the course', () => {
+  const fix = { lat: 51.5, lon: -0.12, heading: 90, speed: 0 };
+  const flat = followPose(fix, { mode: '2d' });
+  assert.equal(flat.pitch, -90);
+  assert.equal(flat.heading, 90);
+  near(flat.range, 1800, 1e-6);
+  const north = followPose(fix, { mode: 'north' });
+  assert.equal(north.pitch, -90);
+  assert.equal(north.heading, 0);
+  // An unknown mode is the 3D view.
+  assert.equal(followPose(fix, { mode: 'nope' }).pitch, -45);
+  assert.equal(nextViewMode('3d'), '2d');
+  assert.equal(nextViewMode('2d'), 'north');
+  assert.equal(nextViewMode('north'), '3d');
+  assert.equal(VIEW_MODES[nextViewMode('nope')].label, '3D');
+});
+
+test('carResolutionScale holds a car display to its pixel budget', () => {
+  // 1920x720 at density 1.25 (CSS 1536x576): about 1.1 MP, not 1.38.
+  const s = carResolutionScale(1536, 576, 1.25);
+  const px = 1536 * 576 * (1.25 * s) ** 2;
+  near(px, 1_100_000, 1000);
+  // A wide, dense screen (2560x1080 at density 1.875) is held to the same.
+  const t = carResolutionScale(1365, 576, 1.875);
+  assert.ok(1365 * 576 * (1.875 * t) ** 2 <= 1_100_000 * 1.01);
+  // Never below 0.75 nor above 1.25 rendered pixels per CSS pixel.
+  near(carResolutionScale(4000, 2000, 1) * 1, 0.75, 1e-9);
+  near(carResolutionScale(400, 200, 2) * 2, 1.25, 1e-9);
+});
+
+test('followFrameMs: 20 updates a second moving or turning, 12 creeping', () => {
+  near(followFrameMs(25), 50, 1e-9);
+  near(followFrameMs(1, 10), 50, 1e-9);
+  near(followFrameMs(1, 0.5), 1000 / 12, 1e-9);
+  near(followFrameMs(NaN), 1000 / 12, 1e-9);
+});
+
+test('isParkedJitter holds the view still for GPS wander, not for driving', () => {
+  const prev = { lat: 51.5, lon: -0.12 };
+  // 5 m of wander, standing still: jitter.
+  const wander = destination(51.5, -0.12, 30, 5);
+  assert.equal(isParkedJitter(prev, { ...wander, speed: 0, accuracy: 6 }), true);
+  // 40 m away: a real move, even if the fix says speed 0.
+  const away = destination(51.5, -0.12, 30, 40);
+  assert.equal(isParkedJitter(prev, { ...away, speed: 0, accuracy: 6 }), false);
+  // Moving: never jitter.
+  assert.equal(isParkedJitter(prev, { ...wander, speed: 3, accuracy: 6 }), false);
+  // A poor fix widens the tolerance, up to 25 m.
+  const poor = destination(51.5, -0.12, 30, 20);
+  assert.equal(isParkedJitter(prev, { ...poor, speed: 0, accuracy: 60 }), true);
+  assert.equal(isParkedJitter(null, { ...poor, speed: 0 }), false);
 });
 
 test('courseFor trusts the fix heading only while moving', () => {
@@ -130,6 +188,27 @@ test('nearestContacts sorts by range and drops contacts without a position', () 
     [1, 2, 4],
   );
   assert.equal(plain[0].distanceM, null);
+});
+
+test('nearestContacts puts what is ahead first when the course is known', () => {
+  const here = { lat: 0, lon: 0 };
+  const list = [
+    { id: 'behind-near', lat: -0.01, lon: 0 }, // 1.1 km south
+    { id: 'ahead-far', lat: 0.05, lon: 0 }, // 5.6 km north
+    { id: 'ahead-near', lat: 0.02, lon: 0.005 }, // ~2.3 km north
+    { id: 'side', lat: 0, lon: 0.03 }, // 3.3 km east: 90 degrees off a north course
+  ];
+  const north = nearestContacts(list, here, 3, { heading: 0 });
+  assert.deepEqual(
+    north.map((c) => c.id),
+    ['ahead-near', 'ahead-far', 'behind-near'],
+  );
+  assert.equal(north[0].ahead, true);
+  assert.equal(north[2].ahead, false);
+  // Driving south, the same list turns round.
+  assert.equal(nearestContacts(list, here, 1, { heading: 180 })[0].id, 'behind-near');
+  // No course: nearest first, as before.
+  assert.equal(nearestContacts(list, here, 1)[0].id, 'behind-near');
 });
 
 test('planLayerClicks presses only the rows that differ', () => {

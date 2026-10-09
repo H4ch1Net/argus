@@ -964,3 +964,27 @@ Still unverified (and why):
 - **Everything on real Cesium**: the new shaders on a real GPU, the ground-primitive view cones and incident roads draping on terrain, the aurora / air-quality / terminator field textures, and the strip readouts.
 - **Every new upstream, live** (egress blocked): Windy, NPS, NASA EPIC, the 511 / WSDOT / NYC / Singapore camera networks, CBP and CBSA border waits, TomTom incidents, CHP CAD, NOAA SWPC, Open-Meteo air quality, NASA Black Marble, Onionoo, GDELT. Endpoint and coordinate uncertainties are listed in the agents' integration notes; the first online run is the real check.
 - **The Android app**: never built (no Android SDK) or run on a phone or in a car. The first CI run compiles it; `NODEJS_MOBILE_SHA256` must be pinned from that run's printed checksum, and WebGL through the car VirtualDisplay is unverified.
+
+## Phase H: Android Auto, lighter and easier
+
+Measured in the stub-Cesium harness with a simulated drive (GPS fixes at 1 Hz like the app: 30 s at 90 km/h, 10 s parked, 10 s parked with GPS wander, 40 s at 126 km/h), on main and on this change, same layers (flights, quakes, traffic cameras, surveillance, incidents):
+
+| Phase              | Frames/s before | after | Viewport-layer refetches before | after                     |
+| ------------------ | --------------- | ----- | ------------------------------- | ------------------------- |
+| Driving            | 26              | 24    | 0 in 30 s (never followed)      | 1 per layer (drift check) |
+| Parked             | 21              | 11    | surveillance 6 in 10 s          | 1                         |
+| Parked, GPS wander | 28              | 10    | 3                               | 0                         |
+| Motorway           | 26              | 22    | 0                               | 1 per layer               |
+
+Parked with no aircraft on, the car now draws nothing at all (0 frames/s); the remaining parked frames are aircraft moving at 8 a second. Main-thread task time in the harness dropped about fourfold, mostly from the smaller render target.
+
+What changed:
+
+- **Layers follow a camera that never settles**: viewport layers refetched only on Cesium's `moveEnd`, which never fires while the car follows the vehicle (nor while a desktop camera follows a tracked aircraft). They now also check every 4 s and refetch once the view has drifted a third of a view, and skip refetching when it moved under 4 % (`viewportShift`, `core/layers/sdk/viewport.js`). Tested.
+- **Parked**: every GPS fix nudged the follow camera, which fired `moveEnd` about once a second and re-queried Overpass for surveillance cameras each time. The follow view no longer touches the camera once settled, and GPS wander while parked is held still (`isParkedJitter`). Tested.
+- **The car keeps its own light look**: phone settings (imagery, terrain including photoreal 3D tiles, sun, atmosphere, stars, exaggeration) no longer reach the car, which shares the phone app's origin and storage.
+- **Frame budget**: render target held to about 1.1 MP whatever the car display (`carResolutionScale`); follow view 20 updates/s moving, 12 creeping; aircraft 8/s; no backdrop blur over the map. The thermal ladder's resolution step now has its floor in CSS pixels, so it always lowers.
+- **Android side**: drags and pinches are batched into one call per display frame (`Choreographer`); zoom factors keep four decimals (two dropped slow pinches); the car WebView pauses when the surface goes or another app is in front, and location stops with it.
+- **Easier to use**: aircraft drawn on their ground track in the car (the camera looks down from below cruise altitude, so they were never in view); a closer follow view (1.8 to 6.5 km); VIEW cycles 3D / 2D / north up; LAYERS opens with Drive and Sky presets and lists only layers the page can show, within the host's list limit; the HUD leads with a large speed; the nearest-contacts readout puts what is ahead first.
+
+Still unverified (and why): the Kotlin compiles only in CI (no Android SDK here); behaviour in a real car or the Desktop Head Unit, WebGL through the VirtualDisplay, and whether `WebView.onPause` hides the page on every WebView version are untested on a device.
