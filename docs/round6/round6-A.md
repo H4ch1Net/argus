@@ -1,5 +1,7 @@
 # Round 6, worker A: merge nearby, tap picking, gestures, fetch once
 
+> Integration note: the surveillance and landmarks conversions in section 4 were superseded when this work was merged with E1's. Those layers (and traffic lights) keep E1's own 0.1 degree, nearest-first tiling in `core/layers/overpass/tiles.js` and RELOAD reaches it as `query.reload`; the SDK tile cache serves data centres, installations and dams. A view up to 16 times the tile budget now loads its nearest tiles instead of nothing. See Phase I in `docs/AUDIT.md`.
+
 Scope: the Layer SDK (core/layers/sdk), the interaction spine
 (core/interaction), camera controls (core/scene/cameraControls.js), the layer
 menu, plus small blocks in glyphs.js, settings/store.js, layerManager.js and
