@@ -75,6 +75,12 @@ test('profile overrides leave auto values to the tier', () => {
   );
 });
 
+test('merge nearby is on by default and takes only on or off', () => {
+  assert.equal(defaultSettings().merge, true);
+  assert.equal(validateSettings({ merge: false }).merge, false);
+  assert.equal(validateSettings({ merge: 'no' }).merge, true);
+});
+
 test('units format distances, altitudes and speeds', () => {
   assert.equal(formatDistance(850), '850 M');
   assert.equal(formatDistance(3200), '3.2 KM');

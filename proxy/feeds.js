@@ -26,12 +26,26 @@
 // @property {OAuth2Auth} [auth]        OAuth2 client-credentials (Bearer token brokered server side)
 // @property {Record<string,string>} [headers]  static request headers (e.g. a User-Agent an API requires)
 // @property {object} [governor]        rate / credit limits (see lib/governor.js)
-// @property {{ ttlMs: number, staleMs?: number }} [cache]  reuse 200 GET bodies for ttlMs;
-//                                      serve the last good one for staleMs when the upstream fails
+// @property {{ ttlMs: number, staleMs?: number, maxEntries?: number, maxBytes?: number }} [cache]
+//                                      reuse 200 GET bodies for ttlMs; serve the last good one
+//                                      (x-argus-stale: age s) for staleMs when the upstream fails
 // @property {string} [baseUrlEnv]      env var that may point the feed at another instance
 // @property {boolean} [localOnly]      upstream exists only when baseUrlEnv names a host on
 //                                      this machine or the LAN (e.g. a home SDR receiver)
 // @property {boolean} [imageOnly]      a still-image feed: anything but an image/* body is refused
+// @property {number} [timeoutMs]       per-attempt upstream timeout (default: the proxy's, 15 s)
+// @property {string[]} [mirrors]       other https instances of the same API, tried in order
+//                                      after a network error, timeout, 429 or 5xx (no secrets)
+// @property {number} [retries]         extra attempts on the same base after a failure
+// @property {{ concurrency: number, maxWaitMs?: number, maxQueued?: number }} [queue]
+//                                      at most `concurrency` upstream at once; the rest wait
+//                                      in order (and for governor room) instead of a 429
+// @property {boolean} [freshConnection]  a new connection per attempt (a bad load-balancer member)
+// @property {(body: Buffer, headers: Headers) => boolean} [validate]  false: a 200 that is not
+//                                      a real answer (tried elsewhere, never cached)
+// @property {(ctx: { fetch: Function, signal: AbortSignal }) => Promise<{ body, contentType }>} [produce]
+//                                      build the body here from pinned upstream files
+//                                      (`upstreamPaths`) instead of relaying one request
 // @property {boolean} [enabled=true]
 //
 // @typedef {Object} OAuth2Auth
@@ -49,9 +63,27 @@ import { feeds as webcamFeeds } from './feeds/webcams.js';
 import { feeds as imageryFeeds } from './feeds/imagery.js';
 import { feeds as trafficFeeds } from './feeds/traffic.js';
 import { feeds as contextFeeds } from './feeds/context.js';
+import { feeds as exposureFeeds } from './feeds/exposure.js';
+import { feeds as streetFeeds } from './feeds/streets.js';
 
 // Feeds added after the core set live in per-area modules beside this file
 // (proxy/feeds/*.js), each exporting its own array in the same Feed shape.
+
+// Public Overpass instances serving the same API under another base path.
+export const OVERPASS_MIRRORS = [
+  'https://maps.mail.ru/osm/tools/overpass/api',
+  'https://overpass.kumi.systems/api',
+];
+
+/**
+ * False for an Overpass 200 that is not an answer: a query that ran out of
+ * time or memory comes back as 200 with a "runtime error" remark at the end
+ * (JSON or XML) and no data, which another instance may well answer.
+ */
+export function overpassAnswered(body) {
+  const tail = body.subarray(Math.max(0, body.length - 1024)).toString('utf8');
+  return !/"remark"\s*:\s*"runtime error|<remark>\s*runtime error/i.test(tail);
+}
 
 const NOWCOAST_LAYERS = [
   'global_longwave_imagery_mosaic',
@@ -117,6 +149,8 @@ export const feeds = [
     methods: ['GET'],
     allowPaths: [/^\/NORAD\/elements\/gp\.php$/],
     headers: UA,
+    // Large groups (Starlink, active) take a while to arrive.
+    timeoutMs: 30_000,
     cache: { ttlMs: 2 * HOUR, staleMs: 3 * 24 * HOUR },
   },
   {
@@ -128,6 +162,7 @@ export const feeds = [
     methods: ['GET'],
     allowPaths: [/^\/api\/area\/csv\//],
     inject: [{ secret: 'FIRMS_MAP_KEY', as: 'pathPrefix' }],
+    timeoutMs: 30_000,
   },
   {
     // OSM Overpass (landmarks, surveillance-infrastructure locations, data
@@ -137,34 +172,48 @@ export const feeds = [
     // reference project saw 406s), so the request names this app and a contact
     // URL, and OVERPASS_URL can point it at another instance, such as one you
     // run (any URL ending in /api works, e.g. https://overpass.example/api).
+    // The public instance is often overloaded (429, 504, timeouts), so the
+    // order is OVERPASS_URL (if set), the main instance, then two public
+    // mirrors that answer the same GET ?data= interface: VK Maps (current data)
+    // and kumi.systems (live-tested Oct 2026: its data was months old, so it
+    // goes last). An instance that failed is skipped for 5 minutes, and one
+    // request tries each instance at most once. The mapped things (cameras,
+    // readers, landmarks, signals) barely change, so an answer is kept 12
+    // hours and may stand in for a week when every instance fails; each
+    // attempt gets 35 s (the queries ask for [timeout:25]).
+    // Budget: the static layers ask per 0.1 degree tile, so a first view with
+    // several on is a burst of dozens of tiles (later views come from the
+    // tile memos and this cache). The burst is queued, not refused: two
+    // requests upstream at a time (overpass-api.de gives an address two
+    // slots), at most 60 a minute, each waiting up to 3 minutes; identical
+    // requests share one call; at most 6,000 a day, well under the main
+    // instance's "safe below 10,000 queries a day" guidance.
     id: 'overpass',
     baseUrl: 'https://overpass-api.de/api',
     baseUrlEnv: 'OVERPASS_URL',
+    mirrors: OVERPASS_MIRRORS,
     methods: ['GET'],
     // Judged against the default base path even when OVERPASS_URL re-points it.
     allowPaths: [/^\/api\/interpreter$/],
     headers: UA,
-    governor: { ratePerMinute: 20 },
-  },
-  {
-    // Shodan (exposed-device awareness). Verified Aug 2026: /host/count with
-    // facets does NOT consume query credits; /host/search does. Visualization/
-    // awareness-only, built on cached snapshots, never live search-on-pan. The
-    // budget governor is live so a session can never burn the monthly credits.
-    id: 'shodan',
-    baseUrl: 'https://api.shodan.io',
-    methods: ['GET'],
-    // /host/count (facets) and /host/<ip> (single-host lookup) are credit-free
-    // per the verified membership terms; /host/search consumes a query credit.
-    allowPaths: [/^\/shodan\/host\/(count|search)/, /^\/shodan\/host\/[0-9a-fA-F.:]+$/],
-    inject: [{ secret: 'SHODAN_API_KEY', as: 'query', name: 'key' }],
+    timeoutMs: 35_000,
+    validate: overpassAnswered,
+    queue: { concurrency: 2, maxWaitMs: 3 * MINUTE, maxQueued: 500 },
     governor: {
-      ratePerMinute: 30,
-      creditBudget: 90, // margin under the 100/month membership
-      creditWindowMs: 30 * 24 * 60 * 60 * 1000,
-      creditCost: (path) => (path.includes('/search') ? 1 : 0),
+      ratePerMinute: 60,
+      creditBudget: 6000,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: {
+      ttlMs: 12 * HOUR,
+      staleMs: 7 * 24 * HOUR,
+      maxEntries: 2000,
+      maxBytes: 24e6,
     },
   },
+  // Shodan (the snapshot density layer, host lookups) and InternetDB live in
+  // proxy/feeds/exposure.js, with their query pins.
   {
     // Place geocoding (OSM Nominatim) for global search fly-to. Keyless, but its
     // usage policy requires a valid User-Agent and at most ~1 req/sec, so the
@@ -464,4 +513,6 @@ export const feeds = [
   ...imageryFeeds,
   ...trafficFeeds,
   ...contextFeeds,
+  ...exposureFeeds,
+  ...streetFeeds,
 ];

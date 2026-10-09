@@ -33,6 +33,32 @@ export function rectangleRadiansToBBox(rect) {
 }
 
 /**
+ * How far view `b` has moved from view `a`, in views: the larger of the
+ * centre's shift (as a fraction of a's width and height) and the change in
+ * size (log of the linear size ratio). 0 is the same view; 1 is a whole view
+ * away (or a zoom by a factor of e). Layers use it to skip a refetch when
+ * the view barely moved (GPS jitter under a following camera) and to refetch
+ * when a camera that never settles has drifted off the fetched area.
+ * @param {{ lamin: number, lomin: number, lamax: number, lomax: number, wrap?: object }} a
+ * @param {{ lamin: number, lomin: number, lamax: number, lomax: number, wrap?: object }} b
+ * @returns {number}
+ */
+export function viewportShift(a, b) {
+  if (!a || !b) return Infinity;
+  // A view across the antimeridian is widened to all longitudes: no shift can
+  // be read from it, so treat any such pair as moved.
+  if (a.wrap || b.wrap) return Infinity;
+  const aw = Math.max(1e-9, a.lomax - a.lomin);
+  const ah = Math.max(1e-9, a.lamax - a.lamin);
+  const bw = Math.max(1e-9, b.lomax - b.lomin);
+  const bh = Math.max(1e-9, b.lamax - b.lamin);
+  const dx = Math.abs((b.lomin - a.lomin + (b.lomax - a.lomax)) / 2) / aw;
+  const dy = Math.abs((b.lamin - a.lamin + (b.lamax - a.lamax)) / 2) / ah;
+  const dz = Math.abs(Math.log((bw * bh) / (aw * ah))) / 2;
+  return Math.max(dx, dy, dz);
+}
+
+/**
  * The fetch query for the current view: a bbox for the visible region, or the
  * whole globe when zoomed out so far that the view includes space (no finite
  * rectangle). Heavier, but better than fetching nothing.

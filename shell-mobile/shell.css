@@ -86,6 +86,27 @@
   pointer-events: auto;
 }
 
+/* Navigation: WHERE TO under the bar (clear of the stack), the preview and the
+   trip strip above the sheet's peek. Notices and floats sit below WHERE TO. */
+.argus-shell-mobile .argus-navtop {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px + var(--bar-height) + 8px);
+  left: 8px;
+  right: 58px;
+  pointer-events: none;
+}
+.argus-shell-mobile .argus-navbottom {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(env(safe-area-inset-bottom) + 58px + 8px);
+  pointer-events: none;
+}
+.argus-shell-mobile .argus-navtop:not(:empty) ~ .argus-notify,
+.argus-shell-mobile .argus-navtop:not(:empty) ~ .argus-float {
+  top: calc(env(safe-area-inset-top) + 8px + var(--bar-height) + 8px + 46px);
+}
+
 /* The sheet slides along translateY between peek, half and full. */
 .argus-sheet {
   position: absolute;

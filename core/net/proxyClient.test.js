@@ -67,6 +67,49 @@ test('errors carry the proxy reason when it sends one', async () => {
   });
 });
 
+test('onMeta hears a stale answer; tracked() adds it to every request', async () => {
+  const headers = {
+    'x-argus-stale': '240',
+    'x-argus-cache': 'stale',
+    'x-argus-upstream': 'maps.mail.ru',
+  };
+  const fetchImpl = fakeFetch(async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (k) => headers[k] ?? null },
+    json: async () => ({}),
+    text: async () => 'x',
+  }));
+  const c = createProxyClient({ baseUrl: 'http://p', fetchImpl });
+  const seen = [];
+  await c.getJson('overpass', '/interpreter', { onMeta: (m) => seen.push(m) });
+  assert.deepEqual(seen[0], {
+    feedId: 'overpass',
+    stale: 240,
+    cache: 'stale',
+    upstream: 'maps.mail.ru',
+    partial: false,
+  });
+  const layer = [];
+  const t = c.tracked((m) => layer.push(m.stale));
+  await t.getText('chp-cad', '/sa.xml', { onMeta: (m) => seen.push(m.feedId) });
+  assert.deepEqual(layer, [240]);
+  assert.equal(seen.at(-1), 'chp-cad', "the request's own hook still runs");
+  assert.equal(t.buildUrl('a', '/b'), 'http://p/feed/a/b');
+  // A fresh answer, or a response without headers, is not stale.
+  delete headers['x-argus-stale'];
+  await t.getJson('x', '/y');
+  assert.equal(layer.at(-1), null);
+  const bare = createProxyClient({
+    baseUrl: 'http://p',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => 1 }),
+  });
+  const got = [];
+  assert.equal(await bare.tracked((m) => got.push(m)).getJson('x', '/y'), 1);
+  assert.equal(got[0].stale, null);
+  assert.equal(got[0].partial, false);
+});
+
 test('getBytes returns the body as a Uint8Array', async () => {
   const fetchImpl = fakeFetch(async () => ({
     ok: true,

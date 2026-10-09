@@ -1,11 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   allAnnouncedPrefixes,
   announcedPrefixCount,
   parseShodanHost,
   createCorrelator,
 } from './correlate.js';
+
+// Real InternetDB answers, fetched 2026-10-09 (core/osint/fixtures/).
+const INTERNETDB = JSON.parse(
+  fs.readFileSync(new URL('./fixtures/internetdb.json', import.meta.url), 'utf8'),
+);
 
 test('allAnnouncedPrefixes maps + limits', () => {
   const json = {
@@ -66,21 +72,41 @@ test('createCorrelator merges RIPEstat + Shodan into a sectioned composite', asy
           org: 'Google LLC',
         };
       }
+      if (feed === 'internetdb') {
+        if (internetDbDown) throw Object.assign(new Error('down'), { status: 502 });
+        assert.equal(path, '/8.8.8.8');
+        return INTERNETDB['8.8.8.8'];
+      }
       return null;
     },
   };
-  const correlate = createCorrelator({ proxyClient });
-  const c = await correlate({ kind: 'ip', value: '8.8.8.8' });
+  let internetDbDown = false;
+  const c = await createCorrelator({ proxyClient })({ kind: 'ip', value: '8.8.8.8' });
 
   assert.equal(c.variant, 'correlated');
   assert.deepEqual(c.position, { longitude: -97.8, latitude: 37.7 });
-  assert.deepEqual(c.sources, ['RIPEstat', 'Shodan']);
+  assert.deepEqual(c.sources, ['RIPEstat', 'InternetDB', 'Shodan']);
   const titles = c.card.sections.map((s) => s.title);
   assert.ok(titles.includes('Routing (RIPEstat)'));
-  assert.ok(titles.includes('Exposure (Shodan)'));
-  const exposure = c.card.sections.find((s) => s.title === 'Exposure (Shodan)');
+  // InternetDB carries the exposure; the keyed Shodan lookup adds the operator.
+  const exposure = c.card.sections.find((s) => s.title === 'Exposure (InternetDB)');
   assert.deepEqual(
     exposure.rows.find((r) => r[0] === 'Open ports'),
+    ['Open ports', '53, 443'],
+  );
+  assert.deepEqual(
+    exposure.rows.find((r) => r[0] === 'Org'),
+    ['Org', 'Google LLC'],
+  );
+  assert.ok(!titles.includes('Exposure (Shodan)'));
+
+  // InternetDB down: the Shodan host lookup stands in.
+  internetDbDown = true;
+  const c2 = await createCorrelator({ proxyClient })({ kind: 'ip', value: '8.8.8.8' });
+  assert.deepEqual(c2.sources, ['RIPEstat', 'Shodan']);
+  const shodan = c2.card.sections.find((s) => s.title === 'Exposure (Shodan)');
+  assert.deepEqual(
+    shodan.rows.find((r) => r[0] === 'Open ports'),
     ['Open ports', '53, 443'],
   );
 });
@@ -105,10 +131,14 @@ test('createCorrelator degrades gracefully when Shodan is absent', async () => {
         };
       }
       if (feed === 'shodan') throw new Error('no key');
+      // InternetDB's answer for an IP it has nothing on: a 404.
+      if (feed === 'internetdb') throw Object.assign(new Error('404'), { status: 404 });
       return null;
     },
   };
   const c = await createCorrelator({ proxyClient })({ kind: 'ip', value: '203.0.113.9' });
-  assert.deepEqual(c.sources, ['RIPEstat']);
+  assert.deepEqual(c.sources, ['RIPEstat', 'InternetDB']);
   assert.ok(!c.card.sections.some((s) => s.title === 'Exposure (Shodan)'));
+  const exposure = c.card.sections.find((s) => s.title === 'Exposure (InternetDB)');
+  assert.deepEqual(exposure.rows, [['InternetDB', 'nothing indexed for this IP']]);
 });

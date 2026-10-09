@@ -56,11 +56,13 @@ export function destination(lat, lon, bearing, distance) {
   return { lat: deg(p2), lon: wrap360(deg(l2) + 180) - 180 };
 }
 
-// The follow view: tilted 45 degrees, 3 km up at a standstill rising to 8 km
-// at motorway speed, so the look-ahead grows with speed.
+// The follow view: tilted 45 degrees, 1.8 km up at a standstill rising to
+// 6.5 km at motorway speed, so the look-ahead grows with speed. Close enough
+// that streets and the cameras on them read at a glance; the driver's zoom
+// (the car's +/- buttons) scales it.
 export const FOLLOW_PITCH_DEG = -45;
-const ALT_MIN_M = 3000;
-const ALT_MAX_M = 8000;
+const ALT_MIN_M = 1800;
+const ALT_MAX_M = 6500;
 const SPEED_SLOW = 2; // ~7 km/h: below this the view stays at its closest
 const SPEED_FAST = 33; // ~120 km/h: at and above this, the widest view
 
@@ -75,18 +77,91 @@ export function followAltitude(speed) {
  * Where the follow camera looks: a point ahead of the vehicle (so the vehicle
  * sits in the lower part of the view, as in a navigation app), with the range
  * that puts the eye at followAltitude() above it. `scale` is the driver's zoom.
+ * While navigating, `ahead(metres)` gives the point that far along the route,
+ * so the view looks round the next bend instead of straight on.
  */
-export function followPose({ lat, lon, heading = 0, speed = 0 }, { scale = 1 } = {}) {
+export function followPose(
+  { lat, lon, heading = 0, speed = 0 },
+  { scale = 1, mode = '3d', ahead = null } = {},
+) {
+  const view = VIEW_MODES[mode] ?? VIEW_MODES['3d'];
   const alt = followAltitude(speed) * clamp(scale, 0.05, 20);
-  const range = alt / Math.sin(rad(-FOLLOW_PITCH_DEG));
-  const look = destination(lat, lon, heading, alt * 0.25);
+  const range = alt / Math.sin(rad(-view.pitch));
+  // Look ahead of the vehicle along its course, so it sits low in the view.
+  const look = ahead?.(alt * 0.25) ?? destination(lat, lon, heading, alt * 0.25);
   return {
     lat: look.lat,
     lon: look.lon,
-    heading: wrap360(heading),
-    pitch: FOLLOW_PITCH_DEG,
+    heading: view.headingUp ? wrap360(heading) : 0,
+    pitch: view.pitch,
     range,
   };
+}
+
+/**
+ * Ground metres per screen pixel across the view at `range` from the camera,
+ * for Cesium's `fov` (the wider of the two axes; radians) on a width x height
+ * canvas. Used to slide the follow view's centre into the part of the screen
+ * the host's cards leave free.
+ */
+export function metresPerPixel(range, fov, width, height) {
+  const w = Math.max(1, width);
+  const aspect = w / Math.max(1, height);
+  const f = Number.isFinite(fov) && fov > 0 ? fov : Math.PI / 3;
+  // Cesium's fov spans the wider axis: the horizontal one on a landscape screen.
+  const fovx = aspect >= 1 ? f : 2 * Math.atan(Math.tan(f / 2) * aspect);
+  return (2 * Math.max(0, range) * Math.tan(fovx / 2)) / w;
+}
+
+/**
+ * The car's views, cycled by its VIEW button: the tilted 3D view, heading up;
+ * a flat 2D view, heading up; and 2D north up. The flat views are also the
+ * lightest to draw: no tiles toward a horizon.
+ */
+export const VIEW_MODES = {
+  '3d': { label: '3D', pitch: FOLLOW_PITCH_DEG, headingUp: true },
+  '2d': { label: '2D', pitch: -90, headingUp: true },
+  north: { label: 'NORTH', pitch: -90, headingUp: false },
+};
+export const VIEW_ORDER = ['3d', '2d', 'north'];
+/** The view after `mode` in the VIEW button's cycle. */
+export const nextViewMode = (mode) =>
+  VIEW_ORDER[(VIEW_ORDER.indexOf(mode) + 1) % VIEW_ORDER.length];
+
+// ------------------------------------------------------------ frame budget
+/**
+ * The render scale for the car display: at most `budget` rendered pixels, so
+ * a wide or dense car screen costs no more than a small one (the car draws on
+ * the phone's GPU, beside whatever the phone draws). Between 0.75 and 1.25
+ * rendered pixels per CSS pixel; returned as Cesium's resolutionScale, which
+ * multiplies devicePixelRatio.
+ */
+export function carResolutionScale(cssWidth, cssHeight, dpr = 1, budget = 1_100_000) {
+  const area = Math.max(1, cssWidth) * Math.max(1, cssHeight);
+  const perCss = clamp(Math.sqrt(budget / area), 0.75, 1.25);
+  return perCss / (dpr > 0 ? dpr : 1);
+}
+
+/**
+ * Milliseconds between follow-view updates: 20 a second on the move or in a
+ * turn, 12 when creeping, where the view hardly changes.
+ */
+export function followFrameMs(speed, turningDeg = 0) {
+  const fast = (Number.isFinite(speed) && speed > 6) || Math.abs(turningDeg) > 2;
+  return 1000 / (fast ? 20 : 12);
+}
+
+/**
+ * Whether a new fix is only GPS wander around a parked (or crawling) vehicle:
+ * slow, and within the fix's own accuracy (8 to 25 m) of the last position.
+ * The follow view then holds still instead of drifting, which keeps the map
+ * from re-rendering and the layers from refetching every second.
+ */
+export function isParkedJitter(prev, next) {
+  if (!prev || !next) return false;
+  if (Number.isFinite(next.speed) && next.speed >= 1) return false;
+  const tolerance = clamp(Number.isFinite(next.accuracy) ? next.accuracy : 10, 8, 25);
+  return distanceM(prev.lat, prev.lon, next.lat, next.lon) < tolerance;
 }
 
 /**
@@ -153,7 +228,16 @@ export function formatHeading(d) {
 const CODES = {
   flights: 'FLT',
   military: 'MIL',
+  localadsb: 'ADS',
   trafficcams: 'CAM',
+  surveillance: 'SRV',
+  incidents: 'INC',
+  signals: 'SIG',
+  chp: 'CHP',
+  waze: 'WZE',
+  simtraffic: 'SIM',
+  borderwaits: 'BDR',
+  webcams: 'WEB',
   quakes: 'EQ',
   radar: 'WX',
   ships: 'SHP',
@@ -167,23 +251,39 @@ export const layerCode = (key) =>
     .slice(0, 3)
     .toUpperCase();
 
+/** Half-width of "ahead" around the course, in degrees. */
+export const AHEAD_DEG = 60;
+
 /**
  * The contacts nearest to `here`, with range and bearing. Contacts without a
  * position are dropped; with no `here`, the given order is kept (the overlay's
- * own order: nearest the middle of the view).
+ * own order: nearest the middle of the view). Given the vehicle's `heading`,
+ * what lies ahead (within AHEAD_DEG of the course) comes first, nearest
+ * first, and what is behind only fills the rows left: a driver acts on what
+ * is coming, not on what has been passed.
  * @param {{ lat?: number, lon?: number }[]} contacts
+ * @param {{ heading?: number|null }} [opts]
  */
-export function nearestContacts(contacts, here, max = 3) {
+export function nearestContacts(contacts, here, max = 3, { heading = null } = {}) {
   const placed = contacts.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon));
   if (!here)
     return placed.slice(0, max).map((c) => ({ ...c, distanceM: null, bearingDeg: null }));
-  return placed
-    .map((c) => ({
+  const ranged = placed.map((c) => {
+    const b = bearingDeg(here.lat, here.lon, c.lat, c.lon);
+    return {
       ...c,
       distanceM: distanceM(here.lat, here.lon, c.lat, c.lon),
-      bearingDeg: bearingDeg(here.lat, here.lon, c.lat, c.lon),
-    }))
-    .sort((a, b) => a.distanceM - b.distanceM)
+      bearingDeg: b,
+      ahead: Number.isFinite(heading)
+        ? Math.abs(angleDelta(heading, b)) <= AHEAD_DEG
+        : null,
+    };
+  });
+  return ranged
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.ahead)) - Number(Boolean(a.ahead)) || a.distanceM - b.distanceM,
+    )
     .slice(0, max);
 }
 

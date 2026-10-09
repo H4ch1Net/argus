@@ -10,7 +10,10 @@ import { createLayer } from '../layers/sdk/index.js';
  * @param {import('cesium').Viewer} viewer
  * @param {{ readout?: { setLayerStatus?: (label: string, s: object) => void } }} [opts]
  */
-export function createLayerManager(viewer, { readout, clock, animationFps } = {}) {
+export function createLayerManager(
+  viewer,
+  { readout, clock, animationFps, groundClamp = false } = {},
+) {
   const entries = new Map(); // key -> { label, loadDef, makeSource, layer, enabled }
   const listeners = new Set();
   const emit = () => listeners.forEach((fn) => fn());
@@ -19,13 +22,19 @@ export function createLayerManager(viewer, { readout, clock, animationFps } = {}
   const statusListeners = new Set();
   const emitStatus = (key, s) => statusListeners.forEach((fn) => fn(key, s));
 
-  function register(key, { label, loadDef, makeSource, demo = false, group = null }) {
+  // decorateStatus: an optional (status) => status the app applies before
+  // anyone sees it (main.js marks an answer the proxy served stale).
+  function register(
+    key,
+    { label, loadDef, makeSource, demo = false, group = null, decorateStatus = null },
+  ) {
     entries.set(key, {
       label,
       loadDef,
       makeSource,
       demo,
       group,
+      decorateStatus,
       layer: null,
       enabled: false,
       want: false,
@@ -63,14 +72,17 @@ export function createLayerManager(viewer, { readout, clock, animationFps } = {}
           }
           const def = await e.loadDef();
           return createLayer(viewer, def, {
+            key, // the layer's ink (cluster markers) and its log source
             source,
-            onStatus: (s) => {
+            onStatus: (raw) => {
+              const s = e.decorateStatus?.(raw) ?? raw;
               e.status = s;
               readout?.setLayerStatus?.(e.label, s);
               emitStatus(key, s);
             },
             clock,
             animationFps,
+            groundClamp,
           });
         } finally {
           e.pending = null;

@@ -22,6 +22,11 @@ export const SETTINGS_SCHEMA = Object.freeze({
   uiScale: { def: 100, values: [90, 100, 115, 130] },
   reducedMotion: { def: false, values: [true, false] },
   startView: { def: 'default', values: ['default', 'last', 'aroundme'] },
+  // The user's own map marker (core/ui/selfIcons.js SELF_ICONS, same order).
+  selfIcon: {
+    def: 'chevron',
+    values: ['chevron', 'triangle', 'diamond', 'car', 'crosshair', 'dot', 'beam'],
+  },
   // Earth.
   imagery: {
     def: 'auto',
@@ -42,6 +47,37 @@ export const SETTINGS_SCHEMA = Object.freeze({
   atmosphere: { def: true, values: [true, false] },
   stars: { def: true, values: [true, false] },
   exaggeration: { def: 1, values: [1, 1.5, 2, 3] },
+  // Map objects (VIEW): surveillance draws the nearest 60 or all in view;
+  // camera previews show stills beside the nearest cameras (off in the car).
+  survScope: { def: 'nearest', values: ['nearest', 'all'] },
+  camPreviews: { def: true, values: [true, false] },
+  camPreviewCount: { def: 4, values: [2, 4, 6, 8] },
+  // Navigation (core/ui/navPanel.js): the last travel mode and route options.
+  navMode: { def: 'drive', values: ['drive', 'walk', 'bike'] },
+  navAvoidHighways: { def: false, values: [true, false] },
+  navTraffic: { def: true, values: [true, false] },
+  // Shodan snapshot and host sample (VIEW > SHODAN; ids as in
+  // core/layers/shodan/snapshots.js), and the TomTom flow readout (VIEW > ROAD FLOW).
+  shodanSnapshot: {
+    def: 'web',
+    values: [
+      'web',
+      'rdp',
+      'vnc',
+      'telnet',
+      'smb',
+      'databases',
+      'mqtt',
+      'modbus',
+      's7',
+      'bacnet',
+    ],
+  },
+  shodanSample: { def: false, values: [true, false] },
+  flowReadout: { def: false, values: [true, false] },
+  // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
+  // NEARBY; the Layer SDK's clustering).
+  merge: { def: true, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

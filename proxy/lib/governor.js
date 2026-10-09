@@ -34,7 +34,16 @@ export function createGovernor(feeds, now = () => Date.now()) {
       if (cfg.ratePerMinute) {
         st.reqTimes = st.reqTimes.filter((x) => t - x < 60_000);
         if (st.reqTimes.length >= cfg.ratePerMinute) {
-          return { ok: false, status: 429, message: `rate limit for ${feedId}`, cost: 0 };
+          // When the oldest request in the minute leaves it, there is room
+          // again (a queued feed waits that long instead of failing).
+          const oldest = Math.min(...st.reqTimes);
+          return {
+            ok: false,
+            status: 429,
+            message: `rate limit for ${feedId}`,
+            cost: 0,
+            retryAfterMs: Math.max(1, 60_000 - (t - oldest) + 1),
+          };
         }
       }
       const cost = costOf(cfg, path);

@@ -1,0 +1,260 @@
+<?xml version="1.0" ?>
+<State>
+<Center ID = "SAHB">
+<Dispatch ID = "YKCC">
+
+		<Log ID = "261008YK0110">
+			<LogTime>"Oct  8 2026 10:46PM"</LogTime>
+			<LogType>"1182-Trfc Collision-No Inj"</LogType>
+			<Location>"Old Highway 99 S / Timmons Rd"</Location>
+			<LocationDesc>"SB JNO"</LocationDesc>
+			<Area>"Yreka"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"41574673:122525015"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026 10:53PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:48PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:48PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:47PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:47PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:46PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026 10:58PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:58PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+</Dispatch>
+<Dispatch ID = "SACC">
+
+		<Log ID = "261008SA1256">
+			<LogTime>"Oct  8 2026 10:37PM"</LogTime>
+			<LogType>"1125-Traffic Hazard"</LogType>
+			<Location>"Poplar Blvd / Mcclellan Dr"</Location>
+			<LocationDesc>""</LocationDesc>
+			<Area>"North Sac"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"38666759:121376028"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026 10:54PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:44PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026 10:54PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:49PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:49PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+
+		<Log ID = "261008SA1084">
+			<LogTime>"Oct  8 2026  8:13PM"</LogTime>
+			<LogType>"MZP-Assist CT with Maintenance"</LogType>
+			<Location>"Wsac Ct Yard"</Location>
+			<LocationDesc>""</LocationDesc>
+			<Area>""</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"0:0"</LATLON>
+			<LogDetails><details/><units>
+			<UnitTime>"Oct  8 2026 10:56PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:56PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:23PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:23PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  9:08PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  9:08PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  8:16PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  8:16PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  8:13PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  8:13PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  8:13PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+</Dispatch>
+</Center>
+<Center ID = "GGHB">
+<Dispatch ID = "GGCC">
+
+		<Log ID = "261008GG2859">
+			<LogTime>"Oct  8 2026 10:36PM"</LogTime>
+			<LogType>"BREAK-Traffic Break"</LogType>
+			<Location>"Us101 S / Toll Plaza (tp)"</Location>
+			<LocationDesc>"GOLDEN GATE BRIDGE TOLL PLAZA"</LocationDesc>
+			<Area>"Marin"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"37807153:122475694"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026 10:36PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026 10:36PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:36PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:36PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:36PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:36PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+
+		<Log ID = "261008GG1643">
+			<LogTime>"Oct  8 2026  3:00PM"</LogTime>
+			<LogType>"CLOSURE of a Road"</LogType>
+			<Location>"I680 N / Scott Creek Rd Ofr"</Location>
+			<LocationDesc>"NB 680 AT SCOTT CREEK"</LocationDesc>
+			<Area>"San Jose"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"37462752:121902476"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026  3:09PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026  3:02PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026  3:02PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026  3:05PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  3:05PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  3:05PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+</Dispatch>
+</Center>
+<Center ID = "LAHB">
+<Dispatch ID = "LACC">
+
+		<Log ID = "261008LA3104">
+			<LogTime>"Oct  8 2026 10:36PM"</LogTime>
+			<LogType>"1183-Trfc Collision-Unkn Inj"</LogType>
+			<Location>"I5 S / Alameda Ave Onr"</Location>
+			<LocationDesc>"SB 5 JNO  ALAMEDA"</LocationDesc>
+			<Area>"Altadena"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"34168194:118301596"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026 10:59PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:53PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:38PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:37PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026 10:37PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026 10:59PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:59PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 10:52PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+
+		<Log ID = "261008LA2729">
+			<LogTime>"Oct  8 2026  7:46PM"</LogTime>
+			<LogType>"SILVER-Missing Elderly"</LogType>
+			<Location>"2901 W Broadway"</Location>
+			<LocationDesc>"LA COMM"</LocationDesc>
+			<Area>"LA"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"34144921:118227297"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026  7:47PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026  7:49PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  7:49PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  7:49PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+
+		<Log ID = "261008LA2234">
+			<LogTime>"Oct  8 2026  4:51PM"</LogTime>
+			<LogType>"SIG Alert"</LogType>
+			<Location>"I5 N / Smokey Bear Rd"</Location>
+			<LocationDesc>""</LocationDesc>
+			<Area>"Newhall"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"34708168:118796038"</LATLON>
+			<LogDetails>
+		<details>
+			<DetailTime>"Oct  8 2026  4:55PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details>
+		<details>
+			<DetailTime>"Oct  8 2026  4:54PM"</DetailTime>
+			<IncidentDetail>"[1] NARRATIVE REMOVED FROM THIS FIXTURE"</IncidentDetail>
+		</details><units>
+			<UnitTime>"Oct  8 2026  5:10PM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  5:10PM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026  4:56PM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+
+		<Log ID = "261008LA0056">
+			<LogTime>"Oct  8 2026 12:30AM"</LogTime>
+			<LogType>"1013-Road/Weather Conditions"</LogType>
+			<Location>"2901 W Broadway"</Location>
+			<LocationDesc>"LA COUNTY RD/WEATHER CONDITIONS"</LocationDesc>
+			<Area>"LA"</Area>
+			<ThomasBrothers>""</ThomasBrothers>
+			<LATLON>"34144921:118227297"</LATLON>
+			<LogDetails><details/><units>
+			<UnitTime>"Oct  8 2026 12:31AM"</UnitTime>
+			<UnitDetail>"Unit At Scene"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 12:31AM"</UnitTime>
+			<UnitDetail>"Unit Enroute"</UnitDetail></units><units>
+			<UnitTime>"Oct  8 2026 12:31AM"</UnitTime>
+			<UnitDetail>"Unit Assigned"</UnitDetail></units></LogDetails></Log>
+</Dispatch>
+</Center>
+
+</State>

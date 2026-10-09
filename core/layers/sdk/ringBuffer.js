@@ -36,6 +36,9 @@ export function createRingBuffer(capacity) {
     get size() {
       return items.length;
     },
+    first() {
+      return items[0];
+    },
     last() {
       return items[items.length - 1];
     },

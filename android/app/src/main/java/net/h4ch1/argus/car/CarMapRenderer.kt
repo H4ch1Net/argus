@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.Choreographer
 import android.view.Display
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -40,6 +41,7 @@ import net.h4ch1.argus.Ink
 import net.h4ch1.argus.NodeRuntime
 import net.h4ch1.argus.Prefs
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -52,6 +54,16 @@ import kotlin.math.roundToInt
  * Touch reaches the app as SurfaceCallback gestures, which are forwarded to
  * the page's window.argusCar (shell-car/index.js) in CSS pixels; the phone's
  * location is pushed the same way.
+ *
+ * The page runs on the phone's GPU beside whatever the phone draws, so it is
+ * kept quiet: a drag or pinch reaches it once per display frame (the host can
+ * send many events per frame, each a round trip into the WebView), and it is
+ * paused (no rendering, no polling, no location) whenever the car is not
+ * showing it.
+ *
+ * The same bridge carries navigation (CarNav: search, route preview, the
+ * route's progress back) and the car's own data for the page's VEHICLE panel
+ * (CarStatsFeed).
  */
 class CarMapRenderer(
     private val carContext: CarContext,
@@ -59,6 +71,7 @@ class CarMapRenderer(
 ) : SurfaceCallback, DefaultLifecycleObserver {
     private val main = Handler(Looper.getMainLooper())
     private val location = CarLocationFeed(carContext) { onFix(it) }
+    private val stats = CarStatsFeed(carContext) { pushCarInfo(it) }
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private var webView: WebView? = null
@@ -70,6 +83,24 @@ class CarMapRenderer(
     private var pageReady = false
     private var lastFix: String? = null
     private var unobserve: (() -> Unit)? = null
+    private var paused = false
+    private var started = true
+    private var lastCarInfo: String? = null
+
+    /** Where the page's answers go (search results, routes, nav state). */
+    var pageListener: CarPageListener? = null
+
+    /** The phone's last fix, for distances in the car's own lists. */
+    var lastLocation: Location? = null
+        private set
+
+    // Gestures waiting for the next display frame, in CSS pixels.
+    private var panX = 0f
+    private var panY = 0f
+    private var zoomBy = 1f
+    private var zoomAt: Pair<Float, Float>? = null
+    private var gesturePosted = false
+    private val gestureFrame = Choreographer.FrameCallback { flushGestures() }
 
     init {
         lifecycle.addObserver(this)
@@ -82,21 +113,68 @@ class CarMapRenderer(
 
     override fun onDestroy(owner: LifecycleOwner) {
         location.stop()
+        stats.stop()
         unobserve?.invoke()
         unobserve = null
         release()
+    }
+
+    // Another app in front on the car screen: nothing to draw, no fix needed.
+    override fun onStart(owner: LifecycleOwner) {
+        started = true
+        if (virtualDisplay?.surface != null) {
+            resumePage()
+            location.start()
+            stats.start()
+        }
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        started = false
+        pausePage()
+        location.stop()
+        stats.stop()
     }
 
     // ------------------------------------------------------------ controls
 
     fun recenter() = js("recenter()")
 
-    fun zoom(factor: Float) = js("zoom(${num(factor)})")
+    fun zoom(step: Float) = js("zoom(${factor(step)})")
 
     fun pushLayers() = js("setLayers(${JSONArray(Prefs(carContext).carLayers.sorted())})")
 
+    fun pushView() = js("setView(${JSONObject.quote(Prefs(carContext).carView)})")
+
     fun onLocationPermission() {
         if (virtualDisplay != null) location.start()
+    }
+
+    /** Car data permissions granted: subscribe again, now with access. */
+    fun onCarDataPermission() {
+        if (virtualDisplay != null && started) {
+            stats.stop()
+            stats.start()
+        }
+    }
+
+    // Navigation (CarNav). Each returns false when the page cannot take it yet.
+
+    fun search(query: String, reqId: String): Boolean =
+        js("search(${JSONObject.quote(query.take(200))},${JSONObject.quote(reqId)})")
+
+    fun preview(placeJson: String, optsJson: String): Boolean =
+        js("preview(${JSONObject.quote(placeJson)},${JSONObject.quote(optsJson)})")
+
+    fun selectRoute(id: String) = js("selectRoute(${JSONObject.quote(id)})")
+
+    fun navigate(routeId: String) = js("navigate(${JSONObject.quote(routeId)})")
+
+    fun stopNav() = js("stopNav()")
+
+    private fun pushCarInfo(json: String) {
+        lastCarInfo = json
+        js("setCarInfo(${JSONObject.quote(json)})")
     }
 
     // ------------------------------------------------------------- surface
@@ -113,6 +191,7 @@ class CarMapRenderer(
         if (existing != null) {
             existing.resize(surfaceWidth, surfaceHeight, dpi)
             existing.surface = surface
+            if (started) resumePage()
             pushInsets()
             return
         }
@@ -129,12 +208,14 @@ class CarMapRenderer(
         showPresentation(created.display)
         if (unobserve == null) unobserve = NodeRuntime.observe { onRuntime(it) }
         location.start()
+        stats.start()
     }
 
     override fun onSurfaceDestroyed(container: SurfaceContainer) {
-        // Keep the page alive (a reload costs seconds); it draws again when the
-        // host hands back a surface.
+        // Keep the page alive (a reload costs seconds) but paused: it draws
+        // again when the host hands back a surface.
         virtualDisplay?.surface = null
+        pausePage()
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
@@ -147,25 +228,62 @@ class CarMapRenderer(
     }
 
     // Gestures, in surface pixels from the host; the page takes CSS pixels.
-    override fun onScroll(distanceX: Float, distanceY: Float) =
-        js("pan(${num(-distanceX / density)},${num(-distanceY / density)})")
+    // Drags and pinches add up until the next display frame, then go over in
+    // one call; a fling or a tap first sends what is pending, to keep order.
+    override fun onScroll(distanceX: Float, distanceY: Float) {
+        panX -= distanceX / density
+        panY -= distanceY / density
+        postGestures()
+    }
 
-    override fun onFling(velocityX: Float, velocityY: Float) =
+    override fun onFling(velocityX: Float, velocityY: Float) {
+        flushGestures()
         js(
             "pan(${num(velocityX / density * FLING_SECONDS)}," +
                 "${num(velocityY / density * FLING_SECONDS)},$FLING_MS)",
         )
-
-    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
-        // A focus of -1 means a button or rotary zoom: zoom about the middle.
-        if (focusX < 0f || focusY < 0f) {
-            js("zoom(${num(scaleFactor)})")
-        } else {
-            js("zoom(${num(scaleFactor)},${num(focusX / density)},${num(focusY / density)})")
-        }
     }
 
-    override fun onClick(x: Float, y: Float) = js("tap(${num(x / density)},${num(y / density)})")
+    override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
+        if (!scaleFactor.isFinite() || scaleFactor <= 0f) return
+        zoomBy *= scaleFactor
+        // A focus of -1 means a button or rotary zoom: zoom about the middle.
+        zoomAt = if (focusX < 0f || focusY < 0f) null else (focusX / density) to (focusY / density)
+        postGestures()
+    }
+
+    override fun onClick(x: Float, y: Float) {
+        flushGestures()
+        js("tap(${num(x / density)},${num(y / density)})")
+    }
+
+    private fun postGestures() {
+        if (gesturePosted) return
+        gesturePosted = true
+        Choreographer.getInstance().postFrameCallback(gestureFrame)
+    }
+
+    private fun flushGestures() {
+        if (gesturePosted) {
+            Choreographer.getInstance().removeFrameCallback(gestureFrame)
+            gesturePosted = false
+        }
+        val calls = ArrayList<String>(2)
+        if (panX != 0f || panY != 0f) calls += "pan(${num(panX)},${num(panY)})"
+        if (zoomBy != 1f) {
+            val at = zoomAt
+            calls += if (at == null) {
+                "zoom(${factor(zoomBy)})"
+            } else {
+                "zoom(${factor(zoomBy)},${num(at.first)},${num(at.second)})"
+            }
+        }
+        panX = 0f
+        panY = 0f
+        zoomBy = 1f
+        zoomAt = null
+        if (calls.isNotEmpty()) jsAll(calls)
+    }
 
     // ---------------------------------------------------------------- page
 
@@ -211,9 +329,25 @@ class CarMapRenderer(
         }
     }
 
+    // WebView.onPause hides the page (document.hidden): its loops, polling
+    // and frames stop until onResume. Per WebView, so the phone's is untouched.
+    private fun pausePage() {
+        if (paused) return
+        paused = true
+        webView?.onPause()
+    }
+
+    private fun resumePage() {
+        if (!paused) return
+        paused = false
+        webView?.onResume()
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun createWebView(context: Context): WebView {
         val wv = WebView(context)
+        // A fresh page starts running; pause it again if the car is not showing it.
+        paused = false
         wv.setBackgroundColor(Ink.GROUND)
         wv.settings.apply {
             javaScriptEnabled = true
@@ -249,6 +383,7 @@ class CarMapRenderer(
                     val fresh = createWebView(p.context)
                     p.setContentView(fresh)
                     webView = fresh
+                    if (!started || virtualDisplay?.surface == null) pausePage()
                     onRuntime(NodeRuntime.state)
                 }
                 return true
@@ -276,8 +411,10 @@ class CarMapRenderer(
     /** Everything the page needs after a (re)load. */
     private fun pushState() {
         pushInsets()
+        pushView()
         pushLayers()
         lastFix?.let { js(it) }
+        lastCarInfo?.let { js("setCarInfo(${JSONObject.quote(it)})") }
     }
 
     /** The area the host leaves uncovered (action strips, cards), as CSS-pixel insets. */
@@ -297,13 +434,19 @@ class CarMapRenderer(
         val accuracy = if (fix.hasAccuracy()) num(fix.accuracy) else "null"
         val call = "setLocation(${fix.latitude},${fix.longitude},$heading,$speed,$accuracy)"
         lastFix = call
+        lastLocation = fix
         js(call)
     }
 
-    private fun js(call: String) {
-        val wv = webView ?: return
-        if (!pageReady) return
-        wv.evaluateJavascript("window.argusCar&&window.argusCar.$call", null)
+    private fun js(call: String): Boolean = jsAll(listOf(call))
+
+    /** Several window.argusCar calls in one round trip into the page; false when it is not ready. */
+    private fun jsAll(calls: List<String>): Boolean {
+        val wv = webView ?: return false
+        if (!pageReady || calls.isEmpty()) return false
+        val body = calls.joinToString(";") { "c.$it" }
+        wv.evaluateJavascript("(function(c){if(c){$body}})(window.argusCar)", null)
+        return true
     }
 
     private fun release() {
@@ -321,14 +464,53 @@ class CarMapRenderer(
         virtualDisplay = null
     }
 
-    /** window.ArgusCarHost: the car page says when it is mounted, to get the current state. */
+    /**
+     * window.ArgusCarHost: the car page says when it is mounted (to get the
+     * current state), which layers it can show (for the LAYERS list), and
+     * answers navigation (search results, routes, progress). Called on a
+     * WebView thread: everything moves to the main thread, and nothing larger
+     * than MAX_JSON is taken.
+     */
     inner class HostBridge {
         @JavascriptInterface
         fun ready() {
             main.post {
                 pageReady = true
                 pushState()
+                pageListener?.onPageMounted()
             }
+        }
+
+        @JavascriptInterface
+        fun searchResults(reqId: String?, json: String?) {
+            val id = reqId?.take(40) ?: return
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onSearchResults(id, body) }
+        }
+
+        @JavascriptInterface
+        fun routes(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onRoutes(body) }
+        }
+
+        @JavascriptInterface
+        fun nav(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onNav(body) }
+        }
+
+        @JavascriptInterface
+        fun layers(json: String?) {
+            val keys = try {
+                val arr = JSONArray(json ?: "[]")
+                (0 until minOf(arr.length(), 200)).map { arr.optString(it) }
+                    .filter { KEY.matches(it) }
+                    .toSet()
+            } catch (_: Exception) {
+                return
+            }
+            main.post { CarLayers.setAvailable(keys) }
         }
     }
 
@@ -338,8 +520,14 @@ class CarMapRenderer(
         const val UI_SCALE = 1.25f
         const val FLING_SECONDS = 0.25f
         const val FLING_MS = 450
+        const val MAX_JSON = 64 * 1024
+        val KEY = Regex("^[a-z0-9]{1,32}$")
 
         fun num(v: Float): String = if (v.isFinite()) String.format(Locale.ROOT, "%.2f", v) else "0"
+
+        // A slow pinch moves a fraction of a percent a frame: two decimals
+        // would round it to 1 and drop it.
+        fun factor(v: Float): String = if (v.isFinite() && v > 0f) String.format(Locale.ROOT, "%.4f", v) else "1"
 
         fun bootHtml(message: String): String = """
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">

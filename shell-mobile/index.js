@@ -1,10 +1,12 @@
 import { bootGlobe } from '../core/index.js';
+import { createGeoControl, flyToSelf } from '../core/geo/geoControl.js';
 import { locateAndFly } from '../core/geo/geolocate.js';
 import { h } from '../core/ui/dom.js';
 import { createBar } from '../core/ui/hud/bar.js';
 import { createTabs } from '../core/ui/tabs.js';
 import { createBottomSheet } from './bottomSheet.js';
 import { createCompass } from './compass.js';
+import { attachSelfCompass } from './selfCompass.js';
 import '../core/ui/theme.css';
 import '../core/ui/readout.css';
 import './shell.css';
@@ -14,7 +16,9 @@ import './shell.css';
 // bottom sheet with kitty tabs: LAYERS / TARGET / VIEW / TOOLS. Selecting a
 // contact opens the sheet to half on TARGET, so the card is visible with the
 // map still in view. Sensors are shell inputs: this shell reads GPS and the
-// compass and calls core's camera; core never imports sensor code.
+// compass and calls core's camera; core never imports sensor code. The own
+// position (main sets api.selfPosition, core/geo/selfPosition.js) drives GEO,
+// Around Me and the pass observer; the compass turns its marker when still.
 
 /**
  * @param {HTMLElement} root
@@ -57,7 +61,12 @@ export async function mountShell(root, bootOpts = {}) {
   const stack = h('div.argus-stack');
   const notify = h('div.argus-notify');
   const floatEl = h('div.argus-float');
-  hud.append(bar.el, stack, notify, floatEl, sheet.el);
+  // Navigation (core/ui/navPanel.js): WHERE TO and the turn banner under the
+  // bar; the route preview and the trip strip just above the sheet, in thumb
+  // reach. The sheet, when opened, covers the lower one.
+  const navTop = h('div.argus-navtop');
+  const navBottom = h('div.argus-navbottom');
+  hud.append(bar.el, stack, navTop, navBottom, notify, floatEl, sheet.el);
 
   let overlay = null;
   let clean = false;
@@ -78,13 +87,15 @@ export async function mountShell(root, bootOpts = {}) {
   const ro = new ResizeObserver(layout);
   for (const el of [root, bar.el, stack]) ro.observe(el);
 
-  return {
+  const api = {
     ...app,
     shell: 'mobile',
-    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float */
+    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float | navTop | navBottom */
     mount(slot, el) {
       if (!el) return;
-      if (slot === 'bar') bar.add(el, 'start');
+      if (slot === 'navTop') navTop.appendChild(el);
+      else if (slot === 'navBottom') navBottom.appendChild(el);
+      else if (slot === 'bar') bar.add(el, 'start');
       else if (slot === 'barEnd') bar.add(el, 'end');
       else if (slot === 'strip' || slot === 'stripEnd') panes.intel.prepend(el);
       else if (slot === 'stack') stack.appendChild(el);
@@ -106,6 +117,8 @@ export async function mountShell(root, bootOpts = {}) {
       }
     },
     showTab: (id) => tabs.select(id),
+    /** Lower the sheet to its peek (navigation starting: the map comes first). */
+    collapseSheet: () => sheet.collapse(),
     /** Clean view: hide the interface, leaving the globe and the overlay. */
     setClean(on) {
       clean = Boolean(on);
@@ -113,20 +126,22 @@ export async function mountShell(root, bootOpts = {}) {
       layout();
     },
     // "Around Me": fly to the device location at a regional altitude.
-    aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
+    aroundMe: (camera) =>
+      api.selfPosition
+        ? flyToSelf(api.selfPosition, camera, { altitude: 120_000 })
+        : locateAndFly(camera, { altitude: 120_000 }),
     // The observer for satellite pass predictions: the phone's own position.
-    observer: () =>
-      new Promise((resolve) => {
-        if (!navigator.geolocation) return resolve(null);
-        navigator.geolocation.getCurrentPosition(
-          (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
-          () => resolve(null),
-          { timeout: 8000, maximumAge: 120_000 },
-        );
-      }),
-    // GEO: zoom in closer to the user's position (city level).
-    locate: (camera, report) =>
-      locateAndFly(camera, { altitude: 12_000, onStatus: report }),
+    observer: async () => {
+      const fix = await api.selfPosition?.locate({ timeoutMs: 8000 });
+      return fix ? { latitude: fix.lat, longitude: fix.lon } : null;
+    },
+    // GEO: centre on the user (street level), a second tap follows. The
+    // compass feeds the marker's heading while the position is in use.
+    geo: (camera, opts = {}) => {
+      if (!api.selfPosition) return null;
+      attachSelfCompass(api.selfPosition);
+      return createGeoControl({ selfPosition: api.selfPosition, camera, ...opts });
+    },
     // Point-at-sky mode: DeviceOrientation drives the camera. main provides the
     // camera controls plus how to identify and lock the aimed contact.
     enableCompass: (deps) => {
@@ -136,6 +151,7 @@ export async function mountShell(root, bootOpts = {}) {
       return compass;
     },
   };
+  return api;
 }
 
 export const shellName = 'mobile';

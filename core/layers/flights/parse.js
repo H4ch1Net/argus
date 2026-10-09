@@ -80,7 +80,11 @@ export function parseAdsb(payload) {
       typeCode: typeof a.t === 'string' ? a.t : null,
       category: typeof a.category === 'string' ? a.category : null,
       squawk: typeof a.squawk === 'string' ? a.squawk : null,
-      timePosition: null,
+      // When the position was received: the answer's time less its age.
+      timePosition:
+        num(payload?.now) !== null && num(a.seen_pos) !== null
+          ? payload.now / 1000 - a.seen_pos
+          : null,
       longitude,
       latitude,
       baroAltitude: onGround ? 0 : baroFt === null ? null : baroFt * FT_TO_M,

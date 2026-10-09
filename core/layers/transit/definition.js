@@ -11,6 +11,13 @@ export const transitDefinition = {
   id: 'transit',
   fetch: { mode: 'poll', intervalMs: 15_000, viewportBounded: true },
   interpolate: true,
+  // Agencies refresh positions every 15 to 30 s, so half the polls repeat the
+  // last report: fixes keep the vehicle's own timestamp (a repeat adds no
+  // stall), drawn far enough behind to bracket the next report, and a bus is
+  // carried on along its bearing only briefly (it may be at a stop).
+  fixTime: (n) => (n.meta.timestamp ? n.meta.timestamp * 1000 : null),
+  interpolateLagMs: 25_000,
+  extrapolateMs: 8000,
   maxEntities: 6000,
   normalize: (raw) => parseTransit(raw),
   statusNote: (_q, raw) => transitNote(raw),

@@ -28,10 +28,10 @@ concurrency:
 
 env:
   NODEJS_MOBILE_VERSION: '18.20.4'
-  # TODO: pin the checksum of nodejs-mobile-v18.20.4-android.zip. The job prints
-  # it (a warning annotation) on every run until this is set; copy it here once
-  # and from then on a changed download fails the build.
-  NODEJS_MOBILE_SHA256: ''
+  # The sha256 of nodejs-mobile-v18.20.4-android.zip, as first downloaded by
+  # this workflow (Oct 2026): a changed download now fails the build. Update it
+  # together with NODEJS_MOBILE_VERSION.
+  NODEJS_MOBILE_SHA256: 'bd7321eaa1a7602fbe0bb87302df2d79d87835cf4363fbdd17c350dbb485c2af'
   NDK_VERSION: '27.2.12479018'
   CMAKE_VERSION: '3.22.1'
 

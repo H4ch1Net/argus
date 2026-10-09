@@ -1,6 +1,8 @@
-import { parseOverpass } from '../overpass/parse.js';
-import { areaTooLarge } from '../overpass/client.js';
-import { surveillanceKind, describeSurveillance } from './format.js';
+import { normalizeSurveillance } from './parse.js';
+import { describeSurveillance, surveillanceSearchText } from './format.js';
+import { SURVEILLANCE_KINDS, ENFORCEMENT_KINDS } from './kinds.js';
+import { selectScope, scopeNote, NEAREST_DEFAULT } from './select.js';
+import { tiledNote } from '../overpass/tiles.js';
 import { ink } from '../sdk/colors.js';
 import { groundDecorations } from './groundBatch.js';
 import {
@@ -11,11 +13,18 @@ import {
   CONE_CAP,
 } from './cones.js';
 
-// The "eyes": surveillance-infrastructure locations from OSM (man_made=surveillance),
-// including ALPR/Flock readers. A viewport-fetched, static point layer. GUARDRAIL:
-// locations only, never a reading of what the equipment sees. ALPR readers get
-// their own glyph (a reader body with a lens bar, ctOS white); ordinary cameras
-// keep the bracket.
+// The "eyes": surveillance and enforcement devices mapped in OpenStreetMap
+// (cameras by type, ALPR readers incl. DeFlock's mapping, acoustic gunshot
+// sensors, guard posts, speed / average-speed / red-light cameras), as a
+// static point layer fetched once per tile (./source.js) and kept for hours.
+// GUARDRAIL: locations only, never a reading of what the equipment sees. Each
+// kind has its own ctOS glyph (./kinds.js, core/ui/glyphs.js).
+//
+// What is drawn (select): by default the NEAREST n (60) to the middle of the
+// view, or to your own position while the view follows you; or ALL IN VIEW
+// (VIEW > SURVEILLANCE), capped nearest first. `scope` supplies the mode, the
+// anchor and the view; select() runs on every ingest, so a pan, a refresh or a
+// mode change re-picks from the tiles already held without a new request.
 //
 // View cones: each camera mapped with a direction gets a translucent sector on
 // the ground showing which side it faces (core/layers/surveillance/cones.js);
@@ -27,12 +36,30 @@ import {
 
 const minimalTier = (scene) => (scene?.globe?.maximumScreenSpaceError ?? 2) >= 4;
 
+const coneInk = (s) =>
+  s.alpr ? 'white' : ENFORCEMENT_KINDS.has(s.kind) ? 'pale' : 'gray';
+
 /**
- * @param {{ tier?: string }} [opts] the capability tier; without one, the
- *   minimal tier is recognised from the globe's screen-space error (4 there).
+ * @param {{ tier?: string, scope?: {
+ *   mode?: () => 'nearest'|'all',
+ *   anchor?: () => ({ lat: number, lon: number })|null,
+ *   view?: () => ({ lamin: number, lomin: number, lamax: number, lomax: number })|null,
+ *   nearest?: number } }} [opts]
+ *   tier: the capability tier; without one, the minimal tier is recognised from
+ *   the globe's screen-space error (4 there). scope: see above; without one
+ *   the layer draws everything it holds (capped).
  */
-export function createSurveillanceDefinition({ tier } = {}) {
+export function createSurveillanceDefinition({ tier, scope } = {}) {
   let fillOn = null; // decided on the first build
+  let lastSel = null;
+  const maxEntities = tier === 'minimal' ? 2000 : 4000;
+  // One shared style object per kind: style() allocates nothing per fix.
+  const styles = Object.fromEntries(
+    Object.entries(SURVEILLANCE_KINDS).map(([k, v]) => [
+      k,
+      { glyph: v.glyph, pixelSize: v.px, color: ink(v.ink, v.ink === 'gray' ? 0.9 : 1) },
+    ]),
+  );
   const cones = groundDecorations({
     scaleFor: coneScale,
     collect: (records, { scale, center }) => {
@@ -53,24 +80,25 @@ export function createSurveillanceDefinition({ tier } = {}) {
       for (const s of specs) {
         if (count >= CONE_CAP) break;
         const range = s.rangeM * scale;
+        const c = coneInk(s);
         if (s.ring) {
           count += 1;
           lines.push({
             path: circleDegrees(s.lon, s.lat, range),
-            color: ink(s.alpr ? 'white' : 'gray', 0.22),
+            color: ink(c, 0.22),
             width: 1,
             loop: true,
           });
           continue;
         }
-        for (const c of s.cones) {
+        for (const cone of s.cones) {
           count += 1;
-          const ring = sectorDegrees(s.lon, s.lat, c.headingDeg, c.fovDeg, range);
-          if (fillOn) fills.push({ ring, color: ink(s.alpr ? 'white' : 'gray', 0.13) });
+          const ring = sectorDegrees(s.lon, s.lat, cone.headingDeg, cone.fovDeg, range);
+          if (fillOn) fills.push({ ring, color: ink(c, 0.13) });
           lines.push({
             path: ring,
-            color: ink(s.alpr ? 'white' : 'gray', s.alpr ? 0.75 : 0.5),
-            width: s.alpr ? 1.6 : 1.2,
+            color: ink(c, c === 'gray' ? 0.5 : 0.75),
+            width: c === 'gray' ? 1.2 : 1.6,
             loop: true,
           });
         }
@@ -81,25 +109,37 @@ export function createSurveillanceDefinition({ tier } = {}) {
 
   return {
     id: 'surveillance',
+    // Fetched once per 0.1 degree tile and kept for hours by ./source.js (its
+    // tiles load nearest the anchor first, so NEAREST asks for only a few);
+    // not the Layer SDK's tile cache, which would tile the same view twice.
+    // RELOAD reaches the source as query.reload.
     fetch: { mode: 'viewport' },
-    // The Overpass client skips views wider than a few degrees; say so.
-    statusNote: (q, raw) =>
-      q.bbox && areaTooLarge(q.bbox, 3) && !raw?.elements?.length
-        ? 'zoom in to load'
-        : '',
+    // In NEAREST mode the source loads only the tiles around the anchor on
+    // purpose, so "zoom in for all" would mislead there.
+    statusNote: (_q, raw) =>
+      [
+        scopeNote(lastSel),
+        tiledNote(lastSel?.mode === 'nearest' ? { ...raw, partial: false } : raw),
+      ]
+        .filter(Boolean)
+        .join(' · '),
     interpolate: false,
-    maxEntities: 4000,
-    normalize: (json) => parseOverpass(json),
+    maxEntities,
+    normalize: (raw) => normalizeSurveillance(raw),
+    // Which held records to draw (the Layer SDK calls this on every ingest).
+    select: (list) => {
+      lastSel = selectScope(list, {
+        mode: scope?.mode?.() ?? 'all',
+        anchor: scope?.anchor?.() ?? null,
+        view: scope?.view?.() ?? null,
+        nearest: scope?.nearest ?? NEAREST_DEFAULT,
+        max: maxEntities,
+      });
+      return lastSel.list;
+    },
     render: {
       renderType: 'point',
-      style: (n) => {
-        const alpr = surveillanceKind(n.meta.tags) === 'ALPR';
-        return {
-          glyph: alpr ? 'alpr' : 'bracket',
-          pixelSize: alpr ? 15 : 11,
-          color: alpr ? ink('white') : ink('gray', 0.9),
-        };
-      },
+      style: (n) => styles[n.meta.kind] ?? styles.fixed,
     },
     onEntityCreate: (target, n, ctx) => {
       fillOn ??= tier ? tier !== 'minimal' : !minimalTier(ctx.scene);
@@ -107,8 +147,7 @@ export function createSurveillanceDefinition({ tier } = {}) {
     },
     onShow: (on, ctx) => cones.onShow(on, ctx),
     describe: (n) => describeSurveillance(n),
-    searchText: (n) =>
-      `${n.meta.tags.operator || ''} ${n.meta.tags['surveillance:type'] || ''} ${n.meta.tags.man_made || ''}`,
+    searchText: (n) => surveillanceSearchText(n),
   };
 }
 

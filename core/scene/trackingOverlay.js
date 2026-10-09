@@ -46,6 +46,7 @@ const LAYER_WEIGHT = {
   radio: 0.6,
   shodan: 0.7,
   gdelt: 0.7,
+  signals: 0.2,
 };
 // Minimum screen gap (px) between two scan boxes: a cluster gets one box, not
 // a pile of overlapping ones.

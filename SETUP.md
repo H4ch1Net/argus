@@ -252,7 +252,7 @@ argus flights --near "Los Angeles" --radius 40
 argus sats --group stations
 argus fires --near 37.5,-119.6 --radius 200
 argus geocode "Brandenburg Gate"          # offline places first, then Photon, then Nominatim
-argus route "Oslo" "Bergen" --mode car    # OSRM turn-by-turn (car, foot or bike); or "A to B"
+argus route "Oslo" "Bergen" --mode car    # turn-by-turn (car, foot or bike; --avoid-highways); or "A to B"
 argus measure 51.5,-0.12 48.86,2.35       # great-circle distance and bearing, no network needed
 argus bgp --count 20                      # sampled RIPE RIS Live updates
 argus ct                                  # CT issuance stream (Ctrl-C to stop)
@@ -263,8 +263,11 @@ argus health                              # which feeds have their keys
 published indexes; nothing is sent to the host you ask about. `geocode`,
 `route` and `measure` take places or coordinates. `measure` on coordinates or
 bundled place names, and `geocode` on an exact bundled name, make no outbound
-request. `route` asks the FOSSGIS OSRM servers through the proxy and refuses
-legs over 600 km or routes over 2,500 km, to stay inside their usage policy.
+request. `route` plans like the app's navigation (core/nav): OSRM on the FOSSGIS
+servers, Valhalla (FOSSGIS) to avoid highways or when OSRM fails, TomTom with
+live traffic when the proxy has `TOMTOM_API_KEY`, and the OSM traffic signals
+on the way counted through the Overpass feed. It refuses legs over 600 km or
+routes over 2,500 km, to stay inside the FOSSGIS usage policy.
 
 ---
 
@@ -298,7 +301,7 @@ copies those into the browser bundle). Restart Argus after editing.
 | Landmarks, surveillance cameras, data centres, dams, installations | OpenStreetMap Overpass (see note)                                                                                                      |
 | Submarine cables                                                   | TeleGeography (CC BY-NC-SA 3.0, non-commercial)                                                                                        |
 | Search / fly-to                                                    | Bundled places (offline), then Photon (komoot), then OSM Nominatim                                                                     |
-| Directions (TOOLS > ROUTE, `argus route`)                          | OSRM on the FOSSGIS servers (routing.openstreetmap.de)                                                                                 |
+| Navigation (WHERE TO, TOOLS > ROUTE, `argus route`)                | OSRM and Valhalla on the FOSSGIS servers; TomTom Routing and Search with your key; OSM traffic signals via Overpass                    |
 | Cockpit briefing (desktop)                                         | Nominatim reverse, Open-Meteo, Google News RSS (personal use), GDELT                                                                   |
 | OSINT lookups + BGP activity                                       | RIPEstat / RIPE RIS Live                                                                                                               |
 | 3D aircraft models (close range)                                   | Bundled glTF files in `public/models` (CC BY 4.0, credited there and in DATA CREDITS); no network                                      |
@@ -319,12 +322,19 @@ sources and TomTom traffic flow) uses the endpoints that project uses live, but
 none could be reached from the build environment: each is marked "per the
 reference implementation, not live-tested here" in the proxy's feed registry.
 If one shows an error, `argus health`, the ERR row's hover text in LAYERS, and
-the notification say why; [docs/COMPARISON.md](docs/COMPARISON.md) lists each
+SETUP > LOGS say why; [docs/COMPARISON.md](docs/COMPARISON.md) lists each
 source and TOOLS > DATA CREDITS its terms.
 
 Note: public Overpass servers rate-limit hard and refuse clients that do not
-identify themselves (Argus sends a descriptive User-Agent). If OSM layers keep
-failing, point `OVERPASS_URL` at another instance, ideally one you run.
+identify themselves (Argus sends a descriptive User-Agent). The proxy tries
+`OVERPASS_URL` (if set), then overpass-api.de, then the VK Maps and
+kumi.systems mirrors, moving on after a 429, a 5xx, a timeout or a query the
+server gave up on, and keeps each answer 12 hours (mapped cameras and
+landmarks barely change). A first view with several OSM layers on is a burst
+of small tile queries: the proxy sends two at a time (at most 60 a minute and
+6,000 a day) and holds the rest for up to 3 minutes, so tiles fill in over a
+little while instead of failing. If OSM layers still fail, point
+`OVERPASS_URL` at an instance you run.
 
 ### Free key required
 
@@ -396,6 +406,30 @@ AISSTREAM_API_KEY=your_key
 ```
 
 Check what the proxy sees with `argus health`.
+
+### Moving keys to another device
+
+SETUP > KEYS > EXPORT KEYS (on the machine running the proxy) asks for a
+passphrase of 10 or more characters, twice, and gives you `argus-keys.json`:
+every key that is set, encrypted with that passphrase (scrypt, then
+AES-256-GCM). In the Android app, which cannot save a download, use COPY and
+paste it where you like. On the other device, IMPORT KEYS takes that file (or
+pasted text) and the passphrase, or plain `.env` lines (`NAME=value`): only
+the keys Argus uses are written, empty values never remove a key, and other
+settings in the text are left out and named. Keep the file and the passphrase
+apart; a wrong passphrase and a changed file fail the same way. Both are
+refused unless they come from the machine running the proxy, from the app
+itself, and `ARGUS_SETUP=off` turns them off with the rest of key setup.
+
+### When a feed fails
+
+Failures no longer pop up. A layer that cannot load turns `ERR` in LAYERS (its
+hover text says why); when the proxy still holds that feed's last good answer
+it serves it and the row says `STALE` instead. Every failure, stale answer and
+recovery is listed in SETUP > LOGS (collapsed at the bottom, with a count of
+new warnings), newest first, repeats folded into one line; COPY ALL copies it
+as text for a bug report. Only what really needs you still pops up (no proxy
+at all, the GPU dropping the globe).
 
 ---
 

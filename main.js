@@ -88,6 +88,17 @@ async function main() {
       profile: profileOverrides(settings.all()),
     });
     app.settings = settings;
+    // The user's own position (core/geo/selfPosition.js): one model for every
+    // shell. Shells and the Android app feed it, GEO and navigation read it;
+    // it draws the marker except in the car, which draws its own (same icon).
+    const { createSelfPosition } = await import('./core/geo/selfPosition.js');
+    app.selfPosition = createSelfPosition(app.viewer, {
+      settings,
+      render: shellName !== 'car',
+      fps: app.profile?.animationFps,
+      onIcon: app.setSelfIcon,
+      log: (entry) => app.logs?.add?.(entry),
+    });
     if (import.meta.env.DEV) {
       // Expose for console poking during development only; never in a build.
       window.__argus = { shell: shellName, ...app };
@@ -136,9 +147,41 @@ async function setupScene(app, splash) {
     45,
   );
 
-  const { createNotifier } = await import('./core/ui/hud/notify.js');
-  const notifier = createNotifier();
+  // LOGS (core/ui/logs.js): feed, network and layer failures go to this store,
+  // shown collapsed at the end of SETUP, never as popups; only the genuinely
+  // critical still pops up (no proxy at all, the GPU dropping the globe). The
+  // console hears each distinct failure once, not every poll.
+  const [{ createNotifier }, { createLogStore }] = await Promise.all([
+    import('./core/ui/hud/notify.js'),
+    import('./core/ui/logs.js'),
+  ]);
+  const logs = createLogStore();
+  app.logs = logs;
+  const log = (entry) => {
+    const e = logs.add(entry);
+    if (e.count === 1 && e.level !== 'info')
+      console.warn(
+        `[argus] ${e.source ? `${e.source}: ` : ''}${e.title} ${e.body}`.trim(),
+      );
+    return e;
+  };
+  const notifier = createNotifier({ log });
   app.mount('notify', notifier.el);
+  const glCanvas = app.viewer.scene.canvas;
+  glCanvas.addEventListener('webglcontextlost', () => {
+    log({ level: 'error', source: 'gpu', title: 'GRAPHICS CONTEXT LOST' });
+    notifier.push({
+      title: 'GRAPHICS RESET',
+      body: 'The GPU dropped the globe; it is being restored.',
+      level: 'critical',
+      key: 'gl',
+      kind: 'notice',
+    });
+  });
+  glCanvas.addEventListener('webglcontextrestored', () => {
+    log({ level: 'info', source: 'gpu', title: 'GRAPHICS CONTEXT RESTORED' });
+    notifier.clear('gl');
+  });
 
   // A production build with no proxy has no data source (mocks are dev-only), so
   // no layers can load. Say so plainly instead of leaving a bare globe with no UI.
@@ -189,13 +232,32 @@ async function setupScene(app, splash) {
   const clock = createSceneClock();
   clock.subscribe(() => app.viewer.scene.requestRender());
 
+  // The car (Android Auto) shares this code and this origin's saved settings
+  // with the phone app, but draws on a second screen from the same phone GPU:
+  // it keeps its own fixed, light look (no saved imagery, relief, sun, stars),
+  // and draws aircraft on their ground track, since its camera looks down from
+  // below cruise altitude (shell-car/index.js).
+  const car = app.shell === 'car';
   const manager = createLayerManager(app.viewer, {
     readout: app.readout,
     clock,
     animationFps: app.profile?.animationFps,
+    groundClamp: car,
   });
   const camera = createCameraControls(app.viewer);
   const desktop = app.shell === 'desktop';
+  // Gestures and merge nearby (every shell, the car's included): a pinch that
+  // follows the fingers, the trackpad pinch and the zoom envelope
+  // (core/interaction/cameraInput.js; double and triple tap are the picker's),
+  // and the scene's cluster policy (core/layers/sdk/cluster.js), on unless
+  // switched off in VIEW > CONTACTS.
+  const [{ tuneCameraInput }, { clusterPolicy }] = await Promise.all([
+    import('./core/interaction/cameraInput.js'),
+    import('./core/layers/sdk/cluster.js'),
+  ]);
+  tuneCameraInput(app.viewer, camera);
+  const merge = clusterPolicy(app.viewer.scene);
+  merge.set({ merge: app.settings?.get('merge') ?? true });
 
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
@@ -249,6 +311,68 @@ async function setupScene(app, splash) {
   // Keyed sources inside a layer (Windy, NPS, WSDOT, 511 states): offered only
   // when the proxy reports the feed configured (its key is set).
   const keyed = (id) => Boolean(health && feedConfigured(health, id));
+
+  // OSM map objects (surveillance, traffic lights, landmarks): fetched once per
+  // tile and kept for hours (core/layers/overpass/tiles.js). "Nearest" counts
+  // from your own position while the view follows you (the car's follow view,
+  // or a shell that reports app.followingSelf()), else from the ground in the
+  // middle of the view. RELOAD (VIEW > SURVEILLANCE) fetches the areas again.
+  const [{ computeViewportQuery }, { windowToLatLon }, { createLandmarksLoader }] =
+    await Promise.all([
+      import('./core/layers/sdk/viewport.js'),
+      import('./core/scene/sketch.js'),
+      import('./core/layers/landmarks/parse.js'),
+    ]);
+  const followFix = () => {
+    const car = app.shell === 'car' ? window.argusCar?.state?.() : null;
+    if (car?.following && car.fix) return { lat: car.fix.lat, lon: car.fix.lon };
+    const f = app.followingSelf?.() ? app.selfPosition?.get?.() : null;
+    return f ? { lat: f.lat, lon: f.lon } : null;
+  };
+  const osm = {
+    sources: {},
+    // One tile loader for the Landmarks layer and TOOLS > LANDMARKS.
+    landmarks: proxyClient ? createLandmarksLoader({ proxyClient }) : null,
+    middle: () => {
+      const cv = app.viewer.scene.canvas;
+      return windowToLatLon(app.viewer, {
+        x: cv.clientWidth / 2,
+        y: cv.clientHeight / 2,
+      });
+    },
+    anchor: () => followFix() ?? osm.middle(),
+    view: () => computeViewportQuery(app.viewer).bbox,
+    scope: (key) => ({
+      mode: () =>
+        key === 'surveillance' ? (app.settings?.get('survScope') ?? 'nearest') : 'all',
+      anchor: osm.anchor,
+      view: osm.view,
+    }),
+    keep: (key, source) => (osm.sources[key] = source),
+    refresh: (key) => manager.getLayer(key)?.refresh?.(),
+    reload() {
+      osm.landmarks?.reload();
+      for (const [key, source] of Object.entries(osm.sources)) {
+        source.reload?.();
+        osm.refresh(key);
+      }
+    },
+  };
+  // Following yourself never settles the camera (no moveEnd): re-pick the
+  // nearest surveillance every few seconds once you have moved 150 m.
+  let lastFollow = null;
+  setInterval(() => {
+    if (document.hidden || !manager.isEnabled('surveillance')) return;
+    const f = followFix();
+    if (!f || app.settings?.get('survScope') === 'all') return;
+    const k = Math.cos((f.lat * Math.PI) / 180);
+    const moved = lastFollow
+      ? Math.hypot((f.lon - lastFollow.lon) * k, f.lat - lastFollow.lat) * 111_000
+      : Infinity;
+    if (moved < 150) return;
+    lastFollow = f;
+    osm.refresh('surveillance');
+  }, 4000);
 
   const registrations = [
     {
@@ -428,6 +552,34 @@ async function setupScene(app, splash) {
           : Promise.resolve(null),
     },
     {
+      key: 'signals',
+      group: 'Ground & sea',
+      label: 'Traffic lights',
+      loadDef: () =>
+        import('./core/layers/signals/definition.js').then((m) =>
+          m.createSignalsDefinition({ tier: app.tier, scope: osm.scope('signals') }),
+        ),
+      // OSM traffic signals, only in views about 20 km across or less, each
+      // tile fetched once and kept for a day.
+      proxy: async (c) => {
+        const { createSignalsSource } = await import('./core/layers/signals/parse.js');
+        return osm.keep(
+          'signals',
+          createSignalsSource({
+            proxyClient: c,
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('signals'),
+          }),
+        );
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/signals/mockSource.js').then((m) =>
+              m.createSignalsMockSource({ viewer: app.viewer }),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'trafficflow',
       group: 'Ground & sea',
       label: 'Traffic flow',
@@ -479,6 +631,26 @@ async function setupScene(app, splash) {
           : Promise.resolve(null),
     },
     {
+      key: 'waze',
+      group: 'Ground & sea',
+      label: 'Waze alerts (unofficial)',
+      loadDef: () =>
+        import('./core/layers/waze/definition.js').then((m) => m.wazeDefinition),
+      // Waze's live map (unofficial, personal use), or your own waze-server when
+      // the proxy has LOCAL_WAZE_URL. Road alerts and jams only.
+      proxy: async (c) => {
+        const { createWazeSource } = await import('./core/layers/waze/source.js');
+        return createWazeSource({
+          proxyClient: c,
+          local: Boolean(health && feedConfigured(health, 'waze-local')),
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/waze/source.js').then((m) => m.createWazeMockSource())
+          : Promise.resolve(null),
+    },
+    {
       key: 'borderwaits',
       group: 'Ground & sea',
       label: 'Border waits',
@@ -503,6 +675,65 @@ async function setupScene(app, splash) {
         import.meta.env.DEV
           ? import('./core/layers/borderwaits/mockSource.js').then((m) =>
               m.createBorderWaitMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
+      key: 'simtraffic',
+      group: 'Ground & sea',
+      label: 'Traffic (simulated)',
+      loadDef: () =>
+        import('./core/layers/simtraffic/definition.js').then((m) =>
+          m.createSimTrafficDefinition({ tier: app.tier }),
+        ),
+      // SIMULATED vehicles on OSM roads (Overpass) below 8 km, at TomTom's
+      // live flow speeds when the proxy has TOMTOM_API_KEY, free-flow otherwise.
+      proxy: async (c) => {
+        const [{ createSimTrafficSource }, { simTrafficView }] = await Promise.all([
+          import('./core/layers/simtraffic/source.js'),
+          import('./core/layers/simtraffic/view.js'),
+        ]);
+        return createSimTrafficSource({
+          proxyClient: c,
+          getView: () => simTrafficView(app.viewer),
+          flow: keyed('tomtom-flowseg'),
+          tier: app.tier,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? Promise.all([
+              import('./core/layers/simtraffic/mockSource.js'),
+              import('./core/layers/simtraffic/view.js'),
+            ]).then(([m, v]) => {
+              const src = m.createSimTrafficMockSource({
+                getView: () => v.simTrafficView(app.viewer),
+                tier: app.tier,
+              });
+              if (window.__argus) window.__argus.simTraffic = src.model;
+              return src;
+            })
+          : Promise.resolve(null),
+    },
+    {
+      key: 'streetphotos',
+      group: 'Ground & sea',
+      label: 'Street photos',
+      // Hidden until the proxy has a Mapillary token (MAPILLARY_TOKEN).
+      requires: 'mapillary',
+      loadDef: () =>
+        import('./core/layers/streetphotos/definition.js').then(
+          (m) => m.streetPhotosDefinition,
+        ),
+      proxy: async (c) => {
+        const { createStreetPhotoSource } =
+          await import('./core/layers/streetphotos/source.js');
+        return createStreetPhotoSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/streetphotos/mockSource.js').then((m) =>
+              m.createStreetPhotoMockSource(),
             )
           : Promise.resolve(null),
     },
@@ -760,14 +991,32 @@ async function setupScene(app, splash) {
       label: 'Surveillance',
       loadDef: () =>
         import('./core/layers/surveillance/definition.js').then((m) =>
-          m.createSurveillanceDefinition({ tier: app.tier }),
+          m.createSurveillanceDefinition({
+            tier: app.tier,
+            scope: osm.scope('surveillance'),
+          }),
         ),
+      // OSM cameras, ALPR readers (DeFlock's mapping), acoustic sensors, guard
+      // posts, speed and red-light cameras; each tile fetched once, kept 12 h.
       proxy: async (c) => {
-        const { createOverpassSource } = await import('./core/layers/overpass/client.js');
-        return createOverpassSource({
-          proxyClient: c,
-          filters: ['node["man_made"="surveillance"]', 'way["man_made"="surveillance"]'],
-        });
+        const {
+          createSurveillanceSource,
+          SURVEILLANCE_VIEW_TILES: SURV_VIEW_TILES,
+          SURVEILLANCE_NEAREST_TILES: SURV_NEAR_TILES,
+        } = await import('./core/layers/surveillance/source.js');
+        return osm.keep(
+          'surveillance',
+          createSurveillanceSource({
+            proxyClient: c,
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('surveillance'),
+            // NEAREST needs only the tiles around the anchor; ALL IN VIEW more.
+            viewTiles: () =>
+              app.settings?.get('survScope') === 'all'
+                ? SURV_VIEW_TILES
+                : SURV_NEAR_TILES,
+          }),
+        );
       },
       mock: () =>
         import.meta.env.DEV
@@ -784,12 +1033,18 @@ async function setupScene(app, splash) {
         import('./core/layers/landmarks/definition.js').then(
           (m) => m.landmarksDefinition,
         ),
-      proxy: async (c) => {
-        const { createOverpassSource } = await import('./core/layers/overpass/client.js');
-        return createOverpassSource({
-          proxyClient: c,
-          filters: ['node["tourism"]', 'node["historic"]'],
-        });
+      // Named OSM landmarks; the same tiles as TOOLS > LANDMARKS (NEARBY).
+      proxy: async () => {
+        if (!osm.landmarks) return null;
+        const { createLandmarksSource } =
+          await import('./core/layers/landmarks/parse.js');
+        return osm.keep(
+          'landmarks',
+          createLandmarksSource(osm.landmarks, {
+            anchor: osm.anchor,
+            onUpdate: () => osm.refresh('landmarks'),
+          }),
+        );
       },
       mock: () =>
         import.meta.env.DEV
@@ -970,17 +1225,27 @@ async function setupScene(app, splash) {
       key: 'shodan',
       group: 'Signals',
       label: 'Shodan',
+      // Hidden until the proxy has a Shodan key (SHODAN_API_KEY).
+      requires: 'shodan',
       loadDef: () =>
         import('./core/layers/shodan/definition.js').then((m) => m.shodanDefinition),
-      // Snapshot via the credit-free count endpoint (awareness-only, no search-on-pan).
-      proxy: (c) => () =>
-        c.getJson('shodan', '/shodan/host/count', {
-          params: { query: 'product:Apache httpd', facets: 'country:200' },
-        }),
+      // A curated snapshot (VIEW > SHODAN) via the credit-free count endpoint,
+      // plus the opt-in host sample: awareness-only, never search-on-pan.
+      proxy: async (c) => {
+        const { createShodanSource } = await import('./core/layers/shodan/source.js');
+        return createShodanSource({
+          proxyClient: c,
+          getSnapshot: () => app.settings?.get('shodanSnapshot'),
+          getSample: () => Boolean(app.settings?.get('shodanSample')),
+        });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/shodan/mockSource.js').then((m) =>
-              m.createShodanMockSource(),
+              m.createShodanMockSource({
+                getSnapshot: () => app.settings?.get('shodanSnapshot'),
+                getSample: () => Boolean(app.settings?.get('shodanSample')),
+              }),
             )
           : Promise.resolve(null),
     },
@@ -1066,6 +1331,34 @@ async function setupScene(app, splash) {
   // (rather than becoming a dead toggle), never masquerading as real.
   const noRealFeed = new Set(['cctv', 'threats']);
 
+  // STALE: each layer gets its own view of the proxy client, so an answer the
+  // proxy served from its last good copy (x-argus-stale) marks that layer's
+  // next status STALE with the age, instead of the layer failing.
+  const staleSeen = new Map(); // layer key -> { age, partial }
+  const trackedClient = (key) =>
+    proxyClient.tracked((m) => {
+      if (m.stale === null && !m.partial) return;
+      const cur = staleSeen.get(key) ?? { age: 0, partial: false };
+      cur.age = Math.max(cur.age, m.stale ?? 0);
+      cur.partial ||= m.partial;
+      staleSeen.set(key, cur);
+    });
+  const markStale = (key, s) => {
+    const m = staleSeen.get(key);
+    staleSeen.delete(key);
+    if (!m || s?.state !== 'ok') return s;
+    const age =
+      m.age >= 3600 ? `${Math.round(m.age / 3600)}H` : `${Math.ceil(m.age / 60)}M`;
+    const why = m.partial
+      ? 'the feed sent an incomplete copy'
+      : `the feed is not answering, showing its last good data (${age} old)`;
+    return {
+      ...s,
+      stale: m.age,
+      note: [`STALE: ${why}`, s.note].filter(Boolean).join('; '),
+    };
+  };
+
   for (const r of registrations) {
     // The sourceless layers can only be driven by the dev mock; outside dev they
     // have nothing to show, so do not register them (no dead chips in production).
@@ -1086,9 +1379,10 @@ async function setupScene(app, splash) {
       // With a proxy, use the real feed; if this layer has none (proxy source is
       // null), fall back to the labelled mock instead of failing to enable.
       makeSource: async () => {
-        if (proxyClient) return (await r.proxy(proxyClient)) ?? r.mock();
+        if (proxyClient) return (await r.proxy(trackedClient(r.key))) ?? r.mock();
         return r.mock();
       },
+      decorateStatus: (s) => markStale(r.key, s),
       demo: noRealFeed.has(r.key),
     });
   }
@@ -1187,7 +1481,11 @@ async function setupScene(app, splash) {
     tapOwner = { fn, repeat };
     notifier.push({ title: label, body: 'Esc cancels.', key: 'tap', timeoutMs: 20_000 });
   };
+  // Navigation hooks (set in the navigation block below): a tap that ends a
+  // long press or right click on the map is not a pick; ROUTE HERE on cards.
+  const navHooks = { swallowTap: () => false, cardAction: () => null };
   const interceptTap = (pos) => {
+    if (navHooks.swallowTap()) return true;
     if (!tapOwner || !pos) return false;
     const ll = sketchMod.windowToLatLon(app.viewer, pos);
     if (!ll) return true; // a tap on the sky: ignore, stay armed
@@ -1212,11 +1510,26 @@ async function setupScene(app, splash) {
     notify,
     onChange: () => tracker?.refresh(),
   });
+  // Card extras from the street photo, Shodan and OSINT modules: STREET PHOTO,
+  // InternetDB exposure, LOOK UP AS on BGP cards, Shodan country facets.
+  const { createCardPlugins } = await import('./core/ui/cardPlugins.js');
+  const cardPlugins = await createCardPlugins({
+    proxyClient,
+    keyed,
+    dev,
+    manager,
+    settings: app.settings,
+    plot: (r) => osintPlotter.plot(r),
+    select: (t) => tracker?.select(t),
+    getCorrelate: () => correlate,
+    time: () => app.viewer.clock.currentTime,
+  });
   const extras = createTargetExtras({
     proxyClient,
     manager,
     notify,
     replay,
+    plugins: cardPlugins,
     select: (t) => tracker?.select(t),
     getObserver: async () => {
       const fix = await app.observer?.();
@@ -1244,6 +1557,9 @@ async function setupScene(app, splash) {
     extras,
     interceptTap,
     proxyClient,
+    moreActions: (t, rec) => navHooks.cardAction(t, rec),
+    camera,
+    merge,
   });
   extras.setRefresh(() => tracking.tracker.refresh());
   tracker = tracking.tracker;
@@ -1379,15 +1695,35 @@ async function setupScene(app, splash) {
   app.mount('layers', layerMenu.el);
   setPreset(activePreset);
 
-  // Feed failures surface once as a notification (the menu row turns ERR too).
+  // Feed failures go to LOGS, never a popup (the menu row turns ERR or STALE
+  // too); a feed that recovers is logged as well. Repeats fold into a count.
+  const feedState = new Map(); // layer key -> 'ok' | 'stale' | 'error'
   manager.subscribeStatus((key, s) => {
-    if (s?.state !== 'error') return;
-    const label = manager.list().find((l) => l.key === key)?.label ?? key;
-    notifier.push({
-      title: `${label} FEED ERROR`,
-      body: s.message || `The ${label.toLowerCase()} feed did not answer.`,
-      key: `err:${key}`,
-    });
+    const state = s?.state === 'ok' && s.stale != null ? 'stale' : s?.state;
+    const was = feedState.get(key);
+    feedState.set(key, state);
+    const label = (manager.list().find((l) => l.key === key)?.label ?? key).toUpperCase();
+    if (state === 'error')
+      log({
+        level: 'error',
+        source: key,
+        title: `${label} FEED ERROR`,
+        body: s.message || 'The feed did not answer.',
+      });
+    else if (state === 'stale' && was !== 'stale')
+      log({
+        level: 'warn',
+        source: key,
+        title: `${label} STALE`,
+        body: String(s.note ?? '').replace(/^STALE: /, ''),
+      });
+    else if (state === 'ok' && (was === 'error' || was === 'stale'))
+      log({
+        level: 'info',
+        source: key,
+        title: `${label} BACK`,
+        body: `${s.count ?? 0} items.`,
+      });
   });
 
   // ------------------------------------------------------------- view menu
@@ -1410,7 +1746,8 @@ async function setupScene(app, splash) {
   const imagery = createImageryController(app.viewer, { mono: true });
   const settings = app.settings;
   const savedImagery = settings?.get('imagery') ?? 'auto';
-  if (savedImagery !== 'auto') imagery.set(savedImagery);
+  if (car) imagery.set('dark');
+  else if (savedImagery !== 'auto') imagery.set(savedImagery);
   else if (capable) imagery.set('dark');
   const labels = createLabelsController(app.viewer, { imagery });
 
@@ -1418,15 +1755,8 @@ async function setupScene(app, splash) {
     proxyBase: proxyBase || null,
     tilesetCache: app.profile?.tilesetCache ?? null,
     onStatus: (s) => {
-      if (!s.ok && s.message) {
-        console.warn(`[argus] terrain: ${s.message}`);
-        notifier.push({
-          title: 'TERRAIN',
-          body: s.message,
-          key: 'terrain',
-          level: 'low',
-        });
-      }
+      if (!s.ok && s.message)
+        log({ level: 'warn', source: 'terrain', title: 'TERRAIN', body: s.message });
     },
   });
   const chosenTerrain = settings?.get('terrain') ?? 'auto';
@@ -1434,7 +1764,7 @@ async function setupScene(app, splash) {
     chosenTerrain !== 'auto'
       ? chosenTerrain
       : defaultTerrainId({ tier: app.tier, metered });
-  if (defTerrain !== 'flat') terrain.set(defTerrain);
+  if (!car && defTerrain !== 'flat') terrain.set(defTerrain);
   const terrainChoice = createChoice({
     caption: 'Terrain',
     options: TERRAIN_SOURCES,
@@ -1516,6 +1846,35 @@ async function setupScene(app, splash) {
   );
   if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
 
+  // MERGE NEARBY: contacts close together on screen as one counted marker
+  // while zoomed out (the Layer SDK's clustering; the setting key 'merge').
+  const mergeSwitch = createSwitch({
+    label: 'Merge nearby',
+    on: merge.merge,
+    title:
+      'Group contacts that sit close together into one counted marker until you zoom in (far lighter zoomed out)',
+    onToggle: (on) => {
+      merge.set({ merge: on });
+      settings?.set('merge', on);
+    },
+  });
+  settings?.subscribe((key, value) => {
+    if (key !== 'merge') return;
+    merge.set({ merge: value });
+    mergeSwitch.set(value);
+  });
+  view.push(
+    section(
+      'CONTACTS',
+      mergeSwitch.el,
+      h(
+        'div.ct-section__note',
+        {},
+        'Tap a group to fly to it. Below 3 km every contact is drawn.',
+      ),
+    ),
+  );
+
   // 3D aircraft close to the camera (glTF models per class), desktop default.
   const { createModelLod } = await import('./core/scene/modelLod.js');
   const models = createModelLod(app.viewer, {
@@ -1549,10 +1908,10 @@ async function setupScene(app, splash) {
     apply(value);
     settings?.set(key, value);
   };
-  earth.setLighting(settings?.get('lighting') ?? false);
-  earth.setAtmosphere(settings?.get('atmosphere') ?? true);
-  earth.setStars(settings?.get('stars') ?? true);
-  earth.setExaggeration(settings?.get('exaggeration') ?? 1);
+  earth.setLighting(!car && (settings?.get('lighting') ?? false));
+  earth.setAtmosphere(!car && (settings?.get('atmosphere') ?? true));
+  earth.setStars(!car && (settings?.get('stars') ?? true));
+  earth.setExaggeration(car ? 1 : (settings?.get('exaggeration') ?? 1));
   view.push(
     section(
       'EARTH',
@@ -1632,6 +1991,125 @@ async function setupScene(app, splash) {
       createCameraKindFilter({
         onChange: () => manager.getLayer('trafficcams')?.refresh?.(),
       }).el,
+    ),
+  );
+  // ROAD FLOW (the TomTom readout at the view centre) and SHODAN (the
+  // snapshot and host sample), each only when the proxy has its key.
+  if (proxyClient && keyed('tomtom-flowseg')) {
+    const [{ mountRoadFlow }, { simTrafficView }] = await Promise.all([
+      import('./core/ui/roadFlow.js'),
+      import('./core/layers/simtraffic/view.js'),
+    ]);
+    view.push(
+      mountRoadFlow({
+        viewer: app.viewer,
+        proxyClient,
+        settings: app.settings,
+        mount: (slot, el) => app.mount(slot, el),
+        ui: { section, createSwitch, createSegment, h },
+        getView: () => simTrafficView(app.viewer),
+      }),
+    );
+  }
+  if (keyed('shodan') || (dev && !proxyClient)) {
+    const { createShodanSection } = await import('./core/layers/shodan/controls.js');
+    view.push(
+      createShodanSection({
+        settings: app.settings,
+        manager,
+        ui: { section, createChoice, createSwitch, h },
+      }),
+    );
+  }
+
+  // SURVEILLANCE: the nearest 60 (to the middle of the view, or to you while
+  // the view follows you) or everything in view, re-picked from the tiles
+  // already held; RELOAD OSM fetches the OSM layers' areas again.
+  // CAMERA PREVIEWS: stills beside the nearest traffic cameras and webcams when
+  // zoomed in (core/ui/cameraPreviews.js); off in the car (driver distraction).
+  const [{ createCameraPreviews }, { loadStill: loadPreviewStill }] = await Promise.all([
+    import('./core/ui/cameraPreviews.js'),
+    import('./core/layers/trafficcams/still.js'),
+  ]);
+  view.push(
+    section(
+      'SURVEILLANCE',
+      createChoice({
+        label: 'Surveillance shows',
+        options: [
+          {
+            id: 'nearest',
+            label: 'Nearest 60',
+            title: 'The 60 nearest the middle of the view',
+          },
+          { id: 'all', label: 'All in view', title: 'Every mapped device in view' },
+        ],
+        current: settings?.get('survScope') ?? 'nearest',
+        onSelect: (id) => {
+          settings?.set('survScope', id);
+          osm.refresh('surveillance');
+        },
+      }).el,
+      h(
+        'button.ct-btn',
+        {
+          type: 'button',
+          title: 'Fetch the surveillance, traffic light and landmark areas again',
+          onclick: () => {
+            osm.reload();
+            notify({ title: 'OSM LAYERS RELOADING', level: 'low', timeoutMs: 2000 });
+          },
+        },
+        'RELOAD OSM',
+      ),
+      h(
+        'div.ct-section__note',
+        {},
+        'OpenStreetMap and DeFlock mapping: locations only. Each area is fetched once and kept for 12 to 24 h.',
+      ),
+    ),
+  );
+  let hubAt = null;
+  overlay.subscribe((sum) => (hubAt = sum.hub?.visible ? sum.hub : null));
+  const previews = createCameraPreviews(app.viewer, {
+    getLayers: () => manager.active(),
+    loadStill: loadPreviewStill,
+    getInsets: () => overlay.geometry().insets,
+    idFor: (t) => overlay.idFor(t),
+    onSelect: (t) => tracker?.select(t),
+    isBusy: () => Boolean(tracking?.cockpit?.isActive?.()),
+    // Keep clear of the selected target's name on the map.
+    avoid: () => (hubAt ? [{ x: hubAt.x - 24, y: hubAt.y - 26, w: 280, h: 52 }] : []),
+    enabled: app.shell !== 'car' && settings?.get('camPreviews') !== false,
+    count: settings?.get('camPreviewCount') ?? 4,
+  });
+  app.cameraPreviews = previews;
+  view.push(
+    section(
+      'CAMERA PREVIEWS',
+      createSwitch({
+        label: 'Show stills',
+        on: previews.enabled,
+        title: 'Stills beside the nearest traffic cameras and webcams when zoomed in',
+        onToggle: (on) => {
+          settings?.set('camPreviews', on);
+          previews.setEnabled(on);
+        },
+      }).el,
+      createChoice({
+        caption: 'Previews',
+        options: [2, 4, 6, 8].map((n) => ({ id: n, label: String(n) })),
+        current: settings?.get('camPreviewCount') ?? 4,
+        onSelect: (n) => {
+          settings?.set('camPreviewCount', n);
+          previews.setCount(n);
+        },
+      }).el,
+      h(
+        'div.ct-section__note',
+        {},
+        'Under 15 km across. Each still refreshes at most once a minute while its layer is on. Display only.',
+      ),
     ),
   );
 
@@ -1880,6 +2358,7 @@ async function setupScene(app, splash) {
     notify,
     openSettings: () => settingsPanel.open(),
     openKeys: () => keyHelpRef?.open(),
+    logs,
   });
   app.mount('setup', setup.el);
   let keyHelpRef = null;
@@ -1994,21 +2473,111 @@ async function setupScene(app, splash) {
   const terminal = createTerminal({ run: (line) => termCommands.run(line) });
   app.mount('float', terminal.el);
 
+  // ------------------------------------------------------------- navigation
+  // WHERE TO, the route preview and turn-by-turn (core/nav, core/ui/navPanel.js).
+  // The navigator is app.nav in every shell (the car drives it too) and its
+  // routes are drawn on the globe everywhere (app.navView); the panels are for
+  // the desktop and the phone. With no proxy, a dev session plans on the
+  // labelled demo routes. TOOLS > ROUTE is the same trip from the menu.
+  const { alongRoute } = await import('./core/route/osrm.js');
+  const [{ createNavigator }, { createNavView }, { createFixSource }, navMock] =
+    await Promise.all([
+      import('./core/nav/navigator.js'),
+      import('./core/nav/view.js'),
+      import('./core/nav/fixSource.js'),
+      !proxyClient && dev ? import('./core/nav/mockProxy.js') : null,
+    ]);
+  app.nav = createNavigator({
+    proxyClient: proxyClient ?? navMock?.createNavMockProxy() ?? null,
+    hasFeed: (id) => Boolean(proxyClient && feedConfigured(health, id)),
+    log: (e) => {
+      console.warn(`[argus] nav: ${e.title}${e.body ? `: ${e.body}` : ''}`);
+      app.logs?.add?.(e);
+    },
+  });
+  let navUi = null;
+  // The car draws its own route (shell-car/routeView.js: framed beside Android
+  // Auto's lists, looking ahead along the road) and feeds the navigator its
+  // fixes: it takes the navigator, and no second route view.
+  if (app.shell === 'car') app.setNavigator?.(app.nav);
+  app.navView =
+    app.shell === 'car'
+      ? null
+      : createNavView(app.viewer, app.nav, {
+          follow: true,
+          fps: app.profile?.animationFps || 30,
+          // The self-position marker shows you; the puck stands in without it (and
+          // for a simulated drive, which is not where you are).
+          showPuck: () => !app.selfPosition || Boolean(navUi?.simulating),
+          onFollowStart: () => {
+            tracker.unfollow?.();
+            orbit.stop();
+          },
+          onFollowChange: (on) => navUi?.setFollowing(on),
+        });
+  const navFlyAlong = (coords) => {
+    tracker.unfollow?.();
+    app.navView.setFollow(false);
+    sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
+  };
+  const navTarget = () => {
+    const t = tracker.trackedEntity;
+    const p = sketchMod.targetLatLon(app.viewer, t);
+    return p ? { ...p, name: tracking.labelFor(t) ?? 'TARGET' } : null;
+  };
+  if (app.shell === 'desktop' || app.shell === 'mobile') {
+    const { createNavPanel } = await import('./core/ui/navPanel.js');
+    const cv = app.viewer.scene.canvas;
+    navUi = createNavPanel({
+      nav: app.nav,
+      view: app.navView,
+      fixes: createFixSource({ selfPosition: () => app.selfPosition ?? null }),
+      shell: app.shell,
+      settings: app.settings,
+      near: () =>
+        sketchMod.windowToLatLon(app.viewer, {
+          x: cv.clientWidth / 2,
+          y: cv.clientHeight / 2,
+        }),
+      armTap,
+      targetPoint: navTarget,
+      flyAlong: navFlyAlong,
+      notify,
+      canvas: cv,
+      pick: (pos) => sketchMod.windowToLatLon(app.viewer, pos),
+      demo: !proxyClient,
+      // On the phone the sheet makes way for the preview and the drive.
+      onActive: () => app.collapseSheet?.(),
+    });
+    app.mount('navTop', navUi.top);
+    app.mount('navBottom', navUi.bottom);
+    document.body.appendChild(navUi.ctx);
+    navHooks.swallowTap = () => navUi.swallowTap();
+    // ROUTE HERE on the card of anything on the ground (not satellites).
+    navHooks.cardAction = (target, rec) =>
+      (rec?.normalized?.position?.altitude ?? 0) > 100_000
+        ? null
+        : {
+            label: 'ROUTE HERE',
+            title: 'Plan a route to this target',
+            onClick: () => {
+              const p = sketchMod.targetLatLon(app.viewer, target);
+              if (p)
+                navUi.routeHere({
+                  ...p,
+                  name: String(rec.metadata?.title ?? 'TARGET'),
+                  kind: rec.key,
+                });
+            },
+          };
+  }
+  if (dev && window.__argus)
+    Object.assign(window.__argus, { nav: app.nav, navView: app.navView, navUi });
+
   const intel = [];
   const tools = await import('./core/ui/toolsMenu.js');
-  const { alongRoute } = await import('./core/route/osrm.js');
   intel.push(
-    tools.createRouteTool({
-      proxyClient,
-      sketch,
-      armTap,
-      notify,
-      targetPoint: () => sketchMod.targetLatLon(app.viewer, tracker.trackedEntity),
-      flyAlong: (coords) => {
-        tracker.unfollow?.();
-        sketchMod.flyAlongPath(app.viewer, alongRoute(coords));
-      },
-    }).el,
+    navUi?.menuSection(),
     tools.createDrawTool({ sketch, armTap, disarm }).el,
     tools.createImageryTool({ catalogue: imageryCatalogue, armTap, manager, notify }).el,
     tools.createShareTool({ encode: () => encodeView(), notify }).el,
@@ -2210,22 +2779,56 @@ async function setupScene(app, splash) {
   });
   intel.push(tour.el);
 
-  // Landmarks: a few cities' public landmarks, each with a hand-tuned view.
+  // LANDMARKS: the named landmarks nearby the middle of the view, from OSM
+  // (the Landmarks layer's tiles, fetched once); fly there or SAVE to MY PLACES.
+  const [landmarkParse, { categoryLabel }, { loadAround, viewSizeKm }, unitsFmt] =
+    await Promise.all([
+      import('./core/layers/landmarks/parse.js'),
+      import('./core/layers/landmarks/format.js'),
+      import('./core/layers/overpass/tiles.js'),
+      import('./core/settings/store.js'),
+    ]);
   intel.push(
     createPoiTool({
+      nearby: async (at, radiusKm) => {
+        if (osm.landmarks) {
+          const r = await loadAround(osm.landmarks, at, radiusKm);
+          if (!r.items.length && r.failed) throw new Error('the OSM areas did not load');
+          return r.items;
+        }
+        if (!dev) return [];
+        const { mockLandmarksAround } =
+          await import('./core/layers/landmarks/mockSource.js');
+        return landmarkParse.parseLandmarks(mockLandmarksAround(at, radiusKm));
+      },
+      centre: () => osm.middle(),
+      viewKm: () => viewSizeKm(osm.view()).w,
+      from: () => {
+        const g = camera.groundPosition();
+        return { lat: g.latitude, lon: g.longitude };
+      },
       flyTo: (v) => {
         orbit.stop();
         tracker.unfollow?.();
         camera.flyAround({
           longitude: v.lon,
           latitude: v.lat,
-          height: v.targetM ?? 0,
-          groundM: v.groundM ?? 0,
-          range: v.alt,
+          height: v.height,
+          range: v.range,
           heading: v.heading,
           pitch: v.pitch,
         });
       },
+      save: (n) =>
+        placesStore.add({
+          name: n.meta.name,
+          lat: n.position.latitude,
+          lon: n.position.longitude,
+          kind: 'landmark',
+          note: `${categoryLabel(n.meta.category)} (OpenStreetMap)`,
+        }),
+      notify,
+      formatDistance: (m) => unitsFmt.formatDistance(m, settings?.get('units')),
     }).el,
   );
   const { createRadioTuner } = await import('./core/ui/radioTuner.js');
@@ -2342,8 +2945,12 @@ async function setupScene(app, splash) {
     'stack',
     createZoomControls({
       camera,
-      onLocate: app.locate ? (report) => app.locate(camera, report) : undefined,
-      onNotify: notify,
+      // GEO: centre on me, again to follow (core/geo/geoControl.js).
+      geo: app.geo?.(camera, {
+        beforeFollow: () => tracker?.unfollow?.(),
+        log: (entry) => app.logs?.add?.(entry),
+        units: () => app.settings?.get('units'),
+      }),
     }).el,
   );
 
@@ -2381,7 +2988,13 @@ async function setupScene(app, splash) {
       {
         label: 'reduced resolution',
         down: () => {
-          app.viewer.resolutionScale = Math.max(0.6, app.profile.resolutionScale * 0.7);
+          // Never below 0.6 rendered pixels per CSS pixel. The floor is in CSS
+          // pixels, not a bare scale: the car budgets its pixels below 0.6 on a
+          // dense display, and this step must still lower it, never raise it.
+          app.viewer.resolutionScale = Math.max(
+            0.6 / (window.devicePixelRatio || 1),
+            app.profile.resolutionScale * 0.7,
+          );
         },
         up: () => {
           app.viewer.resolutionScale = app.profile.resolutionScale;
@@ -2423,6 +3036,7 @@ async function setupScene(app, splash) {
       level: 'low',
       timeoutMs: 9000,
       key: 'demo',
+      kind: 'notice', // critical to know: never folded into the log
     });
   }
 
@@ -2587,8 +3201,11 @@ async function setupScene(app, splash) {
       panel,
       launcher,
       notifier,
+      logs,
+      setup,
       imagery,
       labels,
+      cameraPreviews: previews,
     });
 }
 
@@ -2598,7 +3215,18 @@ async function setupScene(app, splash) {
 async function attachTracking(
   app,
   manager,
-  { extraResolvers = [], panel, overlay, notify, extras, interceptTap, proxyClient },
+  {
+    extraResolvers = [],
+    panel,
+    overlay,
+    notify,
+    extras,
+    interceptTap,
+    proxyClient,
+    moreActions,
+    camera,
+    merge,
+  },
 ) {
   const [
     { createPicker },
@@ -2694,11 +3322,13 @@ async function attachTracking(
       cockpitTarget = t;
       briefing?.show();
       wx?.show();
+      merge?.set({ hold: true }); // riding along: every contact drawn
     },
     onExit: () => {
       cockpitTarget = null;
       briefing?.hide();
       wx?.hide();
+      merge?.set({ hold: false });
       tracker?.resume();
     },
   });
@@ -2808,15 +3438,18 @@ async function attachTracking(
     panel,
     overlay,
     notify,
+    groundClamp: app.shell === 'car',
     onCockpit: cockpitEnabled ? (target) => cockpit.enter(target) : undefined,
     extraActions: (target, rec) =>
       [
         ...(extras?.actions(target, rec) ?? []),
         rec.key === 'trafficcams' ? projectAction(rec) : null,
         pinAction(target, rec),
+        moreActions?.(target, rec),
       ].filter(Boolean),
     onChange: (target, rec) => {
       if (!quiet) app.focusTarget?.(Boolean(target));
+      merge?.set({ pinned: target ?? null }); // the target never hides in a group
       if (target && rec) extras?.onSelect(rec.key, rec.normalized);
       // On the phone the card covers the lower half: glide the target into
       // the free area above it (sideways only, never a zoom).
@@ -2840,10 +3473,19 @@ async function attachTracking(
       }
     },
   });
+  // Taps: one selects (contacts before lines before areas), two zoom in about
+  // the point, three zoom out; an armed tool takes every tap instead.
   createPicker(app.viewer, {
     accept: (target) => Boolean(resolve(target)),
-    onPick: (target, pos) => {
-      if (interceptTap?.(pos)) return;
+    intercept: interceptTap,
+    onZoom: camera ? (factor, pos, opts) => camera.zoomAt(pos, factor, opts) : undefined,
+    onPick: (target) => {
+      // A group of merged contacts: fly to fit them (they come apart on arrival).
+      if (target?.argusCluster) {
+        const box = target.bounds?.();
+        if (box) camera?.fitBounds(box);
+        return;
+      }
       tracker.select(target);
     },
   });

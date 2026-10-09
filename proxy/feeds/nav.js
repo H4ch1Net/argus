@@ -1,7 +1,7 @@
 // Feed registry, Navigation and tools: routing, places, enrichment, traces, receivers.
 // Same Feed shape as proxy/feeds.js (see its typedefs); spread into that list.
-// eslint-disable-next-line no-unused-vars
 import { UA, exactPath, MINUTE, HOUR } from './common.js';
+import { pinnedQuery } from './earth.js';
 
 // --- Directions (OSRM) ---------------------------------------------------------
 // A route path is one FOSSGIS service paired with its own OSRM profile, then 2
@@ -50,13 +50,105 @@ class OsrmRoutePath extends RegExp {
 }
 
 // Exactly these query keys, each pinned: GeoJSON geometry (what the parser
-// reads), a single route (no alternatives: no heavy use), maneuvers optional.
+// reads), maneuvers optional, and OSRM's own alternatives as a yes/no (OSRM
+// finds them in the same search, up to two more; a count is never accepted).
 const OSRM_QUERY = {
   overview: ['full', 'simplified', 'false'],
   geometries: ['geojson'],
-  alternatives: ['false'],
+  alternatives: ['false', 'true'],
   steps: ['true', 'false'],
 };
+
+// --- Directions (Valhalla) and TomTom Routing / Search ---------------------------
+const LAT6 = /^-?\d{1,2}(?:\.\d{1,6})?$/;
+const LON6 = /^-?\d{1,3}(?:\.\d{1,6})?$/;
+const latOk = (v) => typeof v === 'number' && Math.abs(v) <= 90;
+const lonOk = (v) => typeof v === 'number' && Math.abs(v) <= 180;
+const only = (obj, keys) =>
+  obj &&
+  typeof obj === 'object' &&
+  !Array.isArray(obj) &&
+  Object.keys(obj).every((k) => keys.includes(k));
+
+/**
+ * The one Valhalla request shape core/nav/providers.js sends: two stops on the
+ * globe within the OSRM leg limit (the first may carry a heading), one of three
+ * costings, highways avoidable for driving only, kilometres in US English, at
+ * most two alternates. Anything else (matrix, isochrone, more stops, other
+ * costing options) is refused, so /feed/valhalla cannot drive heavy work.
+ */
+export function valhallaQueryOk(json) {
+  if (typeof json !== 'string' || json.length > 1024) return false;
+  let b;
+  try {
+    b = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  if (
+    !only(b, [
+      'locations',
+      'costing',
+      'costing_options',
+      'directions_options',
+      'alternates',
+    ])
+  )
+    return false;
+  if (!['auto', 'pedestrian', 'bicycle'].includes(b.costing)) return false;
+  const locs = b.locations;
+  if (!Array.isArray(locs) || locs.length !== 2) return false;
+  if (!only(locs[0], ['lat', 'lon', 'heading', 'heading_tolerance'])) return false;
+  if (!only(locs[1], ['lat', 'lon'])) return false;
+  if (!locs.every((l) => latOk(l.lat) && lonOk(l.lon))) return false;
+  const h = locs[0];
+  if (
+    'heading' in h &&
+    !(Number.isInteger(h.heading) && h.heading >= 0 && h.heading < 360)
+  )
+    return false;
+  if (
+    'heading_tolerance' in h &&
+    !(Number.isInteger(h.heading_tolerance) && h.heading_tolerance <= 90)
+  )
+    return false;
+  if (!osrmStopsAllowed(`${locs[0].lon},${locs[0].lat};${locs[1].lon},${locs[1].lat}`))
+    return false;
+  if ('costing_options' in b) {
+    const o = b.costing_options;
+    if (b.costing !== 'auto' || !only(o, ['auto']) || !only(o.auto, ['use_highways']))
+      return false;
+    if (![0, 0.5, 1].includes(o.auto.use_highways)) return false;
+  }
+  if ('directions_options' in b) {
+    const d = b.directions_options;
+    if (!only(d, ['units', 'language'])) return false;
+    if ('units' in d && d.units !== 'kilometers') return false;
+    if ('language' in d && d.language !== 'en-US') return false;
+  }
+  if ('alternates' in b && ![0, 1, 2].includes(b.alternates)) return false;
+  return true;
+}
+
+// TomTom calculateRoute: exactly two "lat,lon" stops in the path, same limits.
+const TT_STOP = String.raw`(-?\d{1,2}(?:\.\d{1,6})?),(-?\d{1,3}(?:\.\d{1,6})?)`;
+const TT_ROUTE = new RegExp(
+  String.raw`^\/routing\/1\/calculateRoute\/${TT_STOP}:${TT_STOP}\/json$`,
+);
+
+class TomTomRoutePath extends RegExp {
+  test(pathname) {
+    const m = TT_ROUTE.exec(String(pathname));
+    if (!m) return false;
+    const [lat1, lon1, lat2, lon2] = m.slice(1).map(Number);
+    if (Math.abs(lat1) > 90 || Math.abs(lat2) > 90) return false;
+    return osrmStopsAllowed(`${lon1},${lat1};${lon2},${lat2}`);
+  }
+}
+
+// TomTom fuzzy search: the query is the last path segment (URL-encoded, no
+// slash), then .json.
+const TT_SEARCH = /^\/search\/2\/search\/[^/]{1,600}\.json$/;
 
 // --- Places (Photon) ---------------------------------------------------------------
 const PHOTON_KEYS = ['q', 'limit', 'lat', 'lon'];
@@ -120,5 +212,102 @@ export const feeds = [
     headers: UA,
     governor: { ratePerMinute: 30 },
     cache: { ttlMs: HOUR, staleMs: 24 * HOUR },
+  },
+  {
+    // Directions (Valhalla on the FOSSGIS servers, valhalla1.openstreetmap.de):
+    // drive, walk, cycle, and driving that avoids highways (OSRM there cannot:
+    // exclude=motorway answers 400). Keyless; live-tested Oct 2026 (GET
+    // /route?json=..., use_highways 0 honoured, maneuvers with instructions).
+    // The FOSSGIS usage policy is as for OSRM: a valid User-Agent, about one
+    // request a second, no heavy use, attribution. The client asks only on an
+    // explicit plan or a reroute (at most every 10 s); the governor caps a
+    // burst at 30/min and identical requests are served from the cache.
+    // Map data © OpenStreetMap contributors (ODbL).
+    id: 'valhalla',
+    baseUrl: 'https://valhalla1.openstreetmap.de',
+    methods: ['GET'],
+    allowPaths: [exactPath('/route')],
+    allowQuery: (q) =>
+      noRepeats(q) &&
+      [...q.keys()].every((k) => k === 'json') &&
+      valhallaQueryOk(q.get('json')),
+    headers: UA,
+    governor: { ratePerMinute: 30 },
+    cache: { ttlMs: 10 * MINUTE },
+  },
+  {
+    // Traffic-aware routing (TomTom Routing API v1, calculateRoute): live
+    // traffic travel times with the delay against free flow
+    // (computeTravelTimeFor=all), avoid=motorways, up to two alternatives, text
+    // guidance and the traffic sections (jams, roadworks, closures) along each
+    // route. Needs the same TOMTOM_API_KEY as the flow tiles and incidents,
+    // injected here as ?key=. Terms: TomTom for Developers (your own key),
+    // attribution "© TomTom". The free tier shares about 2,500 non-tile
+    // requests a day across TomTom's APIs: incidents may use 2,000, so routing
+    // gets 200 and search 250 (2,450 in all). Cached 2 minutes (traffic moves),
+    // a stale answer may stand in for 10. Pinned to one query shape.
+    // Per the provider's documentation, not live-tested here (no key).
+    id: 'tomtom-routing',
+    baseUrl: 'https://api.tomtom.com/routing/1',
+    methods: ['GET'],
+    allowPaths: [new TomTomRoutePath(TT_ROUTE.source)],
+    allowQuery: pinnedQuery(
+      {
+        travelMode: ['car', 'pedestrian', 'bicycle'],
+        traffic: ['true', 'false'],
+        computeTravelTimeFor: 'all',
+        maxAlternatives: ['0', '1', '2'],
+        instructionsType: 'text',
+        language: 'en-GB',
+        routeType: 'fastest',
+        sectionType: 'traffic',
+      },
+      {
+        avoid: 'motorways',
+        vehicleHeading: (v) => /^\d{1,3}$/.test(v) && Number(v) < 360,
+      },
+    ),
+    inject: [{ secret: 'TOMTOM_API_KEY', as: 'query', name: 'key' }],
+    headers: UA,
+    governor: {
+      ratePerMinute: 10,
+      creditBudget: 200,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: { ttlMs: 2 * MINUTE, staleMs: 10 * MINUTE, maxEntries: 32 },
+  },
+  {
+    // Destination search (TomTom Search API v2, fuzzy search): addresses and
+    // points of interest, biased (never bounded) near the user. Places and
+    // addresses only, never people. Same TOMTOM_API_KEY, injected as ?key=.
+    // 250 requests a day, 20 a minute; the client debounces typing, asks only
+    // from 3 characters, and answers are cached an hour (a day stale). Photon
+    // answers beside it, so a refused or exhausted TomTom costs nothing visible.
+    // Per the provider's documentation, not live-tested here (no key).
+    id: 'tomtom-search',
+    baseUrl: 'https://api.tomtom.com/search/2',
+    methods: ['GET'],
+    allowPaths: [TT_SEARCH],
+    allowQuery: (q) => {
+      const ok = pinnedQuery(
+        { limit: /^(?:[1-9]|10)$/, typeahead: ['true', 'false'], language: 'en-GB' },
+        { lat: LAT6, lon: LON6 },
+      )(q);
+      if (!ok || q.has('lat') !== q.has('lon')) return false;
+      return (
+        !q.has('lat') ||
+        (Math.abs(Number(q.get('lat'))) <= 90 && Math.abs(Number(q.get('lon'))) <= 180)
+      );
+    },
+    inject: [{ secret: 'TOMTOM_API_KEY', as: 'query', name: 'key' }],
+    headers: UA,
+    governor: {
+      ratePerMinute: 20,
+      creditBudget: 250,
+      creditWindowMs: 24 * HOUR,
+      creditCost: 1,
+    },
+    cache: { ttlMs: HOUR, staleMs: 24 * HOUR, maxEntries: 200 },
   },
 ];

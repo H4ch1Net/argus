@@ -4,7 +4,7 @@
 import { handleSetup } from './setup.js';
 import { sendJson } from './respond.js';
 import { handlePreflight } from './cors.js';
-import { handleRelay, resolveBaseUrl } from './relay.js';
+import { createRelayRuntime, handleRelay, resolveBaseUrl } from './relay.js';
 import { createResponseCache } from './cache.js';
 import { handleGoogleTiles } from './tiles.js';
 
@@ -33,6 +33,10 @@ export function createRequestHandler({
   streams = null,
   cache = createResponseCache(),
 }) {
+  // What the relay keeps between requests (lib/relay.js): bases that failed
+  // lately (skipped for a while), identical requests in flight (shared), and
+  // the queue of each feed that sends only a few requests at a time.
+  const runtime = createRelayRuntime();
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://proxy.local');
@@ -61,13 +65,25 @@ export function createRequestHandler({
         });
         return;
       }
-      // The SETUP tab: which keys are set, and saving new ones (loopback only).
-      if (url.pathname === '/setup/keys') {
+      // The SETUP tab: which keys are set, saving new ones, and the encrypted
+      // export / import of them (loopback only).
+      if (
+        url.pathname === '/setup/keys' ||
+        url.pathname === '/setup/keys/export' ||
+        url.pathname === '/setup/keys/import'
+      ) {
         await handleSetup(req, res, { feeds, file: config.keysFile });
         return;
       }
       if (url.pathname.startsWith('/feed/')) {
-        await handleRelay(req, res, { feeds, config, tokenManagers, governor, cache });
+        await handleRelay(req, res, {
+          feeds,
+          config,
+          tokenManagers,
+          governor,
+          cache,
+          runtime,
+        });
         return;
       }
       // Google Photorealistic 3D Tiles broker (key server-side; host-pinned).

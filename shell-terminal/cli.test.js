@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { runCli, positionals, bboxAround, haversineKm, table } from './cli.js';
 import { parseTuiArgs, parseLatLon } from './index.js';
 
@@ -344,6 +345,62 @@ test('route asks the osrm feed and prints turn-by-turn steps with attribution', 
   assert.equal(r.mode, 'car');
   assert.equal(r.steps.length, 2);
   assert.equal(r.geometry.length, 2);
+});
+
+test('route --avoid-highways asks Valhalla and prints signals and alternatives', async () => {
+  const fx = (n) =>
+    JSON.parse(
+      fs.readFileSync(new URL(`../core/nav/fixtures/${n}`, import.meta.url), 'utf8'),
+    );
+  const calls = [];
+  const backend = {
+    geocode: async () => [],
+    client: {
+      getJson: async (feed, p, opts) => {
+        calls.push([feed, opts?.params]);
+        if (feed === 'valhalla') return fx('valhalla-sf-avoid.json');
+        if (feed === 'overpass') return fx('overpass-sf-signals.json');
+        throw Object.assign(new Error(`no ${feed}`), { status: 502 });
+      },
+    },
+    close: async () => {},
+  };
+  const c = capture();
+  assert.equal(
+    await runCli(
+      'route',
+      ['37.7749,-122.4194', '37.7599,-122.4148', '--avoid-highways'],
+      {
+        ...c.io,
+        backend,
+      },
+    ),
+    0,
+  );
+  assert.equal(calls[0][0], 'valhalla');
+  assert.deepEqual(JSON.parse(calls[0][1].json).costing_options, {
+    auto: { use_highways: 0 },
+  });
+  const text = c.out.join('\n');
+  assert.match(text, /Turn left onto 16th Street/);
+  assert.match(text, /via valhalla; .*\d+ traffic signals \(about \+\d/);
+  assert.match(text, /alternative 2: /);
+  assert.match(c.out.at(-1), /Valhalla on the FOSSGIS servers.*fixthemap/);
+  const j = capture();
+  await runCli(
+    'route',
+    ['37.7749,-122.4194', '37.7599,-122.4148', '--avoid-highways', '--json'],
+    {
+      ...j.io,
+      backend,
+    },
+  );
+  const r = JSON.parse(j.out[0]);
+  assert.equal(r.provider, 'valhalla');
+  assert.equal(r.avoidHighways, true);
+  assert.ok(r.signals > 0);
+  assert.equal(r.alternatives.length, 2);
+  assert.equal(r.steps[0].maneuver.type, 'depart');
 });
 
 test('route refuses bad modes, long legs, no route and demo mode', async () => {

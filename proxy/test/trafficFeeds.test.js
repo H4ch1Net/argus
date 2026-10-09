@@ -12,6 +12,12 @@ import {
   TOMTOM_INCIDENT_FIELDS as CORE_FIELDS,
   TOMTOM_INCIDENT_PATH,
 } from '../../core/layers/incidents/parse.js';
+import {
+  wazeQuery,
+  wazeLocalQuery,
+  WAZE_PATH,
+  WAZE_LOCAL_PATH,
+} from '../../core/layers/waze/parse.js';
 
 const feed = (id) => feeds.find((f) => f.id === id);
 
@@ -39,7 +45,7 @@ test('the traffic feeds validate, are in the registry, pinned, governed and name
   assert.equal(validateFeeds(feeds), feeds);
   assert.deepEqual(
     feeds.map((f) => f.id),
-    ['tomtom-incidents', 'chp-cad'],
+    ['tomtom-incidents', 'chp-cad', 'waze', 'waze-local'],
   );
   for (const f of feeds) {
     assert.ok(registry.includes(f), `${f.id} is spread into proxy/feeds.js`);
@@ -97,6 +103,41 @@ test('CHP: the one statewide file, no query', () => {
   assert.equal(admits('chp-cad', clientUrl('chp-cad', '/other.xml')), false);
   assert.equal(admits('chp-cad', clientUrl('chp-cad', '/../index.html')), false);
   assert.equal(feed('chp-cad').baseUrlEnv, 'CHP_CAD_URL');
+});
+
+test('Waze: alerts and jams for a bounded box, never users, any region pin', () => {
+  const views = [
+    { lomin: -122.5, lamin: 37.7, lomax: -122.35, lamax: 37.82 },
+    { lomin: -124, lamin: 36, lomax: -120, lamax: 39 }, // clipped to a degree
+    { lomin: 2.2, lamin: 48.8, lomax: 2.45, lamax: 48.92 },
+    { lomin: 34.7, lamin: 31.9, lomax: 34.9, lamax: 32.1 },
+  ];
+  for (const v of views) {
+    assert.equal(admits('waze', clientUrl('waze', WAZE_PATH, wazeQuery(v))), true);
+    assert.equal(
+      admits('waze-local', clientUrl('waze-local', WAZE_LOCAL_PATH, wazeLocalQuery(v))),
+      true,
+    );
+  }
+  assert.deepEqual(
+    [views[0], views[2], views[3]].map((v) => wazeQuery(v).env),
+    ['na', 'row', 'il'],
+  );
+  const ok = wazeQuery(views[0]);
+  const url = (p) => clientUrl('waze', WAZE_PATH, { ...ok, ...p });
+  assert.equal(admits('waze', url({ types: 'alerts,traffic,users' })), false, 'no users');
+  assert.equal(admits('waze', url({ types: 'users' })), false);
+  assert.equal(admits('waze', url({ env: 'xx' })), false);
+  assert.equal(admits('waze', url({ top: '39.50' })), false, 'too tall');
+  assert.equal(admits('waze', url({ left: '-123.90' })), false, 'too wide');
+  assert.equal(admits('waze', url({ top: '37.7' })), false, 'precision');
+  assert.equal(admits('waze', url({ bottom: '37.90' })), false, 'inverted');
+  assert.equal(admits('waze', url({ ma: '500' })), false, 'extra key');
+  assert.equal(admits('waze', clientUrl('waze', '/live-map/api/user', ok)), false);
+  assert.equal(admits('waze', clientUrl('waze', '/row-rtserver/web/TGeoRSS', ok)), false);
+  assert.equal(feed('waze').baseUrlEnv, undefined, 'the live map only');
+  assert.equal(feed('waze-local').localOnly, true);
+  assert.equal(feed('waze-local').baseUrlEnv, 'LOCAL_WAZE_URL');
 });
 
 test('TomTom incidents: a daily request budget under the free allowance', () => {

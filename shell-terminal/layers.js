@@ -25,6 +25,7 @@ import {
   shipHeading,
   shipToNormalized,
   shipSearchText,
+  shipVelocity,
 } from '../core/layers/ships/format.js';
 import { parseOverpass } from '../core/layers/overpass/parse.js';
 import { createOverpassSource, areaTooLarge } from '../core/layers/overpass/client.js';
@@ -32,9 +33,20 @@ import {
   describeSurveillance,
   surveillanceKind,
   surveillanceHeading,
+  surveillanceColorHex,
+  surveillanceSearchText,
 } from '../core/layers/surveillance/format.js';
-import { describeLandmark } from '../core/layers/landmarks/format.js';
-import { parseShodanFacets } from '../core/layers/shodan/parse.js';
+import { normalizeSurveillance } from '../core/layers/surveillance/parse.js';
+import { createSurveillanceSource } from '../core/layers/surveillance/source.js';
+import { describeLandmark, landmarkSearchText } from '../core/layers/landmarks/format.js';
+import {
+  normalizeLandmarks,
+  createLandmarksLoader,
+  createLandmarksSource,
+} from '../core/layers/landmarks/parse.js';
+import { normalizeSignals, createSignalsSource } from '../core/layers/signals/parse.js';
+import { describeSignal, signalSearchText } from '../core/layers/signals/format.js';
+import { tiledNote } from '../core/layers/overpass/tiles.js';
 import { describeShodan, shodanColorHex } from '../core/layers/shodan/format.js';
 import {
   bgpEventToNormalized,
@@ -134,6 +146,13 @@ import {
 } from '../core/layers/constellations/groups.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
 import { parseTomTomIncidents } from '../core/layers/incidents/parse.js';
+import { parseWaze } from '../core/layers/waze/parse.js';
+import {
+  describeWaze,
+  wazeColorHex,
+  wazeSearchText,
+} from '../core/layers/waze/format.js';
+import { createWazeSource, createWazeMockSource } from '../core/layers/waze/source.js';
 import {
   describeIncident,
   incidentColorHex,
@@ -152,13 +171,31 @@ import {
   torNote,
   torSearchText,
 } from '../core/layers/tor/format.js';
-import { parseGdeltThemes } from '../core/layers/gdelt/parse.js';
+import { parseGdeltEvents, gdeltStatusNote } from '../core/layers/gdelt/parse.js';
 import {
   describeGdelt,
   gdeltColorHex,
   gdeltSearchText,
 } from '../core/layers/gdelt/format.js';
 import { createGdeltSource, createGdeltMockSource } from '../core/layers/gdelt/source.js';
+import { shodanToNormalized } from '../core/layers/shodan/parse.js';
+import { shodanSearchText } from '../core/layers/shodan/format.js';
+import { createShodanSource } from '../core/layers/shodan/source.js';
+import { createSimTrafficSource } from '../core/layers/simtraffic/source.js';
+import { createSimTrafficMockSource } from '../core/layers/simtraffic/mockSource.js';
+import {
+  createSimDriver,
+  describeSimVehicle,
+  viewOfBbox,
+} from '../core/layers/simtraffic/driver.js';
+import { CONGESTION_COLORS } from '../core/layers/simtraffic/format.js';
+import { streetPhotoToNormalized } from '../core/layers/streetphotos/parse.js';
+import {
+  describeStreetPhoto,
+  streetPhotoSearchText,
+} from '../core/layers/streetphotos/format.js';
+import { createStreetPhotoSource } from '../core/layers/streetphotos/source.js';
+import { createStreetPhotoMockSource } from '../core/layers/streetphotos/mockSource.js';
 
 export const GLYPHS = {
   unicode: {
@@ -168,6 +205,12 @@ export const GLYPHS = {
     sat: '✦',
     camera: '◉',
     alpr: '◈',
+    ptz: '⊙',
+    speedcam: '⊕',
+    redlight: '⊗',
+    acoustic: '∴',
+    guardpost: '⌂',
+    signal: '⋮',
     landmark: '◆',
     shodan: '■',
     bgp: '•',
@@ -197,6 +240,9 @@ export const GLYPHS = {
     },
     relay: { exit: '»', guard: '◙', middle: '∙' },
     news: '¶',
+    simcar: '▫',
+    photo: '⊡',
+    host: '◦',
   },
   ascii: {
     arrows: ['^', '/', '>', '\\', 'v', '/', '<', '\\'],
@@ -205,6 +251,12 @@ export const GLYPHS = {
     sat: '*',
     camera: 'c',
     alpr: 'A',
+    ptz: 'p',
+    speedcam: 'S',
+    redlight: 'R',
+    acoustic: 'G',
+    guardpost: 'H',
+    signal: 's',
     landmark: 'L',
     shodan: '#',
     bgp: '+',
@@ -234,6 +286,9 @@ export const GLYPHS = {
     },
     relay: { exit: '>', guard: 'g', middle: 'o' },
     news: 'n',
+    simcar: 'v',
+    photo: 'p',
+    host: 'o',
   },
 };
 
@@ -259,12 +314,16 @@ export function altitudeColorHex(metres) {
   return hslToHex(0.34 - 0.17 * t, 0.85, 0.6);
 }
 
-const OVERPASS_MAX_DEG = 3;
-const SURVEILLANCE_FILTERS = [
-  'node["man_made"="surveillance"]',
-  'way["man_made"="surveillance"]',
-];
-const LANDMARK_FILTERS = ['node["tourism"]', 'node["historic"]'];
+// The terminal glyph for each surveillance kind (core/layers/surveillance/kinds.js).
+const SURVEILLANCE_CHAR = {
+  alpr: 'alpr',
+  acoustic: 'acoustic',
+  redlight: 'redlight',
+  speed: 'speedcam',
+  average: 'speedcam',
+  guard: 'guardpost',
+  ptz: 'ptz',
+};
 
 /**
  * @param {{ client: object|null, wsBase: string|null, health: object|null, demo: boolean,
@@ -322,6 +381,9 @@ export function buildLayers({
   const incidentPriority = (n) =>
     n.meta.severity === 'critical' ? 2 : n.meta.severity === 'notable' ? 1 : 0;
   let torStatus = '';
+  // The simulated traffic's model driver (positions by time) and its note.
+  const simDriver = createSimDriver({ cap: 150 });
+  let simNote = '';
 
   const layers = [
     {
@@ -433,7 +495,9 @@ export function buildLayers({
       label: 'Ships',
       mode: 'push',
       interpolate: true,
-      interpolateLagMs: 5000,
+      interpolateLagMs: 8000,
+      extrapolateMs: 60_000,
+      velocityOf: shipVelocity,
       staleMs: 180_000,
       maxEntities: 3000,
       unavailable: streamIssue('ais', 'AISSTREAM_API_KEY'),
@@ -478,35 +542,31 @@ export function buildLayers({
       key: 'surveillance',
       label: 'Surveillance',
       mode: 'viewport',
+      // OSM cameras, ALPR readers (DeFlock's mapping), acoustic sensors, guard
+      // posts, speed and red-light cameras; each 0.1 degree tile fetched once.
       makeSource: async () =>
         demo
           ? (
               await import('../core/layers/surveillance/mockSource.js')
             ).createSurveillanceMockSource({ viewer })
-          : createOverpassSource({
-              proxyClient: client,
-              filters: SURVEILLANCE_FILTERS,
-              maxAreaDeg: OVERPASS_MAX_DEG,
-            }),
-      normalize: (json) => parseOverpass(json),
+          : createSurveillanceSource({ proxyClient: client }),
+      normalize: (raw) => normalizeSurveillance(raw),
       describe: describeSurveillance,
-      searchText: (n) =>
-        `${n.meta.tags.operator || ''} ${n.meta.tags['surveillance:type'] || ''}`,
-      // A camera mapped with a facing draws as an arrow that way (the
-      // terminal's direction tick); one without keeps its glyph.
+      searchText: surveillanceSearchText,
+      // A device mapped with a facing draws as an arrow that way (the
+      // terminal's direction tick); one without keeps its kind's glyph.
       glyph: (n) => {
-        const alpr = surveillanceKind(n.meta.tags) === 'ALPR';
+        const kind = surveillanceKind(n);
         const facing = surveillanceHeading(n);
-        const color = alpr ? '#ff4d4d' : '#ffb454';
-        if (facing != null) return { ch: arrowFor(facing, g), color, bold: alpr };
-        return alpr ? { ch: g.alpr, color, bold: true } : { ch: g.camera, color };
+        const color = surveillanceColorHex(kind);
+        const strong = kind === 'alpr' || kind === 'acoustic';
+        if (facing != null) return { ch: arrowFor(facing, g), color, bold: strong };
+        return { ch: g[SURVEILLANCE_CHAR[kind]] ?? g.camera, color, bold: strong };
       },
-      statusNote: (q) =>
-        !demo && q.bbox && areaTooLarge(q.bbox, OVERPASS_MAX_DEG)
-          ? 'zoom in to a city to load'
-          : '',
+      priority: (n) => (surveillanceKind(n) === 'alpr' ? 1 : 0),
+      statusNote: (_q, raw) => (demo ? '' : tiledNote(raw)),
       legend: () =>
-        `${g.camera} camera  ${g.alpr} ALPR reader  ${g.arrows[1]} mapped facing (red ALPR; locations only)`,
+        `${g.camera} camera ${g.alpr} ALPR ${g.acoustic} acoustic ${g.speedcam} speed ${g.redlight} red-light ${g.guardpost} guard ${g.arrows[1]} facing (OSM, DeFlock; locations only)`,
     },
     {
       key: 'military',
@@ -588,26 +648,22 @@ export function buildLayers({
       key: 'landmarks',
       label: 'Landmarks',
       mode: 'viewport',
+      // Named OSM attractions, museums, monuments, castles, towers (Wikipedia
+      // linked ones first in the glyph priority); each tile fetched once.
       makeSource: async () =>
         demo
           ? (
               await import('../core/layers/landmarks/mockSource.js')
             ).createLandmarkMockSource({ viewer })
-          : createOverpassSource({
-              proxyClient: client,
-              filters: LANDMARK_FILTERS,
-              maxAreaDeg: OVERPASS_MAX_DEG,
-            }),
-      normalize: (json) => parseOverpass(json),
+          : createLandmarksSource(createLandmarksLoader({ proxyClient: client })),
+      normalize: (raw) => normalizeLandmarks(raw),
       describe: describeLandmark,
-      searchText: (n) =>
-        `${n.meta.tags.name || ''} ${n.meta.tags.tourism || n.meta.tags.historic || ''}`,
-      glyph: () => ({ ch: g.landmark, color: '#c9a6ff' }),
-      statusNote: (q) =>
-        !demo && q.bbox && areaTooLarge(q.bbox, OVERPASS_MAX_DEG)
-          ? 'zoom in to a city to load'
-          : '',
-      legend: () => `${g.landmark} landmarks (OSM)`,
+      searchText: landmarkSearchText,
+      glyph: (n) => ({ ch: g.landmark, color: '#c9a6ff', bold: n.meta.notable }),
+      priority: (n) => (n.meta.notable ? 1 : 0),
+      statusNote: (_q, raw) =>
+        demo ? '' : tiledNote(raw, { tooWide: 'zoom in to a city to load' }),
+      legend: () => `${g.landmark} landmarks (OSM, bold: on Wikipedia)`,
     },
     {
       key: 'shodan',
@@ -620,18 +676,22 @@ export function buildLayers({
             await import('../core/layers/shodan/mockSource.js')
           ).createShodanMockSource();
         if (needs('shodan', 'SHODAN_API_KEY')) return null;
-        // Credit-free count facets only: awareness, never search-on-pan.
-        return (_q, signal) =>
-          client.getJson('shodan', '/shodan/host/count', {
-            params: { query: 'product:Apache httpd', facets: 'country:200' },
-            signal,
-          });
+        // A curated snapshot through the credit-free count endpoint (the
+        // proxy pins the query): awareness, never search-on-pan. The snapshot
+        // is ARGUS_SHODAN_SNAPSHOT (core/layers/shodan/snapshots.js ids).
+        return createShodanSource({
+          proxyClient: client,
+          getSnapshot: () => process.env.ARGUS_SHODAN_SNAPSHOT,
+        });
       },
-      normalize: (json) => parseShodanFacets(json, 'country'),
+      normalize: (raw) => shodanToNormalized(raw),
       describe: describeShodan,
-      searchText: (n) => n.meta.country,
-      glyph: (n) => ({ ch: g.shodan, color: shodanColorHex(n.meta.count) }),
-      priority: (n) => Math.log10(Math.max(1, n.meta.count)),
+      searchText: shodanSearchText,
+      glyph: (n) =>
+        n.type === 'shodan-host'
+          ? { ch: g.host, color: '#ffffff' }
+          : { ch: g.shodan, color: shodanColorHex(n.meta.count) },
+      priority: (n) => Math.log10(Math.max(1, n.meta.count ?? 1)),
       legend: () => `${g.shodan} exposed-host density by country`,
     },
     {
@@ -953,6 +1013,74 @@ export function buildLayers({
       legend: () => `${g.dam} dams (OSM)`,
     },
     {
+      key: 'simtraffic',
+      label: 'Traffic (simulated)',
+      mode: 'poll',
+      intervalMs: 10_000,
+      viewportBounded: true,
+      maxEntities: 150,
+      // SIMULATED vehicles on OSM roads (core/layers/simtraffic), the same model
+      // as the globe: active once the map is zoomed in below about 8 km.
+      makeSource: async () => {
+        let view = null;
+        const getView = () => view;
+        const src = demo
+          ? createSimTrafficMockSource({ getView, tier: 'minimal' })
+          : createSimTrafficSource({
+              proxyClient: client,
+              getView,
+              flow: keyed('tomtom-flowseg'),
+              tier: 'minimal',
+            });
+        return async (q) => {
+          view = viewOfBbox(q?.bbox);
+          return src();
+        };
+      },
+      normalize: (model) => {
+        simDriver.sync(model);
+        simNote = model?.note?.() ?? '';
+        return simDriver.vehicles(Date.now());
+      },
+      positionAt: (n, t) => simDriver.positionAt(n.meta.slot, t),
+      statusNote: () => simNote,
+      describe: (n) => describeSimVehicle(n, simDriver.speedKmh(n.meta.slot)),
+      glyph: (n) => ({
+        ch: g.simcar,
+        color: n.meta.flow
+          ? (CONGESTION_COLORS[
+              n.meta.flow.ratio < 0.45
+                ? 'jam'
+                : n.meta.flow.ratio < 0.75
+                  ? 'slow'
+                  : 'free'
+            ] ?? '#d9d9d9')
+          : '#d9d9d9',
+      }),
+      priority: () => -1,
+      legend: () => `${g.simcar} SIMULATED vehicles (zoom in below 8 km)`,
+    },
+    {
+      key: 'streetphotos',
+      label: 'Street photos',
+      mode: 'viewport',
+      maxEntities: 600,
+      unavailable: needs('mapillary', 'MAPILLARY_TOKEN'),
+      makeSource: async () => {
+        // The closest terminal zoom is about 8 km across: load the tiles
+        // around the middle of it.
+        if (demo) return createStreetPhotoMockSource({ maxViewDeg: 0.12 });
+        if (needs('mapillary', 'MAPILLARY_TOKEN')) return null;
+        return createStreetPhotoSource({ proxyClient: client, maxViewDeg: 0.12 });
+      },
+      normalize: (raw) => (raw?.images ?? []).map(streetPhotoToNormalized),
+      statusNote: (_q, raw) => (raw?.tooWide ? 'zoom in to load' : ''),
+      describe: (n) => describeStreetPhoto(n),
+      searchText: streetPhotoSearchText,
+      glyph: () => ({ ch: g.photo, color: '#deeeed' }),
+      legend: () => `${g.photo} street photos (Mapillary, CC BY-SA)`,
+    },
+    {
       key: 'incidents',
       label: 'Traffic incidents',
       mode: 'poll',
@@ -993,6 +1121,39 @@ export function buildLayers({
         `${g.incident.accident} CHP dispatch incidents, California (red = critical)`,
     },
     {
+      // Waze's live map, unofficial (personal use); your own waze-server when
+      // the proxy has LOCAL_WAZE_URL. Road alerts and jams only: never users,
+      // never police reports (core/layers/waze/parse.js).
+      key: 'waze',
+      label: 'Waze alerts (unofficial)',
+      mode: 'poll',
+      intervalMs: 2 * 60_000,
+      viewportBounded: true,
+      maxEntities: 1500,
+      makeSource: async () =>
+        demo
+          ? createWazeMockSource()
+          : createWazeSource({ proxyClient: client, local: keyed('waze-local') }),
+      normalize: (raw) => parseWaze(raw?.json ?? raw),
+      describe: (n) => describeWaze(n),
+      searchText: wazeSearchText,
+      glyph: (n) => ({
+        ch: g.incident[n.meta.kind] ?? g.incident.hazard,
+        color: wazeColorHex(n.meta.severity),
+        bold: n.meta.severity === 'critical',
+      }),
+      priority: incidentPriority,
+      statusNote: (_q, raw) =>
+        [
+          raw?.via === 'local' ? 'your waze-server' : '',
+          raw?.clipped ? 'nearest 100 km' : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      legend: () =>
+        `${g.incident.accident} accident ${g.incident.jam} jam ${g.incident.hazard} hazard ${g.incident.closure} closed (Waze, unofficial; red = critical)`,
+    },
+    {
       key: 'tor',
       label: 'Tor relays',
       mode: 'poll',
@@ -1028,13 +1189,38 @@ export function buildLayers({
       maxEntities: 3000,
       makeSource: async () =>
         demo ? createGdeltMockSource() : createGdeltSource({ proxyClient: client }),
-      normalize: (raw) => parseGdeltThemes(raw),
-      describe: describeGdelt,
+      normalize: (raw) => parseGdeltEvents(raw),
+      statusNote: (_q, raw) => gdeltStatusNote(raw),
+      describe: (n) => describeGdelt(n),
       searchText: gdeltSearchText,
       glyph: (n) => ({ ch: g.news, color: gdeltColorHex(n) }),
       priority: (n) => Math.log10(Math.max(1, n.meta.count)),
       legend: () =>
-        `${g.news} GDELT event reports, 24 h (red conflict, white disaster, gray unrest)`,
+        `${g.news} GDELT events, last hour (red conflict, white humanitarian aid, gray protest)`,
+    },
+    {
+      key: 'signals',
+      label: 'Traffic lights',
+      mode: 'viewport',
+      maxEntities: 2500,
+      // OSM traffic signals, only in views about 20 km across or less.
+      makeSource: async () =>
+        demo
+          ? (
+              await import('../core/layers/signals/mockSource.js')
+            ).createSignalsMockSource({ viewer })
+          : createSignalsSource({ proxyClient: client }),
+      normalize: (raw) => normalizeSignals(raw),
+      describe: describeSignal,
+      searchText: signalSearchText,
+      glyph: (n) => ({
+        ch: g.signal,
+        color: n.meta.kind === 'crossing' ? '#8fa8a6' : '#deeeed',
+        bold: n.meta.kind !== 'crossing',
+      }),
+      priority: (n) => (n.meta.kind === 'crossing' ? 0 : 1),
+      statusNote: (_q, raw) => tiledNote(raw),
+      legend: () => `${g.signal} traffic lights (OSM; zoom in to about 20 km)`,
     },
   ];
 

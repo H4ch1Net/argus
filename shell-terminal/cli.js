@@ -26,18 +26,33 @@ import { relativeTime } from '../core/layers/launches/format.js';
 import { feedConfigured } from '../core/net/discoverProxy.js';
 import { findPlace, searchPlaces } from '../core/search/places.js';
 import {
-  routeRequest,
-  parseRoute,
-  routeErrorMessage,
   normalizeMode,
   checkRoutePoints,
   formatRouteDistance,
   formatRouteDuration,
+  instructionFor,
   ROUTE_MODES,
   ROUTE_ATTRIBUTION,
   FIX_THE_MAP_URL,
 } from '../core/route/osrm.js';
+import { createNavigator } from '../core/nav/navigator.js';
+import { navMode } from '../core/nav/providers.js';
 import { greatCircleM, initialBearingDeg } from '../core/draw/geometry.js';
+import {
+  flowQuery,
+  flowSegmentPath,
+  formatFlowReadout,
+  parseFlowSegment,
+} from '../core/layers/simtraffic/flow.js';
+import { SHODAN_SNAPSHOTS, snapshotById } from '../core/layers/shodan/snapshots.js';
+import { createShodanSource, fetchCountryFacets } from '../core/layers/shodan/source.js';
+import { shodanToNormalized } from '../core/layers/shodan/parse.js';
+import {
+  createStreetPhotoTiles,
+  findNearestStreetPhoto,
+} from '../core/layers/streetphotos/source.js';
+import { streetPhotoToNormalized } from '../core/layers/streetphotos/parse.js';
+import { describeStreetPhoto } from '../core/layers/streetphotos/format.js';
 
 export const CLI_COMMANDS = [
   'query',
@@ -55,6 +70,9 @@ export const CLI_COMMANDS = [
   'bgp',
   'ct',
   'health',
+  'flow',
+  'shodan',
+  'photo',
 ];
 
 const QUAKE_FEEDS = [
@@ -249,6 +267,8 @@ export async function runCli(cmd, argv, io = {}) {
     '--group',
     '--count',
     '--mode',
+    '--snapshot',
+    '--country',
   ];
   const args = positionals(argv, valueFlags);
 
@@ -289,6 +309,38 @@ export async function runCli(cmd, argv, io = {}) {
   if ((cmd === 'flights' || cmd === 'fires') && !opt(argv, '--near')) {
     err(`argus ${cmd}: --near <LAT,LON|place> is required (feeds are viewport-bounded)`);
     return 2;
+  }
+  if ((cmd === 'flow' || cmd === 'photo') && !args.length) {
+    err(`argus ${cmd}: give a place or LAT,LON`);
+    return 2;
+  }
+  if (cmd === 'shodan' && opt(argv, '--snapshot') && opt(argv, '--snapshot') !== 'list') {
+    const id = opt(argv, '--snapshot');
+    if (!SHODAN_SNAPSHOTS.some((s) => s.id === id)) {
+      err(
+        `argus shodan: --snapshot must be one of ${SHODAN_SNAPSHOTS.map((s) => s.id).join(', ')}`,
+      );
+      return 2;
+    }
+  }
+  if (
+    cmd === 'shodan' &&
+    opt(argv, '--country') &&
+    !/^[a-z]{2}$/i.test(opt(argv, '--country'))
+  ) {
+    err('argus shodan: --country takes a two-letter country code');
+    return 2;
+  }
+  if (cmd === 'shodan' && opt(argv, '--snapshot') === 'list') {
+    if (json) out(JSON.stringify(SHODAN_SNAPSHOTS, null, 2));
+    else
+      out(
+        table(
+          ['id', 'snapshot', 'query'],
+          SHODAN_SNAPSHOTS.map((s) => [s.id, s.label, s.query]),
+        ),
+      );
+    return 0;
   }
   if (cmd === 'geocode' && !args.length) {
     err('argus geocode: give a place name');
@@ -397,7 +449,11 @@ export async function runCli(cmd, argv, io = {}) {
         );
         return 1;
       }
+      // The navigator the app uses (core/nav): OSRM, Valhalla to avoid
+      // highways, TomTom with traffic when the proxy has the key, and the
+      // traffic signals counted on the way.
       const mode = normalizeMode(opt(argv, '--mode') ?? 'car');
+      const avoidHighways = argv.includes('--avoid-highways');
       const [ta, tb] = twoPlaces(args);
       const a = await resolvePlace(backend, ta);
       const b = await resolvePlace(backend, tb);
@@ -406,36 +462,69 @@ export async function runCli(cmd, argv, io = {}) {
         err(`route: ${check.error}`);
         return 1;
       }
-      const req = routeRequest(mode, [a, b]);
-      let raw;
+      const nav = createNavigator({
+        proxyClient: c,
+        hasFeed: (id) => feedConfigured(backend.health, id),
+        signalTimeoutMs: 8000,
+        log: (e) => verbose && err(`[argus] ${e.title}${e.body ? `: ${e.body}` : ''}`),
+      });
+      let routes;
       try {
-        raw = await c.getJson(req.feed, req.path, { params: req.params });
+        routes = await nav.plan(
+          a,
+          { ...b, name: b.name },
+          {
+            mode: navMode(mode),
+            avoidHighways,
+            traffic: !argv.includes('--no-traffic'),
+          },
+        );
       } catch (e) {
-        // OSRM answers NoRoute / NoSegment with a 400.
+        // OSRM and Valhalla answer "no route" / "too far from a road" with a 400.
         if (e?.status === 400) {
           err('route: no route found (a stop may be too far from any road or path)');
           return 1;
         }
+        if (e?.code === 'no-route') {
+          err(`route: ${e.message}`);
+          return 1;
+        }
         throw e;
       }
-      const route = parseRoute(raw);
-      if (!route) {
-        err(`route: ${routeErrorMessage(raw)}`);
-        return 1;
-      }
+      const route = routes[0];
+      const english = (s) => instructionFor({ ...s.maneuver, name: s.name });
+      const credit =
+        route.provider === 'tomtom'
+          ? 'Routing: TomTom (traffic), © TomTom; map data © OpenStreetMap contributors'
+          : route.provider === 'valhalla'
+            ? 'Routing: Valhalla on the FOSSGIS servers (valhalla1.openstreetmap.de), map data © OpenStreetMap contributors'
+            : ROUTE_ATTRIBUTION;
       if (json) {
         out(
           JSON.stringify(
             {
               mode,
+              provider: route.provider,
+              avoidHighways: route.avoidHighways,
               from: a,
               to: b,
               distanceM: route.distanceM,
               durationS: route.durationS,
-              steps: route.steps,
-              stepsTruncated: route.stepsTruncated,
-              geometry: route.coordinates,
-              attribution: ROUTE_ATTRIBUTION,
+              trafficDelayS: route.trafficDelayS,
+              signals: route.signals,
+              signalDelayS: route.signalDelayS,
+              summary: route.summary,
+              warnings: route.warnings,
+              steps: route.steps.map((s) => ({ ...s, text: english(s) })),
+              geometry: route.geometry,
+              alternatives: routes.slice(1).map((r) => ({
+                distanceM: r.distanceM,
+                durationS: r.durationS,
+                trafficDelayS: r.trafficDelayS,
+                signals: r.signals,
+                summary: r.summary,
+              })),
+              attribution: credit,
               fixTheMap: FIX_THE_MAP_URL,
             },
             null,
@@ -449,13 +538,29 @@ export async function runCli(cmd, argv, io = {}) {
       );
       let at = 0;
       const rows = route.steps.map((s, i) => {
-        const row = [String(i + 1), formatRouteDistance(at), s.instruction];
+        const row = [String(i + 1), formatRouteDistance(at), english(s)];
         at += s.distanceM;
         return row;
       });
       out(table(['#', 'at', 'instruction'], rows));
-      if (route.stepsTruncated) out(`(first ${route.steps.length} steps only)`);
-      out(`${ROUTE_ATTRIBUTION}. Fix the map: ${FIX_THE_MAP_URL}`);
+      const extra = [`via ${route.provider}`];
+      if (route.summary) extra.push(route.summary);
+      if (Number.isFinite(route.trafficDelayS))
+        extra.push(`traffic +${formatRouteDuration(route.trafficDelayS) || '0 s'}`);
+      if (Number.isFinite(route.signals))
+        extra.push(
+          `${route.signals} traffic signal${route.signals === 1 ? '' : 's'}` +
+            (route.signalDelayS
+              ? ` (about +${formatRouteDuration(route.signalDelayS)})`
+              : ''),
+        );
+      out(extra.join('; '));
+      for (const w of route.warnings ?? []) out(`note: ${w.toLowerCase()}`);
+      for (const [i, r] of routes.slice(1).entries())
+        out(
+          `alternative ${i + 1}: ${formatRouteDistance(r.distanceM)}, ${formatRouteDuration(r.durationS)}${r.summary ? ` via ${r.summary}` : ''}`,
+        );
+      out(`${credit}. Fix the map: ${FIX_THE_MAP_URL}`);
       return 0;
     }
 
@@ -763,6 +868,130 @@ export async function runCli(cmd, argv, io = {}) {
               `${new Date().toISOString().slice(11, 19)}  ${ev.domain}  +${ev.domains}  ${ev.ca}`;
       await streamLines(url, cmd, cmd === 'bgp' ? 'events' : 'certs', count, json, (ev) =>
         out(typeof ev === 'string' ? ev : fmt(ev)),
+      );
+      return 0;
+    }
+
+    // A keyed feed this proxy does not have: say which key, before any request.
+    const needKey = (feed, secret) => {
+      if (backend.health && !feedConfigured(backend.health, feed)) {
+        err(`${cmd}: needs ${secret} in .env (proxy side)`);
+        return true;
+      }
+      return false;
+    };
+
+    if (cmd === 'flow') {
+      // TomTom live speed on the road nearest a point (current / free-flow).
+      if (!c) {
+        err('flow: TomTom flow is online only; --demo has no network');
+        return 1;
+      }
+      if (needKey('tomtom-flowseg', 'TOMTOM_API_KEY')) return 1;
+      const place = await resolvePlace(backend, args.join(' '));
+      const seg = parseFlowSegment(
+        await c.getJson('tomtom-flowseg', flowSegmentPath(3), {
+          params: flowQuery(place.lat, place.lon),
+        }),
+      );
+      if (!seg) {
+        err(`flow: no road with flow data near ${place.name}`);
+        return 1;
+      }
+      if (json) out(JSON.stringify({ place, ...seg, credit: '© TomTom' }, null, 2));
+      else {
+        out(`${place.name}: ${formatFlowReadout(seg)}`);
+        out(
+          `  road class ${seg.frc ?? '?'}, travel time ${seg.currentTravelTimeS ?? '?'} s (free-flow ${seg.freeTravelTimeS ?? '?'} s), confidence ${seg.confidence ?? '?'}`,
+        );
+        out('  Traffic flow © TomTom');
+      }
+      return 0;
+    }
+
+    if (cmd === 'shodan') {
+      // A curated snapshot (credit-free counts): top countries, or one
+      // country's ports, operators and products. Never a free-text search.
+      if (!c) {
+        err('shodan: needs the proxy and SHODAN_API_KEY; --demo has no network');
+        return 1;
+      }
+      if (needKey('shodan', 'SHODAN_API_KEY')) return 1;
+      const snapshot = snapshotById(opt(argv, '--snapshot'));
+      const country = opt(argv, '--country')?.toUpperCase();
+      const limit = Number(opt(argv, '--limit') ?? 20);
+      if (country) {
+        const f = await fetchCountryFacets(c, snapshot.id, country);
+        if (json) out(JSON.stringify({ snapshot, country, ...f }, null, 2));
+        else {
+          out(
+            `${snapshot.label} in ${country}: ${f.total ?? '?'} hosts (Shodan snapshot)`,
+          );
+          for (const [k, v] of f.rows) out(`  ${k.padEnd(14)}${v}`);
+        }
+        return 0;
+      }
+      const raw = await createShodanSource({
+        proxyClient: c,
+        getSnapshot: () => snapshot.id,
+      })();
+      const list = shodanToNormalized(raw)
+        .filter((n) => n.type === 'shodan-density')
+        .slice(0, limit);
+      if (json)
+        out(
+          JSON.stringify(
+            {
+              snapshot,
+              total: raw.count?.total ?? null,
+              countries: list.map((n) => n.meta),
+            },
+            null,
+            2,
+          ),
+        );
+      else {
+        out(
+          `${snapshot.label}: ${raw.count?.total ?? '?'} hosts worldwide (Shodan snapshot, awareness only)`,
+        );
+        out(
+          table(
+            ['#', 'country', 'hosts'],
+            list.map((n) => [n.meta.rank, n.meta.country, n.meta.count]),
+          ),
+        );
+      }
+      return 0;
+    }
+
+    if (cmd === 'photo') {
+      // The nearest Mapillary street-level photo: when, which way, the link.
+      if (!c) {
+        err('photo: Mapillary is online only; --demo has no network');
+        return 1;
+      }
+      if (needKey('mapillary', 'MAPILLARY_TOKEN')) return 1;
+      const place = await resolvePlace(backend, args.join(' '));
+      const best = await findNearestStreetPhoto(
+        createStreetPhotoTiles({ proxyClient: c }),
+        place.lat,
+        place.lon,
+      );
+      if (!best) {
+        err(`photo: no Mapillary photo within 400 m of ${place.name}`);
+        return 1;
+      }
+      const card = describeStreetPhoto(streetPhotoToNormalized(best.image), {
+        distanceM: best.distanceM,
+      });
+      out(
+        json
+          ? JSON.stringify(
+              { place, image: best.image, distanceM: best.distanceM },
+              null,
+              2,
+            )
+          : printCard(card),
       );
       return 0;
     }

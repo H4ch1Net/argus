@@ -112,6 +112,8 @@ kotlin {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.car.app:app:1.4.0")
+    // CarHardwareManager on Android Auto (the car's model, fuel, odometer, speed).
+    implementation("androidx.car.app:app-projected:1.4.0")
 }
 
 // Fail early with a clear message when a staged input is missing, instead of an

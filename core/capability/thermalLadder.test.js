@@ -6,7 +6,8 @@ import { createThermalLadder, THERMAL_LEVELS } from './thermalLadder.js';
 // function of the current level (a device whose frame time depends on quality).
 function run(ladder, clock, ms, dt) {
   const events = [];
-  for (let elapsed = 0; elapsed < ms; ) {
+  let elapsed = 0;
+  while (elapsed < ms) {
     const d = typeof dt === 'function' ? dt(ladder.level) : dt;
     clock.t += d;
     elapsed += d;

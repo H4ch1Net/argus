@@ -13,6 +13,9 @@ export const bgpDefinition = {
   fetch: { mode: 'push' },
   staleMs: 2200, // a pulse lingers ~2s, then the sweep removes it
   maxEntities: 400,
+  // Pulses at a handful of fixed collectors, gone in two seconds: a merged
+  // count would only flicker.
+  cluster: false,
   normalize: (events) => events.map(bgpEventToNormalized).filter(Boolean),
   render: {
     // Announcements cyan, withdrawals textSecondary.

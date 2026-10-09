@@ -34,8 +34,10 @@ run the app
 
 passive lookups (add --json for machine-readable output, --proxy URL to use a
 running proxy instead of an embedded one)
-  query <ip|domain|asn>        RIPEstat registry/routing/geo enrichment
-  correlate <ip|domain|asn>    multi-source correlation (RIPEstat + Shodan host)
+  query <ip|domain|asn>        RIPEstat registry/routing/geo enrichment, plus
+                               Shodan InternetDB exposure for an IP (keyless)
+  correlate <ip|domain|asn>    multi-source correlation (RIPEstat, InternetDB,
+                               Shodan host)
   quakes [--min M] [--limit N] [--feed all_day|all_hour|all_week|significant_week]
   flights --near <LAT,LON|place> [--radius NM] [--limit N]
   military [--near <LAT,LON|place>] [--radius KM] [--limit N]
@@ -44,11 +46,16 @@ running proxy instead of an embedded one)
   sats [--group stations|visual|active|starlink|gps-ops|weather] [--limit N]
   fires --near <LAT,LON|place> [--radius KM]
   geocode <place>              offline places, then Photon, then Nominatim
-  route <A> <B> [--mode car|foot|bike]
+  route <A> <B> [--mode car|foot|bike] [--avoid-highways] [--no-traffic]
                                turn-by-turn directions (OSRM, FOSSGIS servers);
                                quote multi-word places or write "A to B"
   measure <A> <B>              great-circle distance and bearing (offline when
                                both are coordinates or bundled place names)
+  flow <LAT,LON|place>         TomTom live speed on the nearest road (needs a key)
+  shodan [--snapshot ID|list] [--country CC] [--limit N]
+                               a curated Shodan snapshot: hosts by country, or one
+                               country's top ports, operators, products (no search)
+  photo <LAT,LON|place>        the nearest Mapillary street photo (needs a token)
   bgp [--count N]              stream sampled RIPE RIS Live BGP updates
   ct [--count N]               stream Certificate Transparency issuance
   health                       which feeds are configured on the proxy

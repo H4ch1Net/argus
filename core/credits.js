@@ -40,11 +40,13 @@ export const GROUP_LABELS = {
   cockpit: 'Cockpit briefing',
   terminal: 'Terminal map',
   models: '3D aircraft models',
+  directions: 'Directions and navigation',
 };
 
 const OSM_LAYERS = [
   'surveillance',
   'landmarks',
+  'signals',
   'datacenters',
   'installations',
   'dams',
@@ -52,6 +54,7 @@ const OSM_LAYERS = [
   'search',
   'cockpit',
   'directions',
+  'simtraffic',
 ];
 const ESRI_TERMS_URL = 'https://www.esri.com/en-us/legal/terms/full-master-agreement';
 
@@ -299,6 +302,17 @@ export const CREDITS = [
     attribution: 'courtesy',
   },
   {
+    id: 'waze',
+    name: 'Waze (live map, unofficial)',
+    terms:
+      'Read from the endpoint behind the public Waze live map: not a documented API and outside Waze terms for automated use; personal, educational use only, off by default. Road alerts and jams only (never user positions or police reports), nothing archived. Or your own waze-server on this machine or the LAN (LOCAL_WAZE_URL)',
+    url: 'https://www.waze.com/live-map',
+    layers: ['waze'],
+    feeds: ['waze', 'waze-local'],
+    hosts: ['www.waze.com'],
+    attribution: 'required',
+  },
+  {
     id: 'osrm',
     name: 'OSRM on the FOSSGIS servers',
     terms:
@@ -308,6 +322,30 @@ export const CREDITS = [
     feeds: ['osrm'],
     hosts: ['routing.openstreetmap.de'],
     attribution: 'required',
+  },
+  // Navigation (core/nav): Valhalla for avoid-highways and as OSRM's fallback,
+  // TomTom for traffic-aware routing and destination search when keyed.
+  {
+    id: 'valhalla',
+    name: 'Valhalla on the FOSSGIS servers',
+    terms:
+      'FOSSGIS routing usage policy: show this credit, a valid User-Agent, at most 1 request a second, no heavy use; data ODbL 1.0 from OpenStreetMap',
+    url: 'https://valhalla1.openstreetmap.de',
+    layers: ['directions'],
+    feeds: ['valhalla'],
+    hosts: ['valhalla1.openstreetmap.de'],
+    attribution: 'required',
+  },
+  {
+    id: 'tomtom-nav',
+    name: 'TomTom Routing and Search',
+    terms:
+      'TomTom for Developers terms with your own key (shares the free tier of about 2,500 non-tile requests a day); attribution "© TomTom" beside routes and results that use it',
+    url: 'https://docs.tomtom.com/legal/terms-and-conditions',
+    layers: ['directions', 'search'],
+    feeds: ['tomtom-routing', 'tomtom-search'],
+    attribution: 'required',
+    keyed: true,
   },
 
   // --- earth and weather ------------------------------------------------------
@@ -456,9 +494,29 @@ export const CREDITS = [
     terms:
       'Public instance under its usage policy (fair use, about 10,000 queries and 1 GB a day); data ODbL 1.0 from OpenStreetMap',
     url: 'https://overpass-api.de',
-    layers: ['surveillance', 'landmarks', 'datacenters', 'installations', 'dams'],
+    layers: [
+      'surveillance',
+      'landmarks',
+      'signals',
+      'datacenters',
+      'installations',
+      'dams',
+    ],
     feeds: ['overpass'],
     hosts: ['overpass-api.de'],
+    attribution: 'courtesy',
+  },
+  {
+    // DeFlock maps ALPR readers into OpenStreetMap (surveillance:type=ALPR with
+    // manufacturer / operator tags); the surveillance layer reads them from OSM
+    // through Overpass and never contacts deflock.me itself.
+    id: 'deflock',
+    name: 'DeFlock (ALPR mapping in OpenStreetMap)',
+    terms:
+      'Crowd-sourced ALPR locations contributed to OpenStreetMap; the data is ODbL 1.0 as part of OSM',
+    url: 'https://deflock.me',
+    layers: ['surveillance'],
+    hosts: ['deflock.me'],
     attribution: 'courtesy',
   },
   {
@@ -827,8 +885,8 @@ export const CREDITS = [
       "Free for any use with a citation and a link to the GDELT Project; linked articles keep their publishers' terms",
     url: 'https://www.gdeltproject.org/about.html#termsofuse',
     layers: ['cockpit', 'gdelt'],
-    feeds: ['gdelt', 'gdelt-geo'],
-    hosts: ['api.gdeltproject.org'],
+    feeds: ['gdelt', 'gdelt-events'],
+    hosts: ['api.gdeltproject.org', 'data.gdeltproject.org'],
     attribution: 'required',
   },
   {
@@ -916,6 +974,43 @@ export const CREDITS = [
     feeds: ['photon'],
     hosts: ['photon.komoot.io'],
     attribution: 'courtesy',
+  },
+
+  // --- simulated traffic, street photos, host exposure ------------------------
+  {
+    id: 'tomtom-flow-segments',
+    name: 'TomTom Traffic (flow segment data)',
+    terms:
+      'TomTom for Developers terms with your own key; non-tile requests count against the free daily allowance (about 2,500 a day, shared with incidents); attribution "© TomTom" beside the speeds',
+    url: 'https://docs.tomtom.com/legal/terms-and-conditions',
+    layers: ['simtraffic'],
+    feeds: ['tomtom-flowseg'],
+    attribution: 'required',
+    keyed: true,
+  },
+  {
+    id: 'mapillary',
+    name: 'Mapillary',
+    terms:
+      'Images CC BY-SA 4.0 with attribution to Mapillary and a link to each image; API v4 under the Mapillary terms with your own client token',
+    url: 'https://www.mapillary.com/terms',
+    layers: ['streetphotos'],
+    feeds: ['mapillary', 'mapillary-img'],
+    hosts: ['graph.mapillary.com'],
+    attribution: 'required',
+    keyed: true,
+  },
+  {
+    id: 'internetdb',
+    name: 'Shodan InternetDB',
+    terms:
+      'Free, keyless lookup of the open ports, tags and known vulnerabilities Shodan has indexed for an IP; non-commercial use',
+    url: 'https://internetdb.shodan.io',
+    layers: ['osint', 'shodan'],
+    feeds: ['internetdb'],
+    hosts: ['internetdb.shodan.io'],
+    attribution: 'courtesy',
+    nonCommercial: true,
   },
 ];
 

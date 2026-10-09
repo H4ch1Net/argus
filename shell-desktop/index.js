@@ -1,4 +1,5 @@
 import { bootGlobe } from '../core/index.js';
+import { createGeoControl, flyToSelf } from '../core/geo/geoControl.js';
 import { locateAndFly } from '../core/geo/geolocate.js';
 import { h } from '../core/ui/dom.js';
 import { createBar, createSegment } from '../core/ui/hud/bar.js';
@@ -12,8 +13,9 @@ import './shell.css';
 // right (the tracking widget, the selected target's card, nearest contacts),
 // the view stack at the right edge and a status strip along the bottom. Mouse
 // and keyboard: M toggles the menu, T the target panel, / or Ctrl+K search,
-// backtick the terminal, F follow, Esc release. One-shot geolocation only;
-// the continuous orientation sensor stays mobile-only.
+// backtick the terminal, F follow, Esc release. The own position (main sets
+// api.selfPosition, core/geo/selfPosition.js) drives GEO and Around Me; the
+// continuous orientation sensor stays mobile-only.
 
 /**
  * @param {HTMLElement} root
@@ -53,7 +55,11 @@ export async function mountShell(root, bootOpts = {}) {
   const strip = createBar({ lockup: false, className: 'ct-bar--strip' });
   const notify = h('div.argus-notify');
   const floatEl = h('div.argus-float');
-  hud.append(bar.el, left, right, stack, strip.el, notify, floatEl);
+  // Navigation (core/ui/navPanel.js): WHERE TO, the preview and the turn
+  // banner at the top centre, the trip strip at the bottom centre.
+  const navTop = h('div.argus-navtop');
+  const navBottom = h('div.argus-navbottom');
+  hud.append(bar.el, left, right, stack, strip.el, navTop, navBottom, notify, floatEl);
 
   // Panel toggles in the bar (and on the keyboard).
   const setPanel = (el, on) => {
@@ -103,13 +109,15 @@ export async function mountShell(root, bootOpts = {}) {
   const ro = new ResizeObserver(layout);
   for (const el of [root, bar.el, left, right, stack, strip.el]) ro.observe(el);
 
-  return {
+  const api = {
     ...app,
     shell: 'desktop',
-    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float */
+    /** Place a component: bar | barEnd | layers | view | intel | setup | target | stack | strip | stripEnd | notify | float | navTop | navBottom */
     mount(slot, el) {
       if (!el) return;
-      if (slot === 'bar') bar.add(el, 'start');
+      if (slot === 'navTop') navTop.appendChild(el);
+      else if (slot === 'navBottom') navBottom.appendChild(el);
+      else if (slot === 'bar') bar.add(el, 'start');
       else if (slot === 'barEnd') bar.add(el, 'end');
       else if (slot === 'strip') strip.add(el, 'start');
       else if (slot === 'stripEnd') strip.add(el, 'end');
@@ -137,11 +145,24 @@ export async function mountShell(root, bootOpts = {}) {
       root.classList.toggle('argus-clean', clean);
       layout();
     },
-    // "Around Me" preset fly-to (regional) and the GEO button (city level).
-    aroundMe: (camera) => locateAndFly(camera, { altitude: 120_000 }),
-    locate: (camera, report) =>
-      locateAndFly(camera, { altitude: 12_000, onStatus: report }),
+    // "Around Me" preset fly-to (regional) and the GEO button (street level,
+    // a second press follows).
+    aroundMe: (camera) =>
+      api.selfPosition
+        ? flyToSelf(api.selfPosition, camera, { altitude: 120_000 })
+        : locateAndFly(camera, { altitude: 120_000 }),
+    // Pass predictions: the user's own position when GEO has one (never a
+    // prompt from here); main falls back to the middle of the view.
+    observer: async () => {
+      const fix = api.selfPosition?.get();
+      return fix ? { latitude: fix.lat, longitude: fix.lon } : null;
+    },
+    geo: (camera, opts = {}) =>
+      api.selfPosition
+        ? createGeoControl({ selfPosition: api.selfPosition, camera, ...opts })
+        : null,
   };
+  return api;
 }
 
 export const shellName = 'desktop';

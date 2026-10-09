@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A search result: corner brackets round a filled square (the map's destination target). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4,8V4H8M16,4H20V8M20,16V20H16M8,20H4V16"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="square" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,9H15V15H9Z" />
+</vector>
