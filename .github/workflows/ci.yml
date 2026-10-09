@@ -50,3 +50,28 @@ jobs:
 
       - name: Proxy tests
         run: npm run test:proxy
+
+  # The Android app runs the proxy on nodejs-mobile, Node 18.20.4: every proxy
+  # module must at least load there. (That build also lacks ICU, which this
+  # Node has: proxy/test/portable.test.js checks for that statically.)
+  android-node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18.20.4'
+          cache: npm
+
+      - name: Install (runtime dependencies only)
+        run: npm ci --omit=dev
+
+      - name: Load every proxy module on Node 18
+        run: |
+          # proxy/server.js itself starts listening, so its modules are loaded instead.
+          for f in proxy/feeds.js proxy/feeds/*.js proxy/lib/*.js; do
+            node --input-type=module -e "await import('./$f')" || { echo "::error file=$f::does not load on $(node -v)"; exit 1; }
+          done
+          echo "every proxy module loads on $(node -v)"
