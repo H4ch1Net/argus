@@ -1,0 +1,45 @@
+# Checks every push and pull request the way a contributor does locally:
+# eslint, prettier, the core / shell tests and the proxy tests, on the Node the
+# Android build uses for its web app (22). The APK itself is built by
+# android.yml.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Core and shell tests
+        run: npm test
+
+      - name: Proxy tests
+        run: npm run test:proxy
