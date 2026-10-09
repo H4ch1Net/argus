@@ -258,6 +258,12 @@ async function setupScene(app, splash) {
   tuneCameraInput(app.viewer, camera);
   const merge = clusterPolicy(app.viewer.scene);
   merge.set({ merge: app.settings?.get('merge') ?? true });
+  // Icon size and variants (SETTINGS > ICONS, core/ui/iconPrefs.js): the scene's
+  // icon policy follows the saved settings in every shell, the car's included,
+  // so layers draw with the chosen size, variant and scale-with-zoom from the
+  // start and restyle live on a change.
+  const { iconPolicy, bindIconSettings } = await import('./core/ui/iconPrefs.js');
+  if (app.settings) bindIconSettings(iconPolicy(app.viewer.scene), app.settings);
 
   // Each registration: how to load the (Cesium-heavy) definition and how to
   // build a source. The DEV-guarded mock import lets production drop the mock
@@ -2307,6 +2313,7 @@ async function setupScene(app, splash) {
     settings: app.settings,
     tier: app.tier,
     notify,
+    layers: () => manager.list(), // SETTINGS > ICONS lists them in menu order
   });
   app.mount('overlay', settingsPanel.el);
   const tierProfile = qualityProfileForTier(app.tier, app.capabilities);

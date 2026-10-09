@@ -5,6 +5,7 @@ import {
 } from '../../scene/renderMode.js';
 import { createGroundBatch } from '../surveillance/groundBatch.js';
 import { glyph } from '../../ui/glyphs.js';
+import { iconPolicy, glyphDensity } from '../../ui/iconPrefs.js';
 import { createSimulation } from './sim.js';
 import { MAX_SIM_HEIGHT_M } from './roads.js';
 import { CRAWL_MPS, VEHICLE_COLORS, roadLineStyle, simTrafficNote } from './format.js';
@@ -12,8 +13,11 @@ import { simTrafficView } from './view.js';
 
 // Draws the simulated traffic (renderType 'field', see core/layers/sdk/fieldLayer.js):
 //
-//   vehicles  one BillboardCollection, a small heading-up vehicle glyph per
-//             simulated car, positions written on a fleet tick of 12 to 15 Hz
+//   vehicles  one BillboardCollection, a heading-up vehicle glyph per
+//             simulated car (a car in plan view by default; size, variant and
+//             scale-with-zoom from SETTINGS > ICONS, core/ui/iconPrefs.js,
+//             applied to the pool once per change), positions written on a
+//             fleet tick of 12 to 15 Hz
 //             through the shared frame pacer (core/scene/renderMode.js), and
 //             only while the layer is on, the page visible and the camera
 //             below 8 km. The pool of billboards is made once per slot; a
@@ -29,7 +33,7 @@ import { simTrafficView } from './view.js';
 /** Fleet caps by capability tier (the car runs the minimal tier). */
 export const FLEET_CAP = { minimal: 150, balanced: 400, full: 1500 };
 const TICK_FPS = { minimal: 12, balanced: 12, full: 15 };
-const VEHICLE_PX = 9;
+const VEHICLE_PX = 11; // nominal glyph size, CSS px, before the icon settings
 const LIFT_M = 1.5; // above the sampled ground, so glyphs never sink into it
 const HEIGHT_CHUNK = 2500; // terrain height samples per frame
 
@@ -46,8 +50,46 @@ export function createSimTrafficRenderer(viewer, ctx = {}, { tier = 'balanced' }
   const sim = createSimulation({ cap });
   const collection = scene.primitives.add(new Cesium.BillboardCollection());
   collection.show = false;
-  const g = glyph('vehicle');
-  const scaleBy = new Cesium.NearFarScalar(400, 1.0, MAX_SIM_HEIGHT_M, 0.45);
+  // The fleet's own distance curve (FIXED icons): full size up close, under
+  // half at the 8 km ceiling. Scaling with zoom builds the close-up curve on it.
+  const ownCurve = new Cesium.NearFarScalar(400, 1.0, MAX_SIM_HEIGHT_M, 0.45);
+  const icons = iconPolicy(scene);
+  const look = { g: null, scale: 1, scalar: ownCurve, version: -1 };
+  /** Read the icon settings into look; true when the pool must restyle. */
+  function readLook() {
+    if (look.version === icons.version) return false;
+    look.version = icons.version;
+    const l = icons.look('simtraffic', ownCurve);
+    look.g = glyph(l.glyphName('vehicle'), glyphDensity(VEHICLE_PX * l.maxScale));
+    look.scale = (VEHICLE_PX * l.size) / look.g.px;
+    const c = l.curve;
+    const s = look.scalar;
+    if (
+      s.near !== c.near ||
+      s.nearValue !== c.nearValue ||
+      s.far !== c.far ||
+      s.farValue !== c.farValue
+    ) {
+      look.scalar =
+        c === ownCurve
+          ? ownCurve
+          : new Cesium.NearFarScalar(c.near, c.nearValue, c.far, c.farValue);
+    }
+    return true;
+  }
+  readLook();
+  /** Apply the look to one pooled billboard (no-ops when nothing changed). */
+  function styleSlot(b) {
+    if (b._argusGlyph !== look.g.id) {
+      b.setImage(look.g.id, look.g.image);
+      b._argusGlyph = look.g.id;
+    }
+    if (b.scale !== look.scale) b.scale = look.scale;
+    if (b._argusCurve !== look.scalar) {
+      b.scaleByDistance = look.scalar;
+      b._argusCurve = look.scalar;
+    }
+  }
   const colors = {
     moving: Cesium.Color.fromCssColorString(VEHICLE_COLORS.moving).withAlpha(0.95),
     crawling: Cesium.Color.fromCssColorString(VEHICLE_COLORS.crawling).withAlpha(0.95),
@@ -175,14 +217,12 @@ export function createSimTrafficRenderer(viewer, ctx = {}, { tier = 'balanced' }
       b = collection.add({
         position: Cesium.Cartesian3.ZERO,
         show: false,
-        scaleByDistance: scaleBy,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
         alignedAxis: north,
         verticalOrigin: Cesium.VerticalOrigin.CENTER,
         horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
       });
-      b.setImage(g.id, g.image);
-      b.scale = VEHICLE_PX / g.px;
+      styleSlot(b);
       pool[i] = b;
       where[i] = new Cesium.Cartesian3();
     }
@@ -318,6 +358,8 @@ export function createSimTrafficRenderer(viewer, ctx = {}, { tier = 'balanced' }
     }
     pace(low && sim.count > 0 && !document.hidden);
     if (!low) return;
+    // SETTINGS > ICONS changed (or the zoom regime): restyle the pool once.
+    if (readLook()) for (const b of pool) styleSlot(b);
     sync();
     if (heightJob && !(heightJob.wait > t)) stepHeights();
     if (t - lastStep < tickMs) return;
