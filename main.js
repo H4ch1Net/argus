@@ -647,6 +647,65 @@ async function setupScene(app, splash) {
           : Promise.resolve(null),
     },
     {
+      key: 'simtraffic',
+      group: 'Ground & sea',
+      label: 'Traffic (simulated)',
+      loadDef: () =>
+        import('./core/layers/simtraffic/definition.js').then((m) =>
+          m.createSimTrafficDefinition({ tier: app.tier }),
+        ),
+      // SIMULATED vehicles on OSM roads (Overpass) below 8 km, at TomTom's
+      // live flow speeds when the proxy has TOMTOM_API_KEY, free-flow otherwise.
+      proxy: async (c) => {
+        const [{ createSimTrafficSource }, { simTrafficView }] = await Promise.all([
+          import('./core/layers/simtraffic/source.js'),
+          import('./core/layers/simtraffic/view.js'),
+        ]);
+        return createSimTrafficSource({
+          proxyClient: c,
+          getView: () => simTrafficView(app.viewer),
+          flow: keyed('tomtom-flowseg'),
+          tier: app.tier,
+        });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? Promise.all([
+              import('./core/layers/simtraffic/mockSource.js'),
+              import('./core/layers/simtraffic/view.js'),
+            ]).then(([m, v]) => {
+              const src = m.createSimTrafficMockSource({
+                getView: () => v.simTrafficView(app.viewer),
+                tier: app.tier,
+              });
+              if (window.__argus) window.__argus.simTraffic = src.model;
+              return src;
+            })
+          : Promise.resolve(null),
+    },
+    {
+      key: 'streetphotos',
+      group: 'Ground & sea',
+      label: 'Street photos',
+      // Hidden until the proxy has a Mapillary token (MAPILLARY_TOKEN).
+      requires: 'mapillary',
+      loadDef: () =>
+        import('./core/layers/streetphotos/definition.js').then(
+          (m) => m.streetPhotosDefinition,
+        ),
+      proxy: async (c) => {
+        const { createStreetPhotoSource } =
+          await import('./core/layers/streetphotos/source.js');
+        return createStreetPhotoSource({ proxyClient: c });
+      },
+      mock: () =>
+        import.meta.env.DEV
+          ? import('./core/layers/streetphotos/mockSource.js').then((m) =>
+              m.createStreetPhotoMockSource(),
+            )
+          : Promise.resolve(null),
+    },
+    {
       key: 'ships',
       group: 'Ground & sea',
       label: 'Ships',
@@ -1134,17 +1193,27 @@ async function setupScene(app, splash) {
       key: 'shodan',
       group: 'Signals',
       label: 'Shodan',
+      // Hidden until the proxy has a Shodan key (SHODAN_API_KEY).
+      requires: 'shodan',
       loadDef: () =>
         import('./core/layers/shodan/definition.js').then((m) => m.shodanDefinition),
-      // Snapshot via the credit-free count endpoint (awareness-only, no search-on-pan).
-      proxy: (c) => () =>
-        c.getJson('shodan', '/shodan/host/count', {
-          params: { query: 'product:Apache httpd', facets: 'country:200' },
-        }),
+      // A curated snapshot (VIEW > SHODAN) via the credit-free count endpoint,
+      // plus the opt-in host sample: awareness-only, never search-on-pan.
+      proxy: async (c) => {
+        const { createShodanSource } = await import('./core/layers/shodan/source.js');
+        return createShodanSource({
+          proxyClient: c,
+          getSnapshot: () => app.settings?.get('shodanSnapshot'),
+          getSample: () => Boolean(app.settings?.get('shodanSample')),
+        });
+      },
       mock: () =>
         import.meta.env.DEV
           ? import('./core/layers/shodan/mockSource.js').then((m) =>
-              m.createShodanMockSource(),
+              m.createShodanMockSource({
+                getSnapshot: () => app.settings?.get('shodanSnapshot'),
+                getSample: () => Boolean(app.settings?.get('shodanSample')),
+              }),
             )
           : Promise.resolve(null),
     },
@@ -1409,11 +1478,26 @@ async function setupScene(app, splash) {
     notify,
     onChange: () => tracker?.refresh(),
   });
+  // Card extras from the street photo, Shodan and OSINT modules: STREET PHOTO,
+  // InternetDB exposure, LOOK UP AS on BGP cards, Shodan country facets.
+  const { createCardPlugins } = await import('./core/ui/cardPlugins.js');
+  const cardPlugins = await createCardPlugins({
+    proxyClient,
+    keyed,
+    dev,
+    manager,
+    settings: app.settings,
+    plot: (r) => osintPlotter.plot(r),
+    select: (t) => tracker?.select(t),
+    getCorrelate: () => correlate,
+    time: () => app.viewer.clock.currentTime,
+  });
   const extras = createTargetExtras({
     proxyClient,
     manager,
     notify,
     replay,
+    plugins: cardPlugins,
     select: (t) => tracker?.select(t),
     getObserver: async () => {
       const fix = await app.observer?.();
@@ -1846,6 +1930,34 @@ async function setupScene(app, splash) {
       }).el,
     ),
   );
+  // ROAD FLOW (the TomTom readout at the view centre) and SHODAN (the
+  // snapshot and host sample), each only when the proxy has its key.
+  if (proxyClient && keyed('tomtom-flowseg')) {
+    const [{ mountRoadFlow }, { simTrafficView }] = await Promise.all([
+      import('./core/ui/roadFlow.js'),
+      import('./core/layers/simtraffic/view.js'),
+    ]);
+    view.push(
+      mountRoadFlow({
+        viewer: app.viewer,
+        proxyClient,
+        settings: app.settings,
+        mount: (slot, el) => app.mount(slot, el),
+        ui: { section, createSwitch, createSegment, h },
+        getView: () => simTrafficView(app.viewer),
+      }),
+    );
+  }
+  if (keyed('shodan') || (dev && !proxyClient)) {
+    const { createShodanSection } = await import('./core/layers/shodan/controls.js');
+    view.push(
+      createShodanSection({
+        settings: app.settings,
+        manager,
+        ui: { section, createChoice, createSwitch, h },
+      }),
+    );
+  }
 
   // SURVEILLANCE: the nearest 60 (to the middle of the view, or to you while
   // the view follows you) or everything in view, re-picked from the tiles

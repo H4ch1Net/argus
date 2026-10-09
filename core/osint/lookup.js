@@ -1,10 +1,13 @@
 // OSINT query-console lookups: given a classified asset, enrich + geolocate it
-// from public passive indexes (RIPEstat data API) and return a plottable result.
+// from public passive indexes (RIPEstat data API, and Shodan InternetDB for
+// an IP's indexed exposure) and return a plottable result.
 // GUARDRAIL: passive only. Every call is a read of an already-published index
-// (routing, registry, geo); nothing is sent at a target host, and the inputs are
-// network assets (IP, prefix, ASN, domain), never people.
+// (routing, registry, geo, a scan index); nothing is sent at a target host, and
+// the inputs are network assets (IP, prefix, ASN, domain), never people.
 //
 // The parsers are pure and unit-tested; createLookup wires them to the proxy.
+
+import { createInternetDbLookup, internetDbSection } from './internetdb.js';
 
 export function parseGeo(json) {
   const loc = json?.data?.located_resources?.[0]?.locations?.[0];
@@ -38,8 +41,20 @@ export function firstAnnouncedPrefix(json) {
   return json?.data?.prefixes?.[0]?.prefix || null;
 }
 
-// Build a result + card from the enrichment pieces.
-function buildResult({ id, kind, value, subtitle, geo, net, as, extraRows = [] }) {
+// Build a result + card from the enrichment pieces. `exposure` is an
+// InternetDB answer: undefined when not asked (or it failed), null when
+// InternetDB has nothing indexed for the IP.
+function buildResult({
+  id,
+  kind,
+  value,
+  subtitle,
+  geo,
+  net,
+  as,
+  extraRows = [],
+  exposure,
+}) {
   const rows = [...extraRows];
   if (net?.prefix) rows.push(['Prefix', net.prefix]);
   if (net?.asns?.length) rows.push(['ASN', net.asns.map((a) => `AS${a}`).join(', ')]);
@@ -50,17 +65,22 @@ function buildResult({ id, kind, value, subtitle, geo, net, as, extraRows = [] }
     'Coordinates',
     geo ? `${geo.latitude.toFixed(2)}, ${geo.longitude.toFixed(2)}` : '—',
   ]);
+  const card = { id, title: value, subtitle, rows };
+  if (exposure !== undefined) card.sections = [internetDbSection(exposure)];
   return {
     id,
     kind,
     value,
     position: geo ? { longitude: geo.longitude, latitude: geo.latitude } : null,
-    card: { id, title: value, subtitle, rows },
-    sources: ['RIPEstat'],
+    card,
+    sources: exposure !== undefined ? ['RIPEstat', 'InternetDB'] : ['RIPEstat'],
   };
 }
 
-export function createLookup(proxyClient) {
+export function createLookup(
+  proxyClient,
+  { internetDb = createInternetDbLookup(proxyClient) } = {},
+) {
   // The ripestat feed baseUrl already ends in /data, so the sub-path must NOT
   // repeat it (doing so doubles to /data/data/... and fails the allowlist).
   const get = (call, resource, signal) =>
@@ -74,9 +94,10 @@ export function createLookup(proxyClient) {
     signal,
     { value = ip, subtitle = 'IP address (passive lookup)' } = {},
   ) {
-    const [geoJson, netJson] = await Promise.all([
+    const [geoJson, netJson, exposure] = await Promise.all([
       get('maxmind-geo-lite', ip, signal).catch(() => null),
       get('network-info', ip, signal).catch(() => null),
+      internetDb ? internetDb(ip, signal).catch(() => undefined) : undefined,
     ]);
     const geo = geoJson ? parseGeo(geoJson) : null;
     const net = netJson ? parseNetworkInfo(netJson) : null;
@@ -87,7 +108,16 @@ export function createLookup(proxyClient) {
       );
       as = asJson ? parseAsOverview(asJson) : null;
     }
-    return buildResult({ id: `ip:${value}`, kind: 'ip', value, subtitle, geo, net, as });
+    return buildResult({
+      id: `ip:${value}`,
+      kind: 'ip',
+      value,
+      subtitle,
+      geo,
+      net,
+      as,
+      exposure,
+    });
   }
 
   async function asnDetails(asn, signal) {

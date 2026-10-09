@@ -56,6 +56,25 @@ export const SETTINGS_SCHEMA = Object.freeze({
   navMode: { def: 'drive', values: ['drive', 'walk', 'bike'] },
   navAvoidHighways: { def: false, values: [true, false] },
   navTraffic: { def: true, values: [true, false] },
+  // Shodan snapshot and host sample (VIEW > SHODAN; ids as in
+  // core/layers/shodan/snapshots.js), and the TomTom flow readout (VIEW > ROAD FLOW).
+  shodanSnapshot: {
+    def: 'web',
+    values: [
+      'web',
+      'rdp',
+      'vnc',
+      'telnet',
+      'smb',
+      'databases',
+      'mqtt',
+      'modbus',
+      's7',
+      'bacnet',
+    ],
+  },
+  shodanSample: { def: false, values: [true, false] },
+  flowReadout: { def: false, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

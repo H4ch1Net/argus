@@ -368,6 +368,29 @@ const SHAPES = {
     g.fillRect(3, 4 + s, s, s);
     g.globalAlpha = 1;
   },
+  // A street-level photo (Mapillary): a camera body with its lens, and a tick
+  // on top pointing where the photo looks (the layer turns it to the compass
+  // angle of the capture).
+  photo: (g, px) => {
+    const m = px / 2;
+    const tick = (h, w) => {
+      g.beginPath();
+      g.moveTo(m, h);
+      g.lineTo(m + w, 5);
+      g.lineTo(m - w, 5);
+      g.closePath();
+      g.fill();
+    };
+    g.fillStyle = KEYLINE;
+    tick(0.4, 3.4);
+    g.fillRect(1.5, 5, px - 3, 9.5);
+    g.fillStyle = INK;
+    tick(1.8, 2);
+    g.strokeStyle = INK;
+    g.lineWidth = 1.4;
+    g.strokeRect(2.9, 6.4, px - 5.8, 6.8);
+    g.fillRect(m - 1.6, 8.2, 3.2, 3.2);
+  },
 };
 
 // --- Public webcams (core/layers/webcams) and border waits ---------------------

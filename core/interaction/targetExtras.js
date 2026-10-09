@@ -11,6 +11,9 @@
 //                 launch from that pad, labelled as an estimate.
 //   anything      NEAREST CAM: the closest public traffic camera, when the
 //                 traffic cameras layer is on.
+//   plugins       further extras a module brings along (street photos, host
+//                 exposure, Shodan facets): { rows?, actions?, onSelect? },
+//                 each hook called with a ctx holding refresh().
 //
 // Every lookup goes through the proxy to a pinned public index.
 
@@ -30,6 +33,7 @@ export function createTargetExtras({
   getObserver,
   replay,
   select,
+  plugins = [],
 }) {
   let enrich = null; // { queue, keys, rows } loaded lazily with a proxy
   const passes = new Map(); // target id -> card rows
@@ -68,13 +72,22 @@ export function createTargetExtras({
       const route = k.route ? (enrichNow.queue.peek(k.route)?.value ?? null) : null;
       if (aircraft || route) out.push(...enrichNow.rows(n.meta, { aircraft, route }));
     }
-    const p = passes.get(`${key}:${n.id}`);
+    // Query outputs (the OSINT plotter) carry no normalized record.
+    const p = n ? passes.get(`${key}:${n.id}`) : null;
     if (p) out.push(...p);
+    for (const pl of plugins) out.push(...(pl.rows?.(key, n, pluginCtx) ?? []));
     return out;
   }
 
+  const pluginCtx = { refresh: () => refresh() };
+
   /** Called when a contact becomes the target. */
   async function onSelect(key, n) {
+    for (const pl of plugins) {
+      Promise.resolve()
+        .then(() => pl.onSelect?.(key, n, pluginCtx))
+        .catch((err) => console.warn('[argus] target extras:', err?.message || err));
+    }
     if (!AIRCRAFT.has(key) || !n) return;
     const e = await enrichment();
     if (!e) return;
@@ -207,6 +220,7 @@ export function createTargetExtras({
         onClick: () => nearestCam(target),
       });
     }
+    for (const pl of plugins) out.push(...(pl.actions?.(target, rec, pluginCtx) ?? []));
     return out;
   }
 

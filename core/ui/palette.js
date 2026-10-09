@@ -75,6 +75,10 @@ export const LAYER_INK = Object.freeze({
   gdelt: INK.dimmer,
   // Traffic lights (OSM): street furniture, a quiet pale ink.
   signals: INK.pale,
+  // Simulated traffic (gray vehicles; roads tint by congestion) and street
+  // photos (Mapillary).
+  simtraffic: INK.gray,
+  streetphotos: INK.pale,
 });
 
 /** Layer ink by key, falling back to ctosGray for layers added later. */

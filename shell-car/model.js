@@ -234,6 +234,7 @@ const CODES = {
   incidents: 'INC',
   signals: 'SIG',
   chp: 'CHP',
+  simtraffic: 'SIM',
   borderwaits: 'BDR',
   webcams: 'WEB',
   quakes: 'EQ',

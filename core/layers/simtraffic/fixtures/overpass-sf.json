@@ -1,0 +1,1961 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.4 2390de5a",
+  "osm3s": {
+    "timestamp_osm_base": "2026-10-09T05:57:47Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "way",
+      "id": 8915986,
+      "geometry": [
+        { "lat": 37.7728764, "lon": -122.4204203 },
+        { "lat": 37.7728442, "lon": -122.4204582 },
+        { "lat": 37.7724191, "lon": -122.4210032 },
+        { "lat": 37.7723768, "lon": -122.4210569 }
+      ],
+      "tags": { "highway": "residential", "name": "Colton Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8916498,
+      "geometry": [
+        { "lat": 37.7758929, "lon": -122.4151466 },
+        { "lat": 37.775827, "lon": -122.4150619 },
+        { "lat": 37.7751365, "lon": -122.4141965 }
+      ],
+      "tags": { "highway": "residential", "name": "Washburn Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8916570,
+      "geometry": [
+        { "lat": 37.772161, "lon": -122.414416 },
+        { "lat": 37.7721058, "lon": -122.4144873 },
+        { "lat": 37.7720568, "lon": -122.4145496 },
+        { "lat": 37.7719498, "lon": -122.4146784 },
+        { "lat": 37.7718416, "lon": -122.4148031 },
+        { "lat": 37.7717304, "lon": -122.4149278 }
+      ],
+      "tags": { "highway": "residential", "name": "Burns Place" }
+    },
+    {
+      "type": "way",
+      "id": 8916826,
+      "geometry": [
+        { "lat": 37.7743852, "lon": -122.4239095 },
+        { "lat": 37.7745456, "lon": -122.4226523 },
+        { "lat": 37.7745476, "lon": -122.4226369 },
+        { "lat": 37.7745618, "lon": -122.4225226 },
+        { "lat": 37.7745726, "lon": -122.4224384 },
+        { "lat": 37.7747556, "lon": -122.4210063 },
+        { "lat": 37.7747592, "lon": -122.4209817 },
+        { "lat": 37.7747716, "lon": -122.4208808 }
+      ],
+      "tags": {
+        "highway": "residential",
+        "lanes": "1",
+        "name": "Lily Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8916930,
+      "geometry": [
+        { "lat": 37.7756999, "lon": -122.4164474 },
+        { "lat": 37.7756331, "lon": -122.4165374 },
+        { "lat": 37.7752726, "lon": -122.4169784 }
+      ],
+      "tags": { "highway": "residential", "lanes": "2", "name": "Jessie Street" }
+    },
+    {
+      "type": "way",
+      "id": 8916932,
+      "geometry": [
+        { "lat": 37.7757638, "lon": -122.4165267 },
+        { "lat": 37.7758327, "lon": -122.4164396 },
+        { "lat": 37.7764292, "lon": -122.4156861 },
+        { "lat": 37.7766224, "lon": -122.415442 },
+        { "lat": 37.7766429, "lon": -122.4154161 },
+        { "lat": 37.776714, "lon": -122.4153262 }
+      ],
+      "tags": { "highway": "residential", "name": "Jessie Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8916934,
+      "geometry": [
+        { "lat": 37.7716812, "lon": -122.4211086 },
+        { "lat": 37.7715968, "lon": -122.4211011 },
+        { "lat": 37.7710335, "lon": -122.4210518 }
+      ],
+      "tags": { "highway": "residential", "name": "Jessie Street" }
+    },
+    {
+      "type": "way",
+      "id": 8917174,
+      "geometry": [
+        { "lat": 37.7731132, "lon": -122.4144568 },
+        { "lat": 37.7727217, "lon": -122.4149554 },
+        { "lat": 37.7726432, "lon": -122.415019 },
+        { "lat": 37.7725633, "lon": -122.415089 },
+        { "lat": 37.7725045, "lon": -122.4151547 },
+        { "lat": 37.7723441, "lon": -122.4153439 },
+        { "lat": 37.7721973, "lon": -122.4155058 },
+        { "lat": 37.7720358, "lon": -122.4156716 },
+        { "lat": 37.7718917, "lon": -122.415809 },
+        { "lat": 37.7717393, "lon": -122.4159413 },
+        { "lat": 37.7715746, "lon": -122.4160735 },
+        { "lat": 37.7714947, "lon": -122.4161301 },
+        { "lat": 37.7714105, "lon": -122.4161895 }
+      ],
+      "tags": { "highway": "residential", "name": "Kissling Street" }
+    },
+    {
+      "type": "way",
+      "id": 8917348,
+      "geometry": [
+        { "lat": 37.7730548, "lon": -122.4187254 },
+        { "lat": 37.7729748, "lon": -122.4188276 },
+        { "lat": 37.772857, "lon": -122.418972 },
+        { "lat": 37.772762, "lon": -122.419092 },
+        { "lat": 37.772647, "lon": -122.4192373 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "name": "Otis Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8917455,
+      "geometry": [
+        { "lat": 37.7726729, "lon": -122.4214324 },
+        { "lat": 37.7727224, "lon": -122.4213698 },
+        { "lat": 37.7730935, "lon": -122.4209015 },
+        { "lat": 37.7731406, "lon": -122.4208422 },
+        { "lat": 37.7731717, "lon": -122.420803 }
+      ],
+      "tags": { "highway": "residential", "name": "Stevenson Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8917500,
+      "geometry": [
+        { "lat": 37.7748526, "lon": -122.4153843 },
+        { "lat": 37.7747806, "lon": -122.4154768 },
+        { "lat": 37.7745346, "lon": -122.4157839 },
+        { "lat": 37.7743883, "lon": -122.4159676 },
+        { "lat": 37.7739745, "lon": -122.4164881 },
+        { "lat": 37.7739679, "lon": -122.4164975 },
+        { "lat": 37.7739012, "lon": -122.4165917 },
+        { "lat": 37.7738346, "lon": -122.4166796 },
+        { "lat": 37.7731402, "lon": -122.4174744 }
+      ],
+      "tags": { "highway": "residential", "name": "Minna Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8917791,
+      "geometry": [
+        { "lat": 37.7755496, "lon": -122.4186749 },
+        { "lat": 37.7755073, "lon": -122.4186173 },
+        { "lat": 37.7754844, "lon": -122.4185862 },
+        { "lat": 37.7754378, "lon": -122.4185257 },
+        { "lat": 37.7753781, "lon": -122.4184469 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 8918406,
+      "geometry": [
+        { "lat": 37.7718164, "lon": -122.420336 },
+        { "lat": 37.7718939, "lon": -122.4204369 },
+        { "lat": 37.7721919, "lon": -122.4208192 },
+        { "lat": 37.7723768, "lon": -122.4210569 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "1",
+        "name": "Gough Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8919006,
+      "geometry": [
+        { "lat": 37.7729612, "lon": -122.4185329 },
+        { "lat": 37.7731621, "lon": -122.4185836 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8919084,
+      "geometry": [
+        { "lat": 37.773721, "lon": -122.4212458 },
+        { "lat": 37.7737358, "lon": -122.4213479 },
+        { "lat": 37.7737396, "lon": -122.4213858 },
+        { "lat": 37.7737417, "lon": -122.4214206 },
+        { "lat": 37.7737396, "lon": -122.421454 },
+        { "lat": 37.7736433, "lon": -122.4221927 },
+        { "lat": 37.7736359, "lon": -122.4222519 },
+        { "lat": 37.773626, "lon": -122.4223296 }
+      ],
+      "tags": { "highway": "residential", "name": "Rose Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8919794,
+      "geometry": [
+        { "lat": 37.7743701, "lon": -122.4139536 },
+        { "lat": 37.774457, "lon": -122.4140639 },
+        { "lat": 37.7748924, "lon": -122.4146126 }
+      ],
+      "tags": { "highway": "residential", "name": "Grace Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8919948,
+      "geometry": [
+        { "lat": 37.774516, "lon": -122.413769 },
+        { "lat": 37.7744588, "lon": -122.413696 },
+        { "lat": 37.7744389, "lon": -122.4136723 },
+        { "lat": 37.7733802, "lon": -122.4123448 },
+        { "lat": 37.7733736, "lon": -122.4123365 },
+        { "lat": 37.773293, "lon": -122.4122354 }
+      ],
+      "tags": {
+        "highway": "residential",
+        "lanes": "2",
+        "name": "Dore Street",
+        "oneway": "no"
+      }
+    },
+    {
+      "type": "way",
+      "id": 8920306,
+      "geometry": [
+        { "lat": 37.7759583, "lon": -122.4228096 },
+        { "lat": 37.7759713, "lon": -122.422707 },
+        { "lat": 37.7760982, "lon": -122.4217091 },
+        { "lat": 37.7761523, "lon": -122.4212845 },
+        { "lat": 37.7761674, "lon": -122.4211652 }
+      ],
+      "tags": { "highway": "secondary", "maxspeed": "25 mph", "name": "Fell Street" }
+    },
+    {
+      "type": "way",
+      "id": 8920411,
+      "geometry": [
+        { "lat": 37.7730771, "lon": -122.41963 },
+        { "lat": 37.7730574, "lon": -122.4196559 },
+        { "lat": 37.7729435, "lon": -122.4197983 }
+      ],
+      "tags": { "highway": "residential", "name": "Chase Court" }
+    },
+    {
+      "type": "way",
+      "id": 8921122,
+      "geometry": [
+        { "lat": 37.7722381, "lon": -122.4184499 },
+        { "lat": 37.7722527, "lon": -122.4183203 }
+      ],
+      "tags": { "highway": "residential", "name": "12th Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8921779,
+      "geometry": [
+        { "lat": 37.7716812, "lon": -122.4211086 },
+        { "lat": 37.7716463, "lon": -122.4217657 },
+        { "lat": 37.7716366, "lon": -122.4219485 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "McCoppin Street" }
+    },
+    {
+      "type": "way",
+      "id": 8921849,
+      "geometry": [
+        { "lat": 37.7735083, "lon": -122.4180852 },
+        { "lat": 37.7734529, "lon": -122.4179977 },
+        { "lat": 37.7732132, "lon": -122.4175966 },
+        { "lat": 37.7731402, "lon": -122.4174744 },
+        { "lat": 37.7728452, "lon": -122.4169792 },
+        { "lat": 37.7728161, "lon": -122.4169304 },
+        { "lat": 37.7725065, "lon": -122.4164197 },
+        { "lat": 37.7724577, "lon": -122.4163292 }
+      ],
+      "tags": { "highway": "residential", "name": "Lafayette Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 8922342,
+      "geometry": [
+        { "lat": 37.7732884, "lon": -122.4199049 },
+        { "lat": 37.7730771, "lon": -122.41963 }
+      ],
+      "tags": { "highway": "residential", "name": "Colusa Place" }
+    },
+    {
+      "type": "way",
+      "id": 24310636,
+      "geometry": [
+        { "lat": 37.7729105, "lon": -122.4158379 },
+        { "lat": 37.7728041, "lon": -122.4159638 },
+        { "lat": 37.77268, "lon": -122.4161023 },
+        { "lat": 37.7725688, "lon": -122.4162192 },
+        { "lat": 37.7724577, "lon": -122.4163292 },
+        { "lat": 37.7723487, "lon": -122.4164363 },
+        { "lat": 37.7722544, "lon": -122.4165217 },
+        { "lat": 37.7722137, "lon": -122.4165575 },
+        { "lat": 37.7721518, "lon": -122.4166144 },
+        { "lat": 37.7720627, "lon": -122.4166905 },
+        { "lat": 37.7719463, "lon": -122.4167789 },
+        { "lat": 37.7718214, "lon": -122.4168794 },
+        { "lat": 37.7717372, "lon": -122.4169389 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Howard Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 24335439,
+      "geometry": [
+        { "lat": 37.7731041, "lon": -122.4155855 },
+        { "lat": 37.7731226, "lon": -122.4156096 },
+        { "lat": 37.7731428, "lon": -122.4156358 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 24335440,
+      "geometry": [
+        { "lat": 37.7731041, "lon": -122.4155855 },
+        { "lat": 37.773053, "lon": -122.4155233 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 24335441,
+      "geometry": [
+        { "lat": 37.7743307, "lon": -122.4171342 },
+        { "lat": 37.7742564, "lon": -122.417229 },
+        { "lat": 37.7742056, "lon": -122.4172909 },
+        { "lat": 37.7741314, "lon": -122.4173812 },
+        { "lat": 37.7740534, "lon": -122.4174761 },
+        { "lat": 37.7739672, "lon": -122.4175873 },
+        { "lat": 37.7738847, "lon": -122.4176935 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 25371463,
+      "geometry": [
+        { "lat": 37.7724596, "lon": -122.4172534 },
+        { "lat": 37.7726786, "lon": -122.4170648 },
+        { "lat": 37.7727483, "lon": -122.4170001 },
+        { "lat": 37.7727929, "lon": -122.4169542 },
+        { "lat": 37.7728161, "lon": -122.4169304 }
+      ],
+      "tags": { "highway": "residential", "name": "Natoma Street" }
+    },
+    {
+      "type": "way",
+      "id": 26943482,
+      "geometry": [
+        { "lat": 37.7750348, "lon": -122.4193272 },
+        { "lat": 37.7749543, "lon": -122.4193118 },
+        { "lat": 37.7746426, "lon": -122.4192422 },
+        { "lat": 37.7735181, "lon": -122.4188906 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 26943484,
+      "geometry": [
+        { "lat": 37.7710148, "lon": -122.419646 },
+        { "lat": 37.77118, "lon": -122.4195799 },
+        { "lat": 37.7713391, "lon": -122.4195131 },
+        { "lat": 37.7715099, "lon": -122.4194363 },
+        { "lat": 37.7715626, "lon": -122.4194111 },
+        { "lat": 37.7716901, "lon": -122.4193501 },
+        { "lat": 37.7718481, "lon": -122.419271 },
+        { "lat": 37.7719339, "lon": -122.4192256 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Mission Street",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 27029263,
+      "geometry": [
+        { "lat": 37.7752776, "lon": -122.4159234 },
+        { "lat": 37.7752038, "lon": -122.4160166 },
+        { "lat": 37.774945, "lon": -122.4163434 },
+        { "lat": 37.7748745, "lon": -122.4164324 },
+        { "lat": 37.7744504, "lon": -122.4169747 }
+      ],
+      "tags": { "highway": "secondary", "maxspeed": "20 mph", "name": "Mission Street" }
+    },
+    {
+      "type": "way",
+      "id": 27029264,
+      "geometry": [
+        { "lat": 37.7752776, "lon": -122.4159234 },
+        { "lat": 37.7752202, "lon": -122.4158502 },
+        { "lat": 37.7748526, "lon": -122.4153843 },
+        { "lat": 37.7744848, "lon": -122.4149212 },
+        { "lat": 37.7741272, "lon": -122.4144741 },
+        { "lat": 37.7740503, "lon": -122.4143771 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "10th Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 27029265,
+      "geometry": [
+        { "lat": 37.7740503, "lon": -122.4143771 },
+        { "lat": 37.7739847, "lon": -122.4142973 },
+        { "lat": 37.7737599, "lon": -122.4140134 },
+        { "lat": 37.7737023, "lon": -122.4139412 },
+        { "lat": 37.7736543, "lon": -122.4138812 },
+        { "lat": 37.77356, "lon": -122.413763 },
+        { "lat": 37.7729007, "lon": -122.4129356 },
+        { "lat": 37.7728201, "lon": -122.4128343 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "10th Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 32121427,
+      "geometry": [
+        { "lat": 37.7743021, "lon": -122.4207827 },
+        { "lat": 37.7742884, "lon": -122.4208896 },
+        { "lat": 37.7741077, "lon": -122.4223272 },
+        { "lat": 37.7740952, "lon": -122.4224267 }
+      ],
+      "tags": { "highway": "residential", "name": "Page Street" }
+    },
+    {
+      "type": "way",
+      "id": 34128766,
+      "geometry": [
+        { "lat": 37.7731621, "lon": -122.4185836 },
+        { "lat": 37.7730548, "lon": -122.4187254 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "name": "Mission Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 34128773,
+      "geometry": [
+        { "lat": 37.7735064, "lon": -122.4187021 },
+        { "lat": 37.7745314, "lon": -122.4190256 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 38095913,
+      "geometry": [
+        { "lat": 37.7726729, "lon": -122.4214324 },
+        { "lat": 37.772624, "lon": -122.4214951 }
+      ],
+      "tags": { "highway": "residential", "name": "Stevenson Street" }
+    },
+    {
+      "type": "way",
+      "id": 38095939,
+      "geometry": [
+        { "lat": 37.7729625, "lon": -122.4219188 },
+        { "lat": 37.7729177, "lon": -122.4218641 },
+        { "lat": 37.772624, "lon": -122.4214951 },
+        { "lat": 37.7724848, "lon": -122.4213214 },
+        { "lat": 37.772063, "lon": -122.4207971 },
+        { "lat": 37.7718809, "lon": -122.4205677 },
+        { "lat": 37.7718569, "lon": -122.4205366 },
+        { "lat": 37.7717603, "lon": -122.4204102 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "name": "Gough Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 47170567,
+      "geometry": [
+        { "lat": 37.7728161, "lon": -122.4169304 },
+        { "lat": 37.7728435, "lon": -122.4168997 },
+        { "lat": 37.773459, "lon": -122.4162098 },
+        { "lat": 37.7735327, "lon": -122.4161272 },
+        { "lat": 37.7735957, "lon": -122.4160475 },
+        { "lat": 37.7740196, "lon": -122.4155105 },
+        { "lat": 37.7740543, "lon": -122.4154666 },
+        { "lat": 37.7744017, "lon": -122.4150264 },
+        { "lat": 37.7744102, "lon": -122.4150163 },
+        { "lat": 37.7744848, "lon": -122.4149212 }
+      ],
+      "tags": { "highway": "residential", "name": "Natoma Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 84654228,
+      "geometry": [
+        { "lat": 37.7751764, "lon": -122.419158 },
+        { "lat": 37.7752115, "lon": -122.4191642 },
+        { "lat": 37.77524, "lon": -122.4191686 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 88572874,
+      "geometry": [
+        { "lat": 37.7762334, "lon": -122.4147169 },
+        { "lat": 37.7761508, "lon": -122.4148208 },
+        { "lat": 37.7760563, "lon": -122.4149403 },
+        { "lat": 37.7758929, "lon": -122.4151466 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 88572887,
+      "geometry": [
+        { "lat": 37.7774549, "lon": -122.4131749 },
+        { "lat": 37.7773875, "lon": -122.41326 },
+        { "lat": 37.7772604, "lon": -122.4134205 },
+        { "lat": 37.7767058, "lon": -122.4141205 },
+        { "lat": 37.7765782, "lon": -122.4142816 },
+        { "lat": 37.7764685, "lon": -122.4144201 },
+        { "lat": 37.7764272, "lon": -122.4144722 }
+      ],
+      "tags": { "highway": "secondary", "maxspeed": "20 mph", "name": "Mission Street" }
+    },
+    {
+      "type": "way",
+      "id": 88572943,
+      "geometry": [
+        { "lat": 37.7762334, "lon": -122.4147169 },
+        { "lat": 37.7763049, "lon": -122.4148085 },
+        { "lat": 37.776714, "lon": -122.4153262 },
+        { "lat": 37.7770445, "lon": -122.4157454 },
+        { "lat": 37.7773521, "lon": -122.416133 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "9th Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 91181768,
+      "geometry": [
+        { "lat": 37.7749999, "lon": -122.4131528 },
+        { "lat": 37.774912, "lon": -122.4132646 },
+        { "lat": 37.7746549, "lon": -122.4135916 },
+        { "lat": 37.774516, "lon": -122.413769 },
+        { "lat": 37.7743701, "lon": -122.4139536 },
+        { "lat": 37.7741123, "lon": -122.4142918 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Howard Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 111089307,
+      "geometry": [
+        { "lat": 37.7721933, "lon": -122.4179913 },
+        { "lat": 37.7717834, "lon": -122.4170451 },
+        { "lat": 37.7717372, "lon": -122.4169389 },
+        { "lat": 37.7716885, "lon": -122.4168272 },
+        { "lat": 37.7714105, "lon": -122.4161895 },
+        { "lat": 37.7709454, "lon": -122.4151189 },
+        { "lat": 37.7708952, "lon": -122.4150033 }
+      ],
+      "tags": {
+        "highway": "residential",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "12th Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 133781720,
+      "geometry": [
+        { "lat": 37.7740503, "lon": -122.4143771 },
+        { "lat": 37.7739752, "lon": -122.414477 },
+        { "lat": 37.7734918, "lon": -122.415088 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "Howard Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 143666210,
+      "geometry": [
+        { "lat": 37.7728299, "lon": -122.4186272 },
+        { "lat": 37.7729612, "lon": -122.4185329 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Mission Street",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 143666216,
+      "geometry": [
+        { "lat": 37.7730548, "lon": -122.4187254 },
+        { "lat": 37.7728299, "lon": -122.4186272 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 154647380,
+      "geometry": [
+        { "lat": 37.7731717, "lon": -122.420803 },
+        { "lat": 37.7732057, "lon": -122.4208407 },
+        { "lat": 37.7734619, "lon": -122.4211638 },
+        { "lat": 37.773528, "lon": -122.4212377 },
+        { "lat": 37.7735327, "lon": -122.4212432 }
+      ],
+      "tags": { "highway": "residential", "name": "Brady Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 154647381,
+      "geometry": [
+        { "lat": 37.7741233, "lon": -122.4207377 },
+        { "lat": 37.774211, "lon": -122.4207565 },
+        { "lat": 37.7743021, "lon": -122.4207827 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Franklin Street",
+        "oneway": "no"
+      }
+    },
+    {
+      "type": "way",
+      "id": 154647382,
+      "geometry": [
+        { "lat": 37.7743021, "lon": -122.4207827 },
+        { "lat": 37.7743843, "lon": -122.4208032 },
+        { "lat": 37.7747716, "lon": -122.4208808 },
+        { "lat": 37.7748838, "lon": -122.4209037 },
+        { "lat": 37.7751574, "lon": -122.420959 },
+        { "lat": 37.7752333, "lon": -122.4209741 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Franklin Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 212214143,
+      "geometry": [
+        { "lat": 37.7750348, "lon": -122.4193272 },
+        { "lat": 37.7751082, "lon": -122.4192396 },
+        { "lat": 37.7751764, "lon": -122.419158 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 224197569,
+      "geometry": [
+        { "lat": 37.7739361, "lon": -122.4207229 },
+        { "lat": 37.7739988, "lon": -122.4206437 },
+        { "lat": 37.7741091, "lon": -122.420505 },
+        { "lat": 37.7743388, "lon": -122.4202383 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 224197570,
+      "geometry": [
+        { "lat": 37.7743311, "lon": -122.420451 },
+        { "lat": 37.7742075, "lon": -122.4206256 },
+        { "lat": 37.7741233, "lon": -122.4207377 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 224373752,
+      "geometry": [
+        { "lat": 37.7751764, "lon": -122.419158 },
+        { "lat": 37.7752542, "lon": -122.4190608 },
+        { "lat": 37.7754475, "lon": -122.4188106 },
+        { "lat": 37.7754744, "lon": -122.4187757 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 225806030,
+      "geometry": [
+        { "lat": 37.7761674, "lon": -122.4211652 },
+        { "lat": 37.7762562, "lon": -122.421183 },
+        { "lat": 37.7766304, "lon": -122.4212581 },
+        { "lat": 37.7766856, "lon": -122.4212692 },
+        { "lat": 37.7770112, "lon": -122.4213345 },
+        { "lat": 37.7770933, "lon": -122.421351 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Franklin Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 228228520,
+      "geometry": [
+        { "lat": 37.7746135, "lon": -122.4198694 },
+        { "lat": 37.7748607, "lon": -122.4195455 },
+        { "lat": 37.7748955, "lon": -122.4195024 },
+        { "lat": 37.7749251, "lon": -122.4194659 },
+        { "lat": 37.7750348, "lon": -122.4193272 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 228339825,
+      "geometry": [
+        { "lat": 37.7730898, "lon": -122.421802 },
+        { "lat": 37.7735327, "lon": -122.4212432 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 397100591,
+      "geometry": [
+        { "lat": 37.7750233, "lon": -122.4226174 },
+        { "lat": 37.7750363, "lon": -122.422516 },
+        { "lat": 37.7751267, "lon": -122.4218101 },
+        { "lat": 37.775154, "lon": -122.4215965 },
+        { "lat": 37.7752177, "lon": -122.4210987 },
+        { "lat": 37.7752333, "lon": -122.4209741 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Oak Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 397102584,
+      "geometry": [
+        { "lat": 37.7752333, "lon": -122.4209741 },
+        { "lat": 37.7754039, "lon": -122.421009 },
+        { "lat": 37.7755558, "lon": -122.4210401 },
+        { "lat": 37.7756962, "lon": -122.4210688 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Franklin Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 397116935,
+      "geometry": [
+        { "lat": 37.7753209, "lon": -122.4191829 },
+        { "lat": 37.7754181, "lon": -122.4192016 },
+        { "lat": 37.7755912, "lon": -122.4192426 },
+        { "lat": 37.7763088, "lon": -122.4194001 },
+        { "lat": 37.7763933, "lon": -122.4194167 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 397118327,
+      "geometry": [
+        { "lat": 37.7733786, "lon": -122.4182164 },
+        { "lat": 37.7732506, "lon": -122.4184487 },
+        { "lat": 37.7731621, "lon": -122.4185836 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "5",
+        "maxspeed": "20 mph",
+        "name": "Mission Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 397258285,
+      "geometry": [
+        { "lat": 37.7756962, "lon": -122.4210688 },
+        { "lat": 37.7760854, "lon": -122.4211484 },
+        { "lat": 37.7761674, "lon": -122.4211652 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Franklin Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 403877660,
+      "geometry": [
+        { "lat": 37.7765433, "lon": -122.4176198 },
+        { "lat": 37.7764477, "lon": -122.4177424 },
+        { "lat": 37.7763691, "lon": -122.4178444 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087254,
+      "geometry": [
+        { "lat": 37.7740575, "lon": -122.4167884 },
+        { "lat": 37.7741518, "lon": -122.4169072 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "3", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087260,
+      "geometry": [
+        { "lat": 37.774615, "lon": -122.4174891 },
+        { "lat": 37.7745773, "lon": -122.4174418 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087265,
+      "geometry": [
+        { "lat": 37.772161, "lon": -122.414416 },
+        { "lat": 37.7719443, "lon": -122.4141471 },
+        { "lat": 37.7718623, "lon": -122.4140486 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "3", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087270,
+      "geometry": [
+        { "lat": 37.7753781, "lon": -122.4184469 },
+        { "lat": 37.7753014, "lon": -122.4183513 },
+        { "lat": 37.7752574, "lon": -122.4182954 },
+        { "lat": 37.77522, "lon": -122.418248 },
+        { "lat": 37.7751484, "lon": -122.4181582 },
+        { "lat": 37.7749475, "lon": -122.4179064 },
+        { "lat": 37.7749005, "lon": -122.4178474 },
+        { "lat": 37.774615, "lon": -122.4174891 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087275,
+      "geometry": [
+        { "lat": 37.7715909, "lon": -122.4137022 },
+        { "lat": 37.7717958, "lon": -122.4139611 },
+        { "lat": 37.7718071, "lon": -122.4139754 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "3", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087322,
+      "geometry": [
+        { "lat": 37.7763933, "lon": -122.4194167 },
+        { "lat": 37.7764058, "lon": -122.4193394 },
+        { "lat": 37.7764844, "lon": -122.4187175 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "Fell Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087334,
+      "geometry": [
+        { "lat": 37.7763668, "lon": -122.419605 },
+        { "lat": 37.7763754, "lon": -122.4195438 },
+        { "lat": 37.7763863, "lon": -122.4194664 },
+        { "lat": 37.7763933, "lon": -122.4194167 }
+      ],
+      "tags": { "highway": "secondary", "name": "Fell Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 417087348,
+      "geometry": [
+        { "lat": 37.7726729, "lon": -122.4214324 },
+        { "lat": 37.7729652, "lon": -122.4218043 },
+        { "lat": 37.7730279, "lon": -122.4218658 },
+        { "lat": 37.7730339, "lon": -122.4218724 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "1",
+        "name": "Gough Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087379,
+      "geometry": [
+        { "lat": 37.7731041, "lon": -122.4155855 },
+        { "lat": 37.773031, "lon": -122.4156852 },
+        { "lat": 37.773, "lon": -122.4157245 },
+        { "lat": 37.7729105, "lon": -122.4158379 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Howard Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087384,
+      "geometry": [
+        { "lat": 37.7717372, "lon": -122.4169389 },
+        { "lat": 37.7716604, "lon": -122.4169911 },
+        { "lat": 37.7715501, "lon": -122.4170644 },
+        { "lat": 37.7714554, "lon": -122.4171243 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Howard Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087426,
+      "geometry": [
+        { "lat": 37.7735327, "lon": -122.4212432 },
+        { "lat": 37.7739361, "lon": -122.4207229 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087474,
+      "geometry": [
+        { "lat": 37.7719339, "lon": -122.4192256 },
+        { "lat": 37.7719678, "lon": -122.4192077 },
+        { "lat": 37.7720374, "lon": -122.4191654 },
+        { "lat": 37.7721009, "lon": -122.4191273 },
+        { "lat": 37.7722684, "lon": -122.4190149 },
+        { "lat": 37.7723204, "lon": -122.41898 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Mission Street",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087485,
+      "geometry": [
+        { "lat": 37.7764272, "lon": -122.4144722 },
+        { "lat": 37.7763031, "lon": -122.4146279 },
+        { "lat": 37.7762334, "lon": -122.4147169 }
+      ],
+      "tags": { "highway": "secondary", "maxspeed": "20 mph", "name": "Mission Street" }
+    },
+    {
+      "type": "way",
+      "id": 417087489,
+      "geometry": [
+        { "lat": 37.7723204, "lon": -122.41898 },
+        { "lat": 37.7724921, "lon": -122.4188648 },
+        { "lat": 37.7726995, "lon": -122.4187273 },
+        { "lat": 37.7728299, "lon": -122.4186272 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "5",
+        "maxspeed": "25 mph",
+        "name": "Mission Street",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087550,
+      "geometry": [
+        { "lat": 37.7728299, "lon": -122.4186272 },
+        { "lat": 37.7727308, "lon": -122.4185971 },
+        { "lat": 37.7723987, "lon": -122.4184981 },
+        { "lat": 37.7722381, "lon": -122.4184499 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087561,
+      "geometry": [
+        { "lat": 37.7710587, "lon": -122.4179414 },
+        { "lat": 37.7718656, "lon": -122.4181963 },
+        { "lat": 37.7722527, "lon": -122.4183203 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087653,
+      "geometry": [
+        { "lat": 37.77543, "lon": -122.4194202 },
+        { "lat": 37.7753314, "lon": -122.4193998 },
+        { "lat": 37.775275, "lon": -122.4193845 },
+        { "lat": 37.775185, "lon": -122.4193607 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417087664,
+      "geometry": [
+        { "lat": 37.7763668, "lon": -122.419605 },
+        { "lat": 37.7762845, "lon": -122.4195889 },
+        { "lat": 37.7758982, "lon": -122.4195083 },
+        { "lat": 37.7756912, "lon": -122.4194603 },
+        { "lat": 37.7755673, "lon": -122.4194468 },
+        { "lat": 37.77543, "lon": -122.4194202 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 417238536,
+      "geometry": [
+        { "lat": 37.7764844, "lon": -122.4187175 },
+        { "lat": 37.7765086, "lon": -122.4183432 },
+        { "lat": 37.7765571, "lon": -122.4179374 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "Fell Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 437874489,
+      "geometry": [
+        { "lat": 37.7735181, "lon": -122.4188906 },
+        { "lat": 37.7735016, "lon": -122.4189709 },
+        { "lat": 37.7735034, "lon": -122.4191055 },
+        { "lat": 37.7735329, "lon": -122.4192198 },
+        { "lat": 37.7738924, "lon": -122.4196758 },
+        { "lat": 37.7739043, "lon": -122.41969 },
+        { "lat": 37.7742664, "lon": -122.4201471 },
+        { "lat": 37.7743388, "lon": -122.4202383 }
+      ],
+      "tags": { "highway": "residential", "name": "12th Street" }
+    },
+    {
+      "type": "way",
+      "id": 437969685,
+      "geometry": [
+        { "lat": 37.7753209, "lon": -122.4191829 },
+        { "lat": 37.7752628, "lon": -122.4192604 },
+        { "lat": 37.775185, "lon": -122.4193607 }
+      ],
+      "tags": { "highway": "secondary", "name": "Market Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 467959666,
+      "geometry": [
+        { "lat": 37.7757055, "lon": -122.418695 },
+        { "lat": 37.7754675, "lon": -122.4189983 },
+        { "lat": 37.7754236, "lon": -122.4190541 },
+        { "lat": 37.7753957, "lon": -122.4190897 },
+        { "lat": 37.7753209, "lon": -122.4191829 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "1",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 507188657,
+      "geometry": [
+        { "lat": 37.775185, "lon": -122.4193607 },
+        { "lat": 37.7751243, "lon": -122.4193472 },
+        { "lat": 37.7751063, "lon": -122.4193432 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 511666057,
+      "geometry": [
+        { "lat": 37.7722381, "lon": -122.4184499 },
+        { "lat": 37.7712383, "lon": -122.4181456 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 513963921,
+      "geometry": [
+        { "lat": 37.7749257, "lon": -122.4191084 },
+        { "lat": 37.7750195, "lon": -122.4191271 },
+        { "lat": 37.7750887, "lon": -122.4191408 },
+        { "lat": 37.7751764, "lon": -122.419158 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 514906781,
+      "geometry": [
+        { "lat": 37.7743388, "lon": -122.4202383 },
+        { "lat": 37.7744077, "lon": -122.4201429 },
+        { "lat": 37.7746135, "lon": -122.4198694 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 515493941,
+      "geometry": [
+        { "lat": 37.7720572, "lon": -122.4200101 },
+        { "lat": 37.7719066, "lon": -122.4202203 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "5",
+        "name": "Otis Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 543843588,
+      "geometry": [
+        { "lat": 37.7765092, "lon": -122.4174466 },
+        { "lat": 37.7764554, "lon": -122.4173782 },
+        { "lat": 37.7760834, "lon": -122.4169233 },
+        { "lat": 37.7757638, "lon": -122.4165267 },
+        { "lat": 37.7756999, "lon": -122.4164474 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "10th Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 543844602,
+      "geometry": [
+        { "lat": 37.7755496, "lon": -122.4186749 },
+        { "lat": 37.7756044, "lon": -122.4186004 },
+        { "lat": 37.7757197, "lon": -122.4184446 },
+        { "lat": 37.7761847, "lon": -122.4178563 },
+        { "lat": 37.776207, "lon": -122.4178279 },
+        { "lat": 37.7762274, "lon": -122.417802 },
+        { "lat": 37.7763641, "lon": -122.4176292 },
+        { "lat": 37.7765092, "lon": -122.4174466 }
+      ],
+      "tags": { "highway": "secondary", "name": "Market Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 571967391,
+      "geometry": [
+        { "lat": 37.7763691, "lon": -122.4178444 },
+        { "lat": 37.7763158, "lon": -122.4179127 },
+        { "lat": 37.7762148, "lon": -122.4180422 },
+        { "lat": 37.7757055, "lon": -122.418695 }
+      ],
+      "tags": { "highway": "secondary", "name": "Market Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 617990572,
+      "geometry": [
+        { "lat": 37.7716617, "lon": -122.4142944 },
+        { "lat": 37.7717687, "lon": -122.4141651 },
+        { "lat": 37.7717974, "lon": -122.414129 },
+        { "lat": 37.7718623, "lon": -122.4140486 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Folsom Street",
+        "oneway": "no"
+      }
+    },
+    {
+      "type": "way",
+      "id": 619979121,
+      "geometry": [
+        { "lat": 37.7750649, "lon": -122.4195145 },
+        { "lat": 37.7747599, "lon": -122.4199032 },
+        { "lat": 37.7746675, "lon": -122.4200211 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 682004789,
+      "geometry": [
+        { "lat": 37.7736501, "lon": -122.4213355 },
+        { "lat": 37.7734615, "lon": -122.4215933 },
+        { "lat": 37.7732228, "lon": -122.421895 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "maxspeed": "10 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 682004790,
+      "geometry": [
+        { "lat": 37.7736501, "lon": -122.4213355 },
+        { "lat": 37.7734142, "lon": -122.4215696 },
+        { "lat": 37.7732595, "lon": -122.4217661 },
+        { "lat": 37.7731813, "lon": -122.421866 },
+        { "lat": 37.7730757, "lon": -122.4220562 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "1",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 688337288,
+      "geometry": [
+        { "lat": 37.7730898, "lon": -122.421802 },
+        { "lat": 37.7732213, "lon": -122.4217232 },
+        { "lat": 37.7739743, "lon": -122.4207779 },
+        { "lat": 37.7739967, "lon": -122.4207592 },
+        { "lat": 37.7740114, "lon": -122.4207515 },
+        { "lat": 37.774024, "lon": -122.4207468 },
+        { "lat": 37.7740458, "lon": -122.4207421 },
+        { "lat": 37.774064, "lon": -122.42074 },
+        { "lat": 37.7741233, "lon": -122.4207377 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 699771742,
+      "geometry": [
+        { "lat": 37.7754744, "lon": -122.4187757 },
+        { "lat": 37.7754954, "lon": -122.4187472 },
+        { "lat": 37.7755496, "lon": -122.4186749 }
+      ],
+      "tags": { "highway": "secondary", "name": "Market Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 706531724,
+      "geometry": [
+        { "lat": 37.7748924, "lon": -122.4146126 },
+        { "lat": 37.7755299, "lon": -122.4154171 },
+        { "lat": 37.7755404, "lon": -122.4154301 },
+        { "lat": 37.7756043, "lon": -122.415511 }
+      ],
+      "tags": { "highway": "residential", "name": "Grace Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 706531725,
+      "geometry": [
+        { "lat": 37.7751365, "lon": -122.4141965 },
+        { "lat": 37.774741, "lon": -122.4136998 },
+        { "lat": 37.7746549, "lon": -122.4135916 }
+      ],
+      "tags": { "highway": "residential", "name": "Washburn Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 706552278,
+      "geometry": [
+        { "lat": 37.7718623, "lon": -122.4140486 },
+        { "lat": 37.7719345, "lon": -122.4139558 },
+        { "lat": 37.7720398, "lon": -122.4138245 },
+        { "lat": 37.7720541, "lon": -122.4138057 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Folsom Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 721725415,
+      "geometry": [
+        { "lat": 37.7714265, "lon": -122.4145524 },
+        { "lat": 37.7715597, "lon": -122.4144116 },
+        { "lat": 37.7715829, "lon": -122.414385 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Folsom Street",
+        "oneway": "no"
+      }
+    },
+    {
+      "type": "way",
+      "id": 721725416,
+      "geometry": [
+        { "lat": 37.7721912, "lon": -122.4136319 },
+        { "lat": 37.7723425, "lon": -122.4134392 },
+        { "lat": 37.7724532, "lon": -122.4132978 },
+        { "lat": 37.7725244, "lon": -122.4132079 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Folsom Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 742388647,
+      "geometry": [
+        { "lat": 37.77524, "lon": -122.4191686 },
+        { "lat": 37.775261, "lon": -122.419172 },
+        { "lat": 37.7753209, "lon": -122.4191829 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 763409443,
+      "geometry": [
+        { "lat": 37.7707482, "lon": -122.412638 },
+        { "lat": 37.7709859, "lon": -122.4129401 },
+        { "lat": 37.7712546, "lon": -122.4132784 },
+        { "lat": 37.7715909, "lon": -122.4137022 }
+      ],
+      "tags": { "highway": "tertiary", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 766805262,
+      "geometry": [
+        { "lat": 37.7744504, "lon": -122.4169747 },
+        { "lat": 37.7744073, "lon": -122.4170321 },
+        { "lat": 37.7743307, "lon": -122.4171342 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 766805263,
+      "geometry": [
+        { "lat": 37.7745773, "lon": -122.4174418 },
+        { "lat": 37.7745462, "lon": -122.4174027 },
+        { "lat": 37.7743973, "lon": -122.4172172 },
+        { "lat": 37.7743307, "lon": -122.4171342 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "2", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 766805264,
+      "geometry": [
+        { "lat": 37.7741518, "lon": -122.4169072 },
+        { "lat": 37.7741805, "lon": -122.416943 },
+        { "lat": 37.7742656, "lon": -122.4170514 },
+        { "lat": 37.7743307, "lon": -122.4171342 }
+      ],
+      "tags": { "highway": "tertiary", "lanes": "3", "name": "11th Street" }
+    },
+    {
+      "type": "way",
+      "id": 766805266,
+      "geometry": [
+        { "lat": 37.7738847, "lon": -122.4176935 },
+        { "lat": 37.7737753, "lon": -122.4178175 },
+        { "lat": 37.7735083, "lon": -122.4180852 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "5",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 767943720,
+      "geometry": [
+        { "lat": 37.7741233, "lon": -122.4207377 },
+        { "lat": 37.773721, "lon": -122.4212458 },
+        { "lat": 37.7736501, "lon": -122.4213355 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 767944816,
+      "geometry": [
+        { "lat": 37.7751063, "lon": -122.4193432 },
+        { "lat": 37.775081, "lon": -122.4193375 },
+        { "lat": 37.7750348, "lon": -122.4193272 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 771491493,
+      "geometry": [
+        { "lat": 37.7772938, "lon": -122.4197896 },
+        { "lat": 37.7772216, "lon": -122.419775 },
+        { "lat": 37.7764519, "lon": -122.4196221 },
+        { "lat": 37.7763668, "lon": -122.419605 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 801301150,
+      "geometry": [
+        { "lat": 37.7763933, "lon": -122.4194167 },
+        { "lat": 37.7764748, "lon": -122.4194331 },
+        { "lat": 37.7772453, "lon": -122.4195874 },
+        { "lat": 37.7773183, "lon": -122.4196015 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 933908414,
+      "geometry": [
+        { "lat": 37.7756999, "lon": -122.4164474 },
+        { "lat": 37.7753569, "lon": -122.4160217 },
+        { "lat": 37.7752776, "lon": -122.4159234 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "25 mph",
+        "name": "10th Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1020490223,
+      "geometry": [
+        { "lat": 37.7758929, "lon": -122.4151466 },
+        { "lat": 37.7756043, "lon": -122.415511 },
+        { "lat": 37.7754379, "lon": -122.4157211 },
+        { "lat": 37.7753497, "lon": -122.415833 },
+        { "lat": 37.7752776, "lon": -122.4159234 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1030297702,
+      "geometry": [
+        { "lat": 37.7735083, "lon": -122.4180852 },
+        { "lat": 37.7733786, "lon": -122.4182164 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "6",
+        "maxspeed": "20 mph",
+        "name": "Mission Street"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1041359984,
+      "geometry": [
+        { "lat": 37.7744908, "lon": -122.420247 },
+        { "lat": 37.7743311, "lon": -122.420451 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1041359986,
+      "geometry": [
+        { "lat": 37.7746675, "lon": -122.4200211 },
+        { "lat": 37.7745367, "lon": -122.4201884 },
+        { "lat": 37.7744908, "lon": -122.420247 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "3",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1050208375,
+      "geometry": [
+        { "lat": 37.7722849, "lon": -122.4197011 },
+        { "lat": 37.7721463, "lon": -122.4198919 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "4",
+        "name": "Otis Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1052594524,
+      "geometry": [
+        { "lat": 37.7722527, "lon": -122.4183203 },
+        { "lat": 37.7728559, "lon": -122.4185025 },
+        { "lat": 37.7729612, "lon": -122.4185329 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1112197444,
+      "geometry": [
+        { "lat": 37.7735181, "lon": -122.4188906 },
+        { "lat": 37.773173, "lon": -122.4187837 },
+        { "lat": 37.7730548, "lon": -122.4187254 }
+      ],
+      "tags": {
+        "highway": "trunk",
+        "lanes": "3",
+        "maxspeed": "25 mph",
+        "name": "South Van Ness Avenue",
+        "oneway": "yes",
+        "ref": "US 101"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1112220491,
+      "geometry": [
+        { "lat": 37.7770184, "lon": -122.4126268 },
+        { "lat": 37.7769497, "lon": -122.4127141 },
+        { "lat": 37.7762803, "lon": -122.4135642 },
+        { "lat": 37.7758762, "lon": -122.4140775 },
+        { "lat": 37.7758681, "lon": -122.4140877 },
+        { "lat": 37.7758028, "lon": -122.4141708 }
+      ],
+      "tags": { "highway": "residential", "name": "Minna Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 1112220492,
+      "geometry": [
+        { "lat": 37.7754413, "lon": -122.4137125 },
+        { "lat": 37.7755045, "lon": -122.4136321 },
+        { "lat": 37.7758218, "lon": -122.4132275 },
+        { "lat": 37.7758294, "lon": -122.4132178 },
+        { "lat": 37.776587, "lon": -122.4122516 },
+        { "lat": 37.7766531, "lon": -122.4121681 }
+      ],
+      "tags": { "highway": "residential", "name": "Natoma Street", "oneway": "yes" }
+    },
+    {
+      "type": "way",
+      "id": 1116503322,
+      "geometry": [
+        { "lat": 37.7732884, "lon": -122.4199049 },
+        { "lat": 37.7732714, "lon": -122.4199269 },
+        { "lat": 37.7731177, "lon": -122.4201185 },
+        { "lat": 37.7729088, "lon": -122.4203807 },
+        { "lat": 37.7728764, "lon": -122.4204203 }
+      ],
+      "tags": { "highway": "residential", "name": "Colton Street" }
+    },
+    {
+      "type": "way",
+      "id": 1116503323,
+      "geometry": [
+        { "lat": 37.7728764, "lon": -122.4204203 },
+        { "lat": 37.7723726, "lon": -122.4198027 },
+        { "lat": 37.7722849, "lon": -122.4197011 }
+      ],
+      "tags": { "highway": "residential", "name": "Brady Street" }
+    },
+    {
+      "type": "way",
+      "id": 1123738962,
+      "geometry": [
+        { "lat": 37.7734918, "lon": -122.415088 },
+        { "lat": 37.7733981, "lon": -122.4152126 },
+        { "lat": 37.7732046, "lon": -122.4154533 },
+        { "lat": 37.7731719, "lon": -122.4154941 },
+        { "lat": 37.7731452, "lon": -122.4155304 },
+        { "lat": 37.7731041, "lon": -122.4155855 }
+      ],
+      "tags": {
+        "highway": "secondary",
+        "lanes": "2",
+        "maxspeed": "25 mph",
+        "name": "Howard Street",
+        "oneway": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1200750410,
+      "geometry": [
+        { "lat": 37.7731717, "lon": -122.420803 },
+        { "lat": 37.7729672, "lon": -122.4205375 },
+        { "lat": 37.7728764, "lon": -122.4204203 }
+      ],
+      "tags": { "highway": "residential", "name": "Brady Street" }
+    },
+    {
+      "type": "way",
+      "id": 1215827892,
+      "geometry": [
+        { "lat": 37.775185, "lon": -122.4193607 },
+        { "lat": 37.7750649, "lon": -122.4195145 }
+      ],
+      "tags": {
+        "highway": "primary",
+        "lanes": "2",
+        "maxspeed": "20 mph",
+        "name": "Market Street",
+        "oneway": "yes"
+      }
+    }
+  ]
+}

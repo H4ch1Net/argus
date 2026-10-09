@@ -51,6 +51,8 @@ const LAYER_GLYPH = {
   tor: 'exit',
   gdelt: 'news',
   signals: 'signal',
+  simtraffic: 'vehicle',
+  streetphotos: 'photo',
 };
 
 function source(key) {

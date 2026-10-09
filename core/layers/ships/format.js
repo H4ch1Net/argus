@@ -21,6 +21,14 @@ export function describeShip(n) {
   };
 }
 
+/** Velocity for dead reckoning: speed over ground (knots to m/s) along the course. */
+export function shipVelocity(n) {
+  const { sog, cog } = n.meta;
+  return Number.isFinite(sog) && Number.isFinite(cog)
+    ? { mps: sog * 0.514444, headingDeg: cog }
+    : null;
+}
+
 /** Heading for the ship glyph: true heading when reported, else course over ground. */
 export function shipHeading(n) {
   const h = n.meta.heading;

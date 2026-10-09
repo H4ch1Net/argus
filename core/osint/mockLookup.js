@@ -61,7 +61,7 @@ export function createMockCorrelator() {
       card: {
         id: `corr:${kind}:${value}`,
         title: value,
-        subtitle: `${kind} · correlated across RIPEstat + Shodan (synthetic)`,
+        subtitle: `${kind} · correlated across RIPEstat + InternetDB (synthetic)`,
         rows,
         sections: [
           {
@@ -81,16 +81,17 @@ export function createMockCorrelator() {
             ],
           },
           {
-            title: 'Exposure (Shodan)',
+            title: 'Exposure (InternetDB)',
             rows: [
               ['Open ports', '22, 80, 443'],
-              ['Hostnames', `${value}`],
+              ['Known CVEs', '2 (CVE-2024-0001, CVE-2023-0002)'],
               ['Tags', 'cloud'],
+              ['Hostnames', `${value}`],
             ],
           },
         ],
       },
-      sources: ['RIPEstat', 'Shodan'],
+      sources: ['RIPEstat', 'InternetDB'],
     };
   };
 }

@@ -54,6 +54,7 @@ const OSM_LAYERS = [
   'search',
   'cockpit',
   'directions',
+  'simtraffic',
 ];
 const ESRI_TERMS_URL = 'https://www.esri.com/en-us/legal/terms/full-master-agreement';
 
@@ -962,6 +963,43 @@ export const CREDITS = [
     feeds: ['photon'],
     hosts: ['photon.komoot.io'],
     attribution: 'courtesy',
+  },
+
+  // --- simulated traffic, street photos, host exposure ------------------------
+  {
+    id: 'tomtom-flow-segments',
+    name: 'TomTom Traffic (flow segment data)',
+    terms:
+      'TomTom for Developers terms with your own key; non-tile requests count against the free daily allowance (about 2,500 a day, shared with incidents); attribution "© TomTom" beside the speeds',
+    url: 'https://docs.tomtom.com/legal/terms-and-conditions',
+    layers: ['simtraffic'],
+    feeds: ['tomtom-flowseg'],
+    attribution: 'required',
+    keyed: true,
+  },
+  {
+    id: 'mapillary',
+    name: 'Mapillary',
+    terms:
+      'Images CC BY-SA 4.0 with attribution to Mapillary and a link to each image; API v4 under the Mapillary terms with your own client token',
+    url: 'https://www.mapillary.com/terms',
+    layers: ['streetphotos'],
+    feeds: ['mapillary', 'mapillary-img'],
+    hosts: ['graph.mapillary.com'],
+    attribution: 'required',
+    keyed: true,
+  },
+  {
+    id: 'internetdb',
+    name: 'Shodan InternetDB',
+    terms:
+      'Free, keyless lookup of the open ports, tags and known vulnerabilities Shodan has indexed for an IP; non-commercial use',
+    url: 'https://internetdb.shodan.io',
+    layers: ['osint', 'shodan'],
+    feeds: ['internetdb'],
+    hosts: ['internetdb.shodan.io'],
+    attribution: 'courtesy',
+    nonCommercial: true,
   },
 ];
 

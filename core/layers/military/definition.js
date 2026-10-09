@@ -12,6 +12,9 @@ export const militaryDefinition = {
   // A global list (a few hundred aircraft), so not viewport-bounded.
   fetch: { mode: 'poll', intervalMs: 15_000, viewportBounded: false },
   interpolate: true,
+  // As flights: report times (adsb.lol now - seen_pos), a margin behind.
+  fixTime: (n) => (n.meta.timePosition ? n.meta.timePosition * 1000 : null),
+  interpolateLagMs: 18_000,
   maxEntities: 1500,
   normalize: (raw) => parseMilitary(raw),
   render: {

@@ -35,7 +35,8 @@ export const PRESETS = [
   {
     id: 'internet',
     label: 'Internet',
-    layers: ['bgp', 'cables', 'datacenters', 'tor'],
+    // Shodan only where the proxy has its key (a preset skips absent layers).
+    layers: ['bgp', 'cables', 'datacenters', 'tor', 'shodan'],
   },
 ];
 

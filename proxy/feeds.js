@@ -63,6 +63,8 @@ import { feeds as webcamFeeds } from './feeds/webcams.js';
 import { feeds as imageryFeeds } from './feeds/imagery.js';
 import { feeds as trafficFeeds } from './feeds/traffic.js';
 import { feeds as contextFeeds } from './feeds/context.js';
+import { feeds as exposureFeeds } from './feeds/exposure.js';
+import { feeds as streetFeeds } from './feeds/streets.js';
 
 // Feeds added after the core set live in per-area modules beside this file
 // (proxy/feeds/*.js), each exporting its own array in the same Feed shape.
@@ -210,25 +212,8 @@ export const feeds = [
       maxBytes: 24e6,
     },
   },
-  {
-    // Shodan (exposed-device awareness). Verified Aug 2026: /host/count with
-    // facets does NOT consume query credits; /host/search does. Visualization/
-    // awareness-only, built on cached snapshots, never live search-on-pan. The
-    // budget governor is live so a session can never burn the monthly credits.
-    id: 'shodan',
-    baseUrl: 'https://api.shodan.io',
-    methods: ['GET'],
-    // /host/count (facets) and /host/<ip> (single-host lookup) are credit-free
-    // per the verified membership terms; /host/search consumes a query credit.
-    allowPaths: [/^\/shodan\/host\/(count|search)/, /^\/shodan\/host\/[0-9a-fA-F.:]+$/],
-    inject: [{ secret: 'SHODAN_API_KEY', as: 'query', name: 'key' }],
-    governor: {
-      ratePerMinute: 30,
-      creditBudget: 90, // margin under the 100/month membership
-      creditWindowMs: 30 * 24 * 60 * 60 * 1000,
-      creditCost: (path) => (path.includes('/search') ? 1 : 0),
-    },
-  },
+  // Shodan (the snapshot density layer, host lookups) and InternetDB live in
+  // proxy/feeds/exposure.js, with their query pins.
   {
     // Place geocoding (OSM Nominatim) for global search fly-to. Keyless, but its
     // usage policy requires a valid User-Agent and at most ~1 req/sec, so the
@@ -528,4 +513,6 @@ export const feeds = [
   ...imageryFeeds,
   ...trafficFeeds,
   ...contextFeeds,
+  ...exposureFeeds,
+  ...streetFeeds,
 ];

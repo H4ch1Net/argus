@@ -1,4 +1,10 @@
-import { describeShip, shipHeading, shipToNormalized, shipSearchText } from './format.js';
+import {
+  describeShip,
+  shipHeading,
+  shipToNormalized,
+  shipSearchText,
+  shipVelocity,
+} from './format.js';
 import { ink } from '../sdk/colors.js';
 
 // Ships (AIS) as a Layer SDK definition. This is the first PUSH layer: reports
@@ -10,7 +16,12 @@ export const shipsDefinition = {
   id: 'ships',
   fetch: { mode: 'push' },
   interpolate: true,
-  interpolateLagMs: 5000, // AIS reports are irregular; a modest render delay
+  // AIS reports are irregular (2 s to 3 min): a modest render delay, and past
+  // the newest report the vessel carries on along its course at its speed
+  // over ground (knots) for up to a minute.
+  interpolateLagMs: 8000,
+  extrapolateMs: 60_000,
+  velocityOf: shipVelocity,
   staleMs: 180_000, // drop a vessel after 3 min without a report
   maxEntities: 3000,
   normalize: (ships) => ships.map(shipToNormalized),
