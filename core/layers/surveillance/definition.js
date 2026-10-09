@@ -1,12 +1,7 @@
-import {
-  normalizeSurveillance,
-  SURVEILLANCE_TILE_DEG,
-  SURVEILLANCE_TTL_MS,
-} from './parse.js';
+import { normalizeSurveillance } from './parse.js';
 import { describeSurveillance, surveillanceSearchText } from './format.js';
 import { SURVEILLANCE_KINDS, ENFORCEMENT_KINDS } from './kinds.js';
 import { selectScope, scopeNote, NEAREST_DEFAULT } from './select.js';
-import { SURVEILLANCE_MAX_TILES } from './source.js';
 import { tiledNote } from '../overpass/tiles.js';
 import { ink } from '../sdk/colors.js';
 import { groundDecorations } from './groundBatch.js';
@@ -114,16 +109,11 @@ export function createSurveillanceDefinition({ tier, scope } = {}) {
 
   return {
     id: 'surveillance',
-    // Fetched once per tile and kept (the Layer SDK's tile cache when it has
-    // one; ./source.js keeps its own tiles too, so the layer works either way).
-    fetch: {
-      mode: 'viewport',
-      tileCache: {
-        tileDeg: SURVEILLANCE_TILE_DEG,
-        ttlMs: SURVEILLANCE_TTL_MS,
-        maxTiles: SURVEILLANCE_MAX_TILES,
-      },
-    },
+    // Fetched once per 0.1 degree tile and kept for hours by ./source.js (its
+    // tiles load nearest the anchor first, so NEAREST asks for only a few);
+    // not the Layer SDK's tile cache, which would tile the same view twice.
+    // RELOAD reaches the source as query.reload.
+    fetch: { mode: 'viewport' },
     // In NEAREST mode the source loads only the tiles around the anchor on
     // purpose, so "zoom in for all" would mislead there.
     statusNote: (_q, raw) =>

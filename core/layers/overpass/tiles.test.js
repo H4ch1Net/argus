@@ -241,6 +241,27 @@ test('the tiled source: too wide, partial, nearest the anchor first', async () =
   assert.equal(op.asked.length, 4);
 });
 
+test('RELOAD (query.reload from the Layer SDK) asks again for the held tiles', async () => {
+  const op = fakeOverpass();
+  const loader = createTileLoader({
+    fetchTile: op.fetchTile,
+    parse,
+    tileDeg: 0.1,
+    ttlMs: 1e6,
+    maxTiles: 50,
+    limiter: createLimiter(4),
+  });
+  const src = createTiledSource(loader, { maxViewTiles: 4 });
+  const bbox = { lamin: 0, lamax: 0.2, lomin: 0, lomax: 0.2 };
+  await src({ bbox });
+  assert.equal(op.asked.length, 4);
+  await src({ bbox });
+  assert.equal(op.asked.length, 4);
+  const again = await src({ bbox, reload: true });
+  assert.equal(op.asked.length, 8);
+  assert.equal(again.items.length, 4);
+});
+
 test('progressive: the pass returns after the first tile, the rest call onUpdate once each landing settles, never looping', async () => {
   const op = fakeOverpass();
   let updates = 0;

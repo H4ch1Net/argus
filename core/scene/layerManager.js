@@ -72,6 +72,7 @@ export function createLayerManager(
           }
           const def = await e.loadDef();
           return createLayer(viewer, def, {
+            key, // the layer's ink (cluster markers) and its log source
             source,
             onStatus: (raw) => {
               const s = e.decorateStatus?.(raw) ?? raw;

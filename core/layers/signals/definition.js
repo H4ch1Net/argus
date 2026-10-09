@@ -1,10 +1,4 @@
-import {
-  normalizeSignals,
-  SIGNALS_TILE_DEG,
-  SIGNALS_TTL_MS,
-  SIGNALS_MAX_TILES,
-  CROSSINGS_MAX_VIEW_KM,
-} from './parse.js';
+import { normalizeSignals, CROSSINGS_MAX_VIEW_KM } from './parse.js';
 import { describeSignal, signalSearchText } from './format.js';
 import { selectScope } from '../surveillance/select.js';
 import { tiledNote, viewSizeKm } from '../overpass/tiles.js';
@@ -32,14 +26,9 @@ export function createSignalsDefinition({ tier, scope } = {}) {
   };
   return {
     id: 'signals',
-    fetch: {
-      mode: 'viewport',
-      tileCache: {
-        tileDeg: SIGNALS_TILE_DEG,
-        ttlMs: SIGNALS_TTL_MS,
-        maxTiles: SIGNALS_MAX_TILES,
-      },
-    },
+    // Tiled and kept by the source (./parse.js createSignalsSource); RELOAD
+    // reaches it as query.reload.
+    fetch: { mode: 'viewport' },
     statusNote: (_q, raw) => tiledNote(raw),
     interpolate: false,
     maxEntities,

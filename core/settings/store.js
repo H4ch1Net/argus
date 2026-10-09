@@ -75,6 +75,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
   },
   shodanSample: { def: false, values: [true, false] },
   flowReadout: { def: false, values: [true, false] },
+  // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
+  // NEARBY; the Layer SDK's clustering).
+  merge: { def: true, values: [true, false] },
 });
 
 /** The defaults, as a fresh object. */

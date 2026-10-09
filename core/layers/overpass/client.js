@@ -44,7 +44,8 @@ export function createOverpassSource({ proxyClient, filters, maxAreaDeg = 3 }) {
     if (!bbox || areaTooLarge(bbox, maxAreaDeg)) return { elements: [] }; // too broad: skip
     const ql = buildBBoxQuery(filters, snapBBox(bbox));
 
-    const hit = cache.get(ql);
+    // RELOAD (query.reload, from the Layer SDK) skips the memo.
+    const hit = query.reload ? null : cache.get(ql);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
     const data = await proxyClient.getJson('overpass', '/interpreter', {

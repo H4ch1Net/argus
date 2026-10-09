@@ -328,6 +328,9 @@ export function createTiledSource(
       tooWide: false,
     };
     if (!bbox) return empty;
+    // RELOAD (query.reload, from the Layer SDK): every held tile counts as
+    // expired; what is drawn stays until the new answers land.
+    if (query.reload) loader.reload();
     if (viewSizeKm(bbox).across > maxViewKm) return { ...empty, tooWide: true };
     const all = tilesCovering(bbox, loader.tileDeg);
     const a = anchor?.() ?? {

@@ -1,9 +1,4 @@
-import {
-  normalizeLandmarks,
-  LANDMARKS_TILE_DEG,
-  LANDMARKS_TTL_MS,
-  LANDMARKS_MAX_TILES,
-} from './parse.js';
+import { normalizeLandmarks } from './parse.js';
 import { describeLandmark, landmarkSearchText } from './format.js';
 import { tiledNote } from '../overpass/tiles.js';
 import { ink } from '../sdk/colors.js';
@@ -20,14 +15,9 @@ const STYLE = {
 
 export const landmarksDefinition = {
   id: 'landmarks',
-  fetch: {
-    mode: 'viewport',
-    tileCache: {
-      tileDeg: LANDMARKS_TILE_DEG,
-      ttlMs: LANDMARKS_TTL_MS,
-      maxTiles: LANDMARKS_MAX_TILES,
-    },
-  },
+  // Tiled and kept by the source (./parse.js createLandmarksSource), shared
+  // with TOOLS > LANDMARKS; RELOAD reaches it as query.reload.
+  fetch: { mode: 'viewport' },
   statusNote: (_q, raw) => tiledNote(raw),
   interpolate: false,
   maxEntities: 4000,

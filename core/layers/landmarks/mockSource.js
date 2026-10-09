@@ -15,12 +15,16 @@ const KINDS = [
   { man_made: 'lighthouse', name: 'Harbour Light' },
 ];
 
-function elementsIn(b, count) {
+// Per-tile ids, so the SDK's tile cache keeps each tile's nodes apart.
+const tileSeed = (key = '') =>
+  [...String(key)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 100_000;
+
+function elementsIn(b, count, seed = 0) {
   return Array.from({ length: count }, (_, i) => {
     const k = KINDS[i % KINDS.length];
     return {
       type: 'node',
-      id: 2_000_000 + i,
+      id: 2_000_000_000 + seed * 1000 + i,
       lat: rand(b.lamin, b.lamax),
       lon: rand(b.lomin, b.lomax),
       tags: { ...k, name: `${k.name} ${i}` },
@@ -29,7 +33,13 @@ function elementsIn(b, count) {
 }
 
 export function createLandmarkMockSource({ viewer, count = 20 }) {
-  return async () => ({ elements: elementsIn(computeViewportQuery(viewer).bbox, count) });
+  return async (query) => ({
+    elements: elementsIn(
+      query?.bbox ?? computeViewportQuery(viewer).bbox,
+      count,
+      tileSeed(query?.tile),
+    ),
+  });
 }
 
 /** For TOOLS > LANDMARKS without a proxy: landmarks within radiusKm of a point. */
