@@ -26,13 +26,13 @@ val releaseKeystore: String? =
 
 android {
     namespace = "net.h4ch1.argus"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "net.h4ch1.argus"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (findProperty("argusVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = (findProperty("argusVersionName") as String?) ?: "0.1.0"
 

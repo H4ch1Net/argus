@@ -18,11 +18,13 @@ import {
 /** How long a refusal (403) from Waze's live map stops the layer asking. */
 export const WAZE_REFUSED_MS = 30 * 60_000;
 export const WAZE_REFUSED_NOTE =
-  'Waze refused (403); set LOCAL_WAZE_URL to your own waze-server';
+  'Waze refused (403): its live map now wants a browser check; retrying every 30 min';
 
 /**
- * Waze's live map answers 403 to Argus (it never poses as a browser): once
- * refused, ask again only after `holdMs`, or on RELOAD (query.reload).
+ * Waze's live map answers 403 to Argus: since 2025-26 it wants a reCAPTCHA
+ * check that only a browser passes, and Argus never poses as one or works
+ * around the check. Once refused, ask again only after `holdMs`, or on RELOAD
+ * (query.reload), so the layer comes back by itself if Waze relaxes it.
  * Pure over an injected clock.
  */
 export function createRefusalGate({
@@ -92,7 +94,7 @@ export function createWazeSource({
           level: 'warn',
           source: 'waze',
           title: 'WAZE REFUSED',
-          body: `Waze's live map answered 403 to Argus; not asking again for ${Math.round(WAZE_REFUSED_MS / 60_000)} min (or until RELOAD). Set LOCAL_WAZE_URL to your own waze-server.`,
+          body: `Waze's live map answered 403 to Argus (it now wants a browser check, which Argus does not get around); asking again in ${Math.round(WAZE_REFUSED_MS / 60_000)} min (or on RELOAD). CHP incidents and TomTom traffic incidents cover crashes, hazards and closures meanwhile.`,
         });
       return refused(box.clipped);
     }

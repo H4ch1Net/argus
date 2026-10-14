@@ -52,7 +52,7 @@ Other ways to run it:
 
 - Kali or other Linux: `./scripts/install-linux.sh` installs the dependencies, an `argus` command, a keys file (mode 600), menu launchers for the globe and the terminal version, and checks the GPU and fonts. It needs no root. The interface uses JetBrains Mono (`sudo apt install fonts-jetbrains-mono`), and falls back to a system monospace without it.
 - A phone on the same Wi-Fi: `npm run start:https`, then open the printed `https://<LAN-IP>:8787` on the phone and accept the certificate once. Location, compass and install need HTTPS.
-- Android app: install `argus-android.apk` from the releases page. It runs the proxy on the phone and adds Argus to Android Auto. See [docs/ANDROID.md](docs/ANDROID.md).
+- Android app: install `argus-android.apk` from the releases page. It runs the proxy on the phone. Android Auto only shows it when it is installed from Google Play, which a private internal testing track does. See [docs/ANDROID.md](docs/ANDROID.md).
 - Android in Termux, with no PC: `bash scripts/install-termux.sh`, then open `http://localhost:8787`.
 - Terminal, on Linux, over SSH or on Windows: `npm run tui`. It needs no GPU.
 - No network at all: `npm run dev` or `npm run tui -- --demo`. Every layer except the imagery overlays runs on simulated data, labelled DEMO.
@@ -103,29 +103,29 @@ LOCAL_ADSB_URL=http://localhost:8080/data
 ARGUS_HOME=37.77,-122.42
 ```
 
-| Variable | Purpose |
-|---|---|
-| `PROXY_PORT`, `PROXY_HOST` | Port (default 8787) and bind address. Leaving `PROXY_HOST` unset listens on all interfaces, which phones need. |
-| `PROXY_HTTPS`, `PROXY_TLS_KEY`, `PROXY_TLS_CERT` | HTTPS, with your own certificate if you have one (otherwise a self-signed one) |
-| `PROXY_ALLOWED_ORIGINS` | Comma-separated list of origins allowed by CORS (default `*`) |
-| `PROXY_UPSTREAM_TIMEOUT_MS` | Timeout for upstream requests (default 15000) |
-| `VITE_PROXY_BASE_URL` | Where the dev server or built app finds the proxy |
-| `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | OpenSky flights |
-| `FIRMS_MAP_KEY` | NASA FIRMS fires |
-| `AISSTREAM_API_KEY` | AIS ships |
-| `TOMTOM_API_KEY` | Traffic flow, incidents and traffic-aware routing |
-| `GOOGLE_MAPS_API_KEY` | Google Photorealistic 3D Tiles, which are optional |
-| `SHODAN_API_KEY` | Shodan host data |
-| `MAPILLARY_TOKEN`, `MAPILLARY_IMAGE_URL` | Street photos, and the image host if the default one is not right |
-| `TFL_APP_KEY` | Raises the anonymous rate limit for Transport for London feeds |
-| `WINDY_WEBCAMS_KEY`, `NPS_API_KEY` | Public webcams |
-| `WSDOT_ACCESS_CODE`, `UDOT_TRAFFIC_KEY`, `NVROADS_KEY`, `CTROADS_KEY` | Traffic cameras from the 511 networks |
-| `LOCAL_ADSB_URL`, `LOCAL_UAT_URL` | Your own dump1090 or readsb, and dump978, on your LAN or this machine |
-| `LOCAL_WAZE_URL` | Your own waze-server, instead of the live Waze map |
-| `CT_STREAM_URL` | A CertStream-compatible stream for the certificate ticker |
-| `OVERPASS_URL`, `CHP_CAD_URL`, `RADIO_BROWSER_URL` | Override the public Overpass, California CHP and Radio Browser servers |
-| `ARGUS_HOME` | Home location `lat,lon` for "Around Me" in the terminal |
-| `ARGUS_SHODAN_SNAPSHOT` | Which curated Shodan snapshot the terminal shows |
+| Variable                                                              | Purpose                                                                                                        |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `PROXY_PORT`, `PROXY_HOST`                                            | Port (default 8787) and bind address. Leaving `PROXY_HOST` unset listens on all interfaces, which phones need. |
+| `PROXY_HTTPS`, `PROXY_TLS_KEY`, `PROXY_TLS_CERT`                      | HTTPS, with your own certificate if you have one (otherwise a self-signed one)                                 |
+| `PROXY_ALLOWED_ORIGINS`                                               | Comma-separated list of origins allowed by CORS (default `*`)                                                  |
+| `PROXY_UPSTREAM_TIMEOUT_MS`                                           | Timeout for upstream requests (default 15000)                                                                  |
+| `VITE_PROXY_BASE_URL`                                                 | Where the dev server or built app finds the proxy                                                              |
+| `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET`                          | OpenSky flights                                                                                                |
+| `FIRMS_MAP_KEY`                                                       | NASA FIRMS fires                                                                                               |
+| `AISSTREAM_API_KEY`                                                   | AIS ships                                                                                                      |
+| `TOMTOM_API_KEY`                                                      | Traffic flow, incidents and traffic-aware routing                                                              |
+| `GOOGLE_MAPS_API_KEY`                                                 | Google Photorealistic 3D Tiles, which are optional                                                             |
+| `SHODAN_API_KEY`                                                      | Shodan host data                                                                                               |
+| `MAPILLARY_TOKEN`, `MAPILLARY_IMAGE_URL`                              | Street photos, and the image host if the default one is not right                                              |
+| `TFL_APP_KEY`                                                         | Raises the anonymous rate limit for Transport for London feeds                                                 |
+| `WINDY_WEBCAMS_KEY`, `NPS_API_KEY`                                    | Public webcams                                                                                                 |
+| `WSDOT_ACCESS_CODE`, `UDOT_TRAFFIC_KEY`, `NVROADS_KEY`, `CTROADS_KEY` | Traffic cameras from the 511 networks                                                                          |
+| `LOCAL_ADSB_URL`, `LOCAL_UAT_URL`                                     | Your own dump1090 or readsb, and dump978, on your LAN or this machine                                          |
+| `LOCAL_WAZE_URL`                                                      | Your own waze-server, instead of the live Waze map                                                             |
+| `CT_STREAM_URL`                                                       | A CertStream-compatible stream for the certificate ticker                                                      |
+| `OVERPASS_URL`, `CHP_CAD_URL`, `RADIO_BROWSER_URL`                    | Override the public Overpass, California CHP and Radio Browser servers                                         |
+| `ARGUS_HOME`                                                          | Home location `lat,lon` for "Around Me" in the terminal                                                        |
+| `ARGUS_SHODAN_SNAPSHOT`                                               | Which curated Shodan snapshot the terminal shows                                                               |
 
 Keys can be moved between devices from SETUP > KEYS as a passphrase-encrypted file (scrypt and AES-256-GCM), or imported from a `.env` file.
 
