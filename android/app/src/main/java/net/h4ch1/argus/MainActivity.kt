@@ -81,6 +81,11 @@ class MainActivity : Activity() {
             onRestart = { NodeRuntime.restartApp(this) },
         )
         root.addView(splash, FrameLayout.LayoutParams(MATCH, MATCH))
+        // The app crashed last time: one line on the boot screen until the
+        // trace has been looked at in Settings (LAST CRASH).
+        if (CrashLog.unseen(this)) {
+            CrashLog.read(this)?.let { splash.showNotice(getString(R.string.boot_last_crash, CrashLog.summary(it))) }
+        }
         setContentView(root)
         // Keep the page out from under the bars and the camera cutout (the bars
         // report no inset while hidden, so full screen really is full screen).
@@ -134,7 +139,13 @@ class MainActivity : Activity() {
     }
 
     private fun load(port: Int) {
-        val wv = webView ?: createWebView().also { webView = it }
+        val wv = webView ?: createWebView()?.also { webView = it }
+        if (wv == null) {
+            // No WebView provider (or one being updated by Play right now):
+            // say so on the boot screen, with RESTART, instead of crashing.
+            splash.showError(getString(R.string.boot_no_webview))
+            return
+        }
         // A fresh page asks for the location feed again when it needs it.
         wantLocation = false
         phoneLocation?.stop()
@@ -143,9 +154,15 @@ class MainActivity : Activity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun createWebView(): WebView {
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-        val wv = WebView(this)
+    private fun createWebView(): WebView? {
+        val wv = try {
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+            WebView(this)
+        } catch (e: RuntimeException) {
+            // AndroidRuntimeException: the WebView provider is missing or updating.
+            Log.e(TAG, "WebView unavailable", e)
+            return null
+        }
         wv.setBackgroundColor(Ink.GROUND)
         wv.settings.apply {
             javaScriptEnabled = true
@@ -475,6 +492,13 @@ class MainActivity : Activity() {
             wantLocation = true
             startNativeLocation(askPermission = true)
         }
+
+        /**
+         * Whether location is already allowed, without asking: the page shows
+         * the position at launch only then (core/geo/selfPosition.js).
+         */
+        @JavascriptInterface
+        fun hasLocationPermission(): Boolean = this@MainActivity.hasLocationPermission()
 
         /** The page no longer needs a position: the GPS goes off (battery). */
         @JavascriptInterface

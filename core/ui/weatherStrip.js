@@ -1,6 +1,7 @@
 import { h } from './dom.js';
 
-// The weather history strip (VIEW > WEATHER HISTORY): step the timed weather
+// The weather history strip (the options of the radar, IR cloud and lightning
+// layers, LAYERS beside their rows): step the timed weather
 // overlays back through the last day of observations, play the loop, or jump
 // back to LIVE. Shows the exact observation time on screen, in UTC, ctOS style
 // (ddMMyy-hhmm). Drives core/layers/weather/timeline.js; hidden until a weather
@@ -24,11 +25,7 @@ export function createWeatherStrip({ timeline }) {
   const fwd = btn('▶', 'Next observation', () => timeline.step(1));
   const live = btn('LIVE', 'Newest observations', () => timeline.latest());
   const time = h('span.ct-wx__time', {}, '------');
-  const note = h(
-    'div.ct-section__note',
-    {},
-    'Turn on radar, IR clouds or lightning to step back through the last day.',
-  );
+  const note = h('div.ct-section__note', {}, 'WAITING FOR OBSERVATION TIMES');
   const row = h('div.ct-seg.ct-wx', { hidden: true }, back, play, fwd, live);
   const el = h('div.ct-wx__wrap', {}, note, row, time);
   time.hidden = true;

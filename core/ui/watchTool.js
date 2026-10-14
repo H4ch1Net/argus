@@ -93,11 +93,6 @@ export function createWatchTool({ fences, sketch, centre, pick, flyTo, notify })
 
   const el = section(
     'WATCH AREAS',
-    h(
-      'div.ct-section__note',
-      {},
-      'A notice when a moving contact enters or leaves a circle. This session only.',
-    ),
     createChoice({
       caption: 'Radius',
       options: RADII,

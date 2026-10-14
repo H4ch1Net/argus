@@ -8,14 +8,43 @@
 }
 .ct-layers__presets .ct-btn {
   min-height: 26px;
-  padding: 0 7px;
+  padding: 0 4px;
   font-size: 10.5px;
+}
+/* LAYERS ---------- 04 ON  ALL OFF */
+.ct-layers__head::after {
+  order: 1;
+}
+.ct-layers__count {
+  order: 2;
+  color: var(--textPrimaryDim);
+  font-variant-numeric: tabular-nums;
+}
+.ct-layers__clear {
+  order: 3;
+  min-height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--textSecondary);
+  background: transparent;
+  color: var(--textPrimaryDim);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-layers__clear:hover {
+  border-color: var(--ctosGray);
+  color: var(--textPrimary);
+}
+.ct-layers__clear[hidden] {
+  display: none;
 }
 .ct-layers__list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0 4px;
+  padding: 0 4px 12px;
 }
 .ct-layers__group {
   padding: 10px 10px 4px;
@@ -23,6 +52,9 @@
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+.ct-layers__group[hidden] {
+  display: none;
 }
 .ct-layers__item {
   display: flex;
@@ -38,8 +70,8 @@
   min-height: 32px;
   font-size: 12px;
 }
-/* RELOAD: a framed square beside an enabled cached layer's row. */
-.ct-layers__reload {
+/* RELOAD and OPTIONS: framed squares beside an enabled layer's row. */
+.ct-layers__sq {
   flex: none;
   width: 32px;
   display: grid;
@@ -51,14 +83,18 @@
   cursor: pointer;
   touch-action: manipulation;
 }
-.ct-layers__reload[hidden] {
+.ct-layers__sq[hidden] {
   display: none;
 }
-.ct-layers__reload:hover {
+.ct-layers__sq:hover,
+.ct-layers__sq.is-on {
   border-color: var(--ctosGray);
   color: var(--textPrimary);
 }
-.ct-layers__reload:focus-visible {
+.ct-layers__sq.is-on {
+  background: var(--backgroundBright);
+}
+.ct-layers__sq:focus-visible {
   outline: 1px solid var(--textPrimary);
   outline-offset: -3px;
 }
@@ -66,6 +102,27 @@
   border-color: var(--ctosGray);
   color: var(--textPrimary);
   animation: ct-blink 900ms steps(2) infinite;
+}
+/* A layer's options, open under its row. */
+.ct-layers__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 4px 12px;
+  padding: 8px 10px 10px;
+  border-left: 1px solid var(--textSecondary);
+}
+.ct-layers__opts[hidden] {
+  display: none;
+}
+.ct-layeropts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ct-layeropts > .ct-switch {
+  margin: 0 calc(-1 * var(--row-pad-x));
+  width: calc(100% + 2 * var(--row-pad-x));
 }
 .ct-layers__row .ct-row__meta.is-err {
   color: var(--error);
@@ -86,10 +143,8 @@
 .ct-layers__row[aria-pressed='false'] .ct-tile canvas {
   opacity: 0.55;
 }
-.ct-layers__foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: 10px var(--panel-padding) 12px;
+.ct-layers__row[aria-pressed='false'] .ct-row__label {
+  color: var(--textPrimaryDimmer);
 }
 @keyframes ct-blink {
   50% {

@@ -3,80 +3,86 @@
     <string name="app_name">Argus</string>
     <string name="app_lockup" translatable="false">ARGUS</string>
     <string name="boot_step" translatable="false">ARGUS_BOOT : %1$s</string>
+    <string name="boot_last_crash">LAST CRASH : %1$s : SETTINGS</string>
+    <string name="boot_no_webview">ANDROID SYSTEM WEBVIEW IS MISSING OR UPDATING.\n\nUpdate it in the Play Store, then RESTART.</string>
 
     <string name="action_settings">SETTINGS</string>
     <string name="action_restart">RESTART</string>
-    <string name="action_save_restart">SAVE AND RESTART</string>
+    <string name="action_save_restart">SAVE + RESTART</string>
     <string name="action_cancel">CANCEL</string>
+    <string name="action_copy">COPY</string>
+    <string name="action_clear">CLEAR</string>
 
     <string name="settings_title">ARGUS : SETTINGS</string>
-    <string name="settings_version">Version %1$s. Proxy: %2$s</string>
+    <string name="settings_version">V%1$s : PROXY %2$s</string>
     <string name="settings_keys">KEYS</string>
-    <string name="settings_keys_help">One KEY=value per line, as in .env.example. Read only by the proxy on this phone, never by the page; stored app-private in %1$s and never backed up. Every key is optional.</string>
+    <string name="settings_keys_help">KEY=value per line. Proxy only, never backed up.</string>
     <string name="settings_display">DISPLAY</string>
-    <string name="settings_fullscreen">Full screen (hide the status and navigation bars)</string>
+    <string name="settings_fullscreen">FULL SCREEN</string>
     <string name="settings_network">NETWORK</string>
-    <string name="settings_lan">Share on Wi-Fi (LAN)</string>
-    <string name="settings_lan_help">Off: the proxy listens on this phone only (127.0.0.1). On: other devices on your network can open the globe at this phone\'s Wi-Fi address and use its feeds (and your keys\' budgets). Only on networks you trust.</string>
+    <string name="settings_lan">SHARE ON WI-FI</string>
+    <string name="settings_lan_help">Devices on your Wi-Fi can use this proxy and your keys.</string>
     <string name="settings_log">PROXY LOG</string>
-    <string name="settings_log_empty">(no log yet)</string>
+    <string name="settings_log_empty">(EMPTY)</string>
     <string name="settings_save_failed">Could not save the keys: %1$s</string>
+    <string name="settings_crash">LAST CRASH</string>
+    <string name="settings_copied">COPIED</string>
 
     <string name="shortcut_settings">Settings and keys</string>
     <string name="shortcut_fullscreen">Full screen on/off</string>
     <string name="shortcut_restart">Restart proxy</string>
 
-    <string name="car_layers">Layers</string>
+    <!-- Android Auto: short caps titles (Android Auto draws them in its own font). -->
+    <string name="car_layers">LAYERS</string>
     <string name="car_view_3d">3D</string>
     <string name="car_view_2d">2D</string>
-    <string name="car_view_north">North</string>
-    <string name="car_preset_drive">Drive</string>
-    <string name="car_preset_drive_detail">Incidents, traffic cameras, ALPR</string>
-    <string name="car_preset_sky">Sky</string>
-    <string name="car_preset_sky_detail">Aircraft overhead</string>
-    <string name="layer_incidents">Traffic incidents</string>
-    <string name="layer_chp">CHP incidents (CA)</string>
-    <string name="layer_waze">Waze alerts</string>
-    <string name="layer_simtraffic">Traffic (simulated)</string>
-    <string name="layer_surveillance">Surveillance and ALPR</string>
-    <string name="layer_signals">Traffic lights</string>
-    <string name="layer_flights">Flights</string>
-    <string name="layer_military">Military aircraft</string>
-    <string name="layer_trafficcams">Traffic cameras</string>
-    <string name="layer_radar">Weather radar</string>
-    <string name="layer_quakes">Earthquakes</string>
+    <string name="car_view_north">NORTH</string>
+    <string name="car_preset_drive">DRIVE</string>
+    <string name="car_preset_sky">SKY</string>
+    <string name="car_vehicle_info">VEHICLE INFO</string>
+    <string name="layer_incidents">INCIDENTS</string>
+    <string name="layer_chp">CHP (CA)</string>
+    <string name="layer_waze">WAZE</string>
+    <string name="layer_simtraffic">TRAFFIC (SIM)</string>
+    <string name="layer_surveillance">ALPR + CAMERAS</string>
+    <string name="layer_signals">TRAFFIC LIGHTS</string>
+    <string name="layer_flights">FLIGHTS</string>
+    <string name="layer_military">MILITARY AIR</string>
+    <string name="layer_trafficcams">TRAFFIC CAMS</string>
+    <string name="layer_radar">RADAR</string>
+    <string name="layer_quakes">QUAKES</string>
 
-    <!-- Android Auto navigation (car/SearchScreen.kt, car/CarNav.kt) -->
-    <string name="car_where_to">Where to</string>
-    <string name="car_search_hint">Search places</string>
-    <string name="car_end">End</string>
-    <string name="car_navigate">Navigate</string>
-    <string name="car_retry">Retry</string>
-    <string name="car_avoid_on">Avoid hwy: on</string>
-    <string name="car_avoid_off">Avoid hwy: off</string>
-    <string name="car_no_results">No places found</string>
-    <string name="car_no_recents">Search for a place to go</string>
-    <string name="car_searching">Searching</string>
-    <string name="car_nav_offline">The map is still starting. Try again in a moment.</string>
-    <string name="car_no_route">No route found</string>
-    <string name="car_no_route_hwy">No route found without highways</string>
-    <string name="car_no_position">Waiting for your position</string>
-    <string name="car_arrived">Arrived</string>
-    <string name="car_destination">Destination</string>
-    <string name="car_route_via">via %1$s</string>
-    <string name="car_route_traffic">+%1$d min traffic</string>
-    <string name="car_route_lights">%1$d lights</string>
-    <string name="car_route_no_hwy">no highways</string>
+    <!-- The car map's location notification (car/CarLocationService.kt) -->
+    <string name="car_location_channel">Car map</string>
+    <string name="car_location_title">ARGUS : CAR MAP</string>
+    <string name="car_location_text">Using location for the Android Auto map</string>
 
-    <!-- Settings: the car's VEHICLE panel (shell-car/vehicle.js) -->
+    <!-- Android Auto navigation (car/SearchScreen.kt, car/CarNav.kt): ctOS capitals -->
+    <string name="car_where_to">WHERE TO</string>
+    <string name="car_search_hint">SEARCH PLACES</string>
+    <string name="car_end">END</string>
+    <string name="car_navigate">NAVIGATE</string>
+    <string name="car_retry">RETRY</string>
+    <string name="car_avoid_on">AVOID HWY: ON</string>
+    <string name="car_avoid_off">AVOID HWY: OFF</string>
+    <string name="car_no_results">NO PLACES FOUND</string>
+    <string name="car_no_recents">SEARCH FOR A PLACE TO GO</string>
+    <string name="car_searching">SEARCHING</string>
+    <string name="car_nav_offline">MAP STARTING. TRY AGAIN IN A MOMENT.</string>
+    <string name="car_no_route">NO ROUTE FOUND</string>
+    <string name="car_no_route_hwy">NO ROUTE WITHOUT HIGHWAYS</string>
+    <string name="car_no_position">WAITING FOR YOUR POSITION</string>
+    <string name="car_arrived">ARRIVED</string>
+    <string name="car_destination">DESTINATION</string>
+    <string name="car_route_via">VIA %1$s</string>
+    <string name="car_route_traffic">+%1$d MIN TRAFFIC</string>
+    <string name="car_route_lights">%1$d LIGHTS</string>
+    <string name="car_route_no_hwy">NO HIGHWAYS</string>
+
+    <!-- Settings: the car's VEHICLE strip (shell-car/vehicle.js) -->
     <string name="settings_vehicle">VEHICLE</string>
-    <string name="settings_tank">Fuel tank size</string>
-    <string name="settings_tank_hint">e.g. 50</string>
-    <string name="settings_tank_gallons">In US gallons (off: litres)</string>
-    <string name="settings_tank_help">For the average consumption on the car screen\'s VEHICLE panel: the drop in the fuel gauge times this size, over the distance driven since the last fill-up. Leave empty if unknown.</string>
-    <string name="settings_body">Silhouette</string>
-    <string name="settings_body_auto">AUTO</string>
-    <string name="settings_body_sedan">SEDAN</string>
-    <string name="settings_body_suv">SUV</string>
-    <string name="settings_body_ev">EV</string>
+    <string name="settings_tank">TANK SIZE</string>
+    <string name="settings_tank_hint">50</string>
+    <string name="settings_tank_gallons">US GALLONS</string>
+    <string name="settings_tank_help">For average consumption in the car. Empty if unknown.</string>
 </resources>

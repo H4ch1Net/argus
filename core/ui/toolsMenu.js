@@ -1,8 +1,9 @@
 import { h } from './dom.js';
 import { section, createChoice } from './controls.js';
 
-// The TOOLS tab: draw and measure, recent imagery, share link, data credits
-// (the ROUTE section is the navigation panel's, core/ui/navPanel.js). Tools
+// The TOOLS tab's own tools: draw and measure, recent imagery, the share link,
+// and the data credits view (shown in SETUP). The ROUTE section is the
+// navigation panel's (core/ui/navPanel.js); main.js orders and folds them. Tools
 // that need a point on the map "arm" the next tap (deps.armTap): while armed,
 // a tap on the globe goes to the tool instead of selecting a contact. Pure UI
 // plus calls into the pure modules; drawing on the globe goes through
@@ -178,13 +179,14 @@ export function createImageryTool({ catalogue, armTap, manager, notify }) {
   }
   const el = section(
     'RECENT IMAGERY',
-    note(
-      'Last 30 days of Sentinel-2 / Landsat (HLS) and VIIRS over a 10 km box. NASA GIBS.',
-    ),
     h(
       'div.ct-seg',
       {},
-      btn('PICK AREA', pick),
+      btn(
+        'PICK AREA',
+        pick,
+        'Tap the map: the last 30 days of Sentinel-2 / Landsat (HLS) and VIIRS over a 10 km box (NASA GIBS)',
+      ),
       btn('CLEAR', () => {
         catalogue.clear();
         list.innerHTML = '';
@@ -231,8 +233,7 @@ export function createShareTool({ encode, notify }) {
   return {
     el: section(
       'SHARE',
-      note('A link to this exact view. Nothing leaves the device.'),
-      btn('COPY LINK', share),
+      btn('COPY LINK', share, 'A link to this exact view (nothing is uploaded)'),
     ),
   };
 }

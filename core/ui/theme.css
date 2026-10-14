@@ -297,6 +297,7 @@ select {
   outline-offset: 2px;
 }
 
+/* A row of buttons in a menu (the bar's segments are span.ct-seg, bar.css). */
 .ct-seg {
   display: flex;
   flex-wrap: wrap;
@@ -586,6 +587,56 @@ select {
   color: var(--textSecondary);
   font-size: 10.5px;
   line-height: 1.4;
+}
+
+/* An even grid of choices (createChoice columns, the presets). */
+.ct-seg--grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+}
+.ct-seg--grid > .ct-btn {
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A folded section (controls.js collapsible): TITLE ---------- meta [+] */
+.ct-fold__head {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-fold__head:hover,
+.ct-fold__head:focus-visible {
+  color: var(--textPrimary);
+  outline: none;
+}
+.ct-fold__head::after {
+  order: 1;
+}
+.ct-fold__meta {
+  order: 2;
+  color: var(--textPrimaryDim);
+  font-variant-numeric: tabular-nums;
+}
+.ct-fold__caret {
+  order: 3;
+  color: var(--textPrimaryDim);
+}
+.ct-fold > .ct-section__body[hidden] {
+  display: none;
+}
+/* Sections inside a section (the tools under MORE) sit flush with it. */
+.ct-section__body > .ct-section > .ct-head,
+.ct-section__body > .ct-section > .ct-section__body {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .ct-tabpanes {

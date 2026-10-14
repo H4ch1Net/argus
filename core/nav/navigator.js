@@ -29,6 +29,8 @@ import { routeErrorMessage } from '../route/osrm.js';
 import { createProgress } from './progress.js';
 import { annotateSignals, createSignalCache } from './signals.js';
 import { searchDestinations, reverseName, TOMTOM_SEARCH_FEED } from './search.js';
+import { reversePlace } from '../search/reverse.js';
+import { createRoadTileLoader } from '../search/roadTiles.js';
 
 export const REROUTE_GAP_MS = 10_000;
 /** A fix older than this is not used to place the vehicle when navigation starts. */
@@ -66,9 +68,14 @@ export const routeCost = (r) => (r?.durationS ?? 0) + (r?.signalDelayS ?? 0);
 /**
  * @param {{ proxyClient: { getJson: Function } | null, now?: () => number,
  *   hasFeed?: (id: string) => boolean, signals?: boolean, signalTimeoutMs?: number,
- *   log?: (entry: { level: string, source: string, title: string, body?: string }) => void }} opts
+ *   log?: (entry: { level: string, source: string, title: string, body?: string }) => void,
+ *   places?: object|null, recents?: object|null, roads?: Function|null }} opts
  *   hasFeed: whether the proxy can serve a feed (its /health); without it,
  *   TomTom is tried once and dropped for the session if it is not configured.
+ *   places: the saved places (core/places/saved.js), found by search and
+ *   listed by search(SAVED_QUERY); recents: where routes were planned to
+ *   (core/places/recents.js), added on every plan; roads: the road line
+ *   loader for intersections (default: the vector tiles through the proxy).
  */
 export function createNavigator({
   proxyClient,
@@ -77,7 +84,16 @@ export function createNavigator({
   signals = true,
   signalTimeoutMs = 4000,
   log = null,
+  places = null,
+  recents = null,
+  roads = undefined,
 } = {}) {
+  const roadLoader =
+    roads === undefined
+      ? proxyClient?.getBytes
+        ? createRoadTileLoader(proxyClient)
+        : null
+      : roads;
   let state = Object.freeze({ status: 'idle' });
   const listeners = new Set();
   let planSeq = 0;
@@ -222,6 +238,23 @@ export function createNavigator({
       });
   }
 
+  // Where routes were planned to, for WHERE TO's RECENT list (a moving
+  // target is not a place to go back to).
+  function remember(place) {
+    const p = toPlace(place);
+    if (!p || !recents || p.kind === 'target') return;
+    try {
+      recents.add({
+        ...p,
+        id: String(p.id).replace(/^(saved|recent):/, ''),
+        name:
+          p.name === 'DROPPED PIN' ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` : p.name,
+      });
+    } catch {
+      // storage is a convenience: never fail a plan for it
+    }
+  }
+
   return {
     /**
      * Places for a query, biased near `near` (the user, else the view centre).
@@ -246,6 +279,9 @@ export function createNavigator({
         limit,
         tomtom: available(TOMTOM_SEARCH_FEED),
         signal,
+        places,
+        recents,
+        roads: roadLoader,
       });
     },
 
@@ -280,6 +316,7 @@ export function createNavigator({
         if (counted) routes.sort((a, b) => routeCost(a) - routeCost(b));
         lastOpts = o;
         set({ status: 'previewing', routes, route: routes[0] });
+        remember(dest);
         return routes;
       } catch (err) {
         if (seq === planSeq) set({ status: 'idle', error: planErrorMessage(err) });
@@ -371,6 +408,13 @@ export function createNavigator({
     },
     /** A name for a dropped pin (Nominatim reverse), or null. */
     reverse: (lat, lon, opts) => reverseName(proxyClient, lat, lon, opts),
+    /** What is at a point (Photon reverse): { name, detail, city, state } or null. */
+    reversePlace: (lat, lon, opts) => reversePlace(proxyClient, lat, lon, opts),
+    /** The saved places and recent destinations this navigator searches. */
+    places,
+    recents,
+    /** Keep a destination's newer name in the recent list (a dropped pin named later). */
+    remember: (place) => remember(place),
     /** The last fix given to update(). */
     get lastFix() {
       return lastFix;

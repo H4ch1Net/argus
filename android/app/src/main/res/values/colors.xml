@@ -4,4 +4,11 @@
     <color name="ink">#FF0E0E0E</color>
     <color name="panel">#FF202020</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Android Auto accents (CarAppTheme): ctOS green for "on" and "go",
+         ctOS grey second; each with a day variant dark enough for a light
+         car screen. -->
+    <color name="car_primary">#FF007A4D</color>
+    <color name="car_primary_dark">#FF00FA9A</color>
+    <color name="car_secondary">#FF4A4A4A</color>
+    <color name="car_secondary_dark">#FFCACACA</color>
 </resources>

@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "osm_type": "W",
+        "osm_id": 186365223,
+        "osm_key": "highway",
+        "osm_value": "primary",
+        "type": "street",
+        "name": "46th Avenue",
+        "city": "Indio",
+        "county": "Riverside",
+        "state": "California",
+        "country": "United States",
+        "postcode": "92234",
+        "countrycode": "US",
+        "extent": [-116.2103038, 33.7149128, -116.2101845, 33.7149124]
+      },
+      "geometry": { "type": "Point", "coordinates": [-116.2102441, 33.7149126] }
+    }
+  ]
+}

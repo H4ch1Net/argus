@@ -219,10 +219,12 @@ data class CarManeuver(val type: Int, val icon: String, val exitNumber: Int) {
 /** A step of the route: what to do, and onto which road. */
 data class NavStep(val maneuver: CarManeuver?, val instruction: String, val roadName: String) {
     fun toStep(context: CarContext): Step {
-        val cue = instruction.ifEmpty { roadName }
+        // ctOS capitals (the page's instructions already are).
+        val road = roadName.uppercase(Locale.ROOT)
+        val cue = instruction.ifEmpty { road }
         val b = if (cue.isNotEmpty()) Step.Builder(cue) else Step.Builder()
         maneuver?.let { b.setManeuver(it.build(context)) }
-        if (roadName.isNotEmpty()) b.setRoad(roadName)
+        if (road.isNotEmpty()) b.setRoad(road)
         return b.build()
     }
 
@@ -256,9 +258,9 @@ data class NavInfo(
         val at = eta ?: return null
         val b = TravelEstimate.Builder(d.toDistance(), DateTimeWithZone.create(at, TimeZone.getDefault()))
             .setRemainingTimeSeconds(max(0L, durationRemainingS ?: 0L))
-        // A long traffic delay shows in the routing card's colours, as in other
-        // navigation apps; the rest stays white.
-        if (trafficDelayS >= HEAVY_TRAFFIC_S) b.setRemainingTimeColor(CarColor.YELLOW)
+        // A long traffic delay turns the time red (ctOS: red for what needs
+        // attention); the rest stays white.
+        if (trafficDelayS >= HEAVY_TRAFFIC_S) b.setRemainingTimeColor(CarColor.RED)
         return b.build()
     }
 
@@ -347,6 +349,7 @@ fun maneuverIcon(context: CarContext, name: String): CarIcon =
  * (shell-car/index.js, core/nav/navigator.js):
  *
  *   host -> page   search(query, reqId)        page -> host   searchResults(reqId, json)
+ *                  (SAVED_QUERY: HOME, WORK, the saved places, the recent ones)
  *                  preview(placeJson, optsJson)                routes(json)
  *                  selectRoute(id), navigate(routeId), stopNav()
  *                                                              nav(json), about once a second
@@ -637,6 +640,13 @@ class CarNav(
     companion object {
         const val OFFLINE = "OFFLINE"
         const val TIMEOUT = "TIMEOUT"
+
+        /**
+         * The search that lists the user's own places before anything is
+         * typed: HOME, WORK, SAVED, then the recent destinations (kinds
+         * "home", "work", "saved", "recent"; core/nav/search.js SAVED_QUERY).
+         */
+        const val SAVED_QUERY = "@saved"
         private const val MAX_RECENTS = 5
         private const val MAX_RESULTS = 12
         private const val MAX_ROUTES = 3

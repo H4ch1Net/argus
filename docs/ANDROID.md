@@ -50,18 +50,28 @@ screen on/off**, and **Restart proxy**.
 
 ## Permissions
 
-| Permission                 | Why                                                                                      |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| Location (while in use)    | Around Me, the GEO button, satellite passes, and your position on the car map. Optional. |
-| Internet, network state    | The proxy on the phone reaches the public feeds; the page reaches the proxy.             |
-| Android Auto map templates | Declared so the app can draw its own map in the car (no prompt).                         |
-| Car information            | The car's make, model, fuel, range, odometer and speed for the VEHICLE panel. Optional.  |
+| Permission                    | Why                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| Location (while in use)       | Around Me, the GEO button, satellite passes, and your position on the car map. Optional. |
+| Foreground service (location) | Keeps your position coming to the car map while the phone is locked (no prompt).         |
+| Internet, network state       | The proxy on the phone reaches the public feeds; the page reaches the proxy.             |
+| Android Auto map templates    | Declared so the app can draw its own map in the car (no prompt).                         |
+| Car information               | The car's make, model, fuel, range, odometer and speed for the VEHICLE strip. Optional.  |
 
 Location is asked the first time the globe (or the car) needs it; the car's
 information (Android Auto's fuel, mileage and speed permissions) once, the
-first time Argus opens in the car. There is no background location, no
-notification, no storage permission (scene import uses the system file
-picker), and Argus itself needs no Google Play services.
+first time Argus opens in the car. There is no background location
+permission, no storage permission (scene import uses the system file picker),
+and Argus itself needs no Google Play services.
+
+While the car map runs, a quiet notification shows, **ARGUS : CAR MAP, using
+location for the Android Auto map**. On the car display Android does not count
+an app as in front, so without it a locked phone stops handing out positions
+and the arrow stands still while you drive. It goes away when Argus leaves
+the car screen for good. Play may ask for a foreground service declaration for
+this (Play Console, **App content**, **Foreground service permissions**:
+`FOREGROUND_SERVICE_LOCATION`, use **Navigation**: it shows the driver's
+position on the Android Auto map while driving).
 
 ## Keys
 
@@ -150,15 +160,16 @@ permissions, asked once).
 
 ### Vehicle
 
-When the car stands still for three seconds (and is not on a route), a
-**VEHICLE** panel slides in on the right: make, model and year, a silhouette
-(sedan, SUV or EV, guessed from the car's fuels; set it in Settings), fuel and
-battery level, range, odometer, and the average consumption since your last
-fill-up (MPG, or L/100 km by region). It hides the moment you drive off.
-Everything comes from the car through Android Auto (car API level 3 and up);
-what a car does not report reads `--`. The average needs your tank size:
-long-press the Argus icon, **Settings and keys**, **VEHICLE**, then drive
-some distance after a fill-up.
+When the car stands still for three seconds (and is not on a route), a small
+**VEHICLE** strip shows under the speed at top left: fuel (or an electric
+car's battery) with a thin meter, and the range; **LOW** in red when the car
+says fuel is low. Tap it for a few seconds of the rest: make, model and year,
+a hybrid's battery, odometer, and the average consumption since your last
+fill-up (MPG, or L/100 km by region). It hides the moment you drive off, and
+**LAYERS**, **VEHICLE INFO** turns it off for good. Everything comes from the
+car through Android Auto (car API level 3 and up); what a car does not report
+reads `--`. The average needs your tank size: long-press the Argus icon,
+**Settings and keys**, **VEHICLE**, then drive some distance after a fill-up.
 
 ### In the car
 
@@ -169,26 +180,38 @@ some distance after a fill-up.
   views are the lightest to draw. The choice is remembered.
 - **Map buttons** (right side): pan, re-centre, zoom in, zoom out. Zooming
   while following changes the follow distance; dragging or panning switches to
-  free look (MODE FREE); re-centre flies back and follows again.
-- **LAYERS** (top right, beside WHERE TO and VIEW): two one-tap presets first, **Drive** (traffic
-  incidents, CHP incidents, traffic cameras, surveillance and ALPR locations;
-  the default) and **Sky** (aircraft overhead), then a switch for each layer.
-  The list shows only layers this build can show: traffic incidents appear
-  once the phone's proxy has a TomTom key. The choice is remembered.
+  free look (MODE FREE), and the map follows you again by itself after ten
+  seconds without a touch once you are driving; re-centre flies back at once.
+- **LAYERS** (top right, beside WHERE TO and VIEW): the same layers as the
+  phone. The car shows the road-safe ones you left on in the phone app, and a
+  switch here changes them for the phone too (it opens with them next time).
+  Each row has the layer's map glyph; the list shows only layers this build
+  can show (traffic incidents appear once the phone's proxy has a TomTom key).
+  The header has two presets, **DRIVE** (traffic incidents, CHP incidents,
+  traffic cameras, surveillance and ALPR locations) and the aircraft glyph for
+  **Sky** (aircraft overhead); **VEHICLE INFO** is the last row. Before the
+  phone app has ever run, the car starts with Drive.
+- **Android Auto draws** every button, list and card itself, in its own font
+  and shapes (Google's rule for every car app). Argus sets everything it is
+  allowed to, in ctOS: the glyphs (white), all text in capitals, the routing
+  card's colour, the two accents (`CarAppTheme`: ctOS green for switches that
+  are on, NAVIGATE and RETRY, grey second), END in red while navigating (car
+  API level 4 and up), and red for a heavy traffic delay. Everything on the
+  map is Argus's own, in ctOS.
 - **Aircraft** are drawn on their ground track, like a radar scope: the car's
   camera looks down from below cruise altitude, so aircraft drawn at altitude
   would never be in view. Their flight level stays on their labels.
 - **Touch screens:** drag to pan, pinch or double-tap to zoom, tap a contact to
   select it (its row turns green, marked 00).
 - **Readouts:** top left, speed (large; km/h, or mph where the phone's region
-  uses it), heading, view and mode. Bottom left, the selected contact and the
+  uses it), heading and mode. Bottom left, the selected contact and the
   nearest ones, **what is ahead first** (within 60 degrees of your course,
   marked with a white edge), each with range and an arrow showing where it
   lies on the map.
 
 Driver-distraction rules shape the car screen: the map, the status strip and
-the nearest-contacts readout (two rows on a route, none while you compare
-routes), plus Android Auto's own search, route and routing-card screens. No
+the nearest-contacts readout (two small rows, one on a route, none while
+you compare routes), plus Android Auto's own search, route and routing-card screens. No
 video, no camera stills, and only critical notices (a missing proxy, say);
 feed errors stay on the phone.
 
@@ -275,6 +298,8 @@ page's own maneuver banner instead of Android Auto's card).
 | Car shows `ARGUS_BOOT : OPEN ARGUS ON THE PHONE`          | The proxy did not start: open Argus on the phone to see why.                                                                                              |
 | Car map stays black or blank                              | Update **Android System WebView** (and Chrome) from the Play Store; reconnect. `adb logcat -s ArgusCar` shows the car page's messages.                    |
 | No position (NO FIX)                                      | Location permission for Argus, and the phone's location on. In the car the phone's GPS is used.                                                           |
+| The car arrow stands still while driving                  | The **ARGUS : CAR MAP** notification should show while the car map runs; battery saver can still hold location back. `adb logcat -s ArgusCar`.            |
+| Argus crashes                                             | The next start says **LAST CRASH** on the boot screen; **Settings**, **LAST CRASH**, **COPY** has the trace. Native crashes: `adb logcat -b crash -d`.    |
 | Globe says NO PROXY REACHABLE                             | A proxy address set in SETUP (for a proxy on another machine) overrides the phone's own: clear it there.                                                  |
 | A key does not take effect                                | Long-press the icon, **Restart proxy** (OpenSky and AISStream load at start).                                                                             |
 | Scene export does nothing                                 | Downloads from the page are not supported inside the app; import works (system file picker). Use share links, or the browser version, to export.          |

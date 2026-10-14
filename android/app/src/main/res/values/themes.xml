@@ -10,4 +10,15 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- Android Auto draws its own lists, cards and buttons (Google's font,
+         sizes and shapes); an app may set only these accents
+         (androidx.car.app.theme in the manifest). Without them the switches
+         and NAVIGATE are Android Auto's default blue. -->
+    <style name="CarAppTheme">
+        <item name="carColorPrimary">@color/car_primary</item>
+        <item name="carColorPrimaryDark">@color/car_primary_dark</item>
+        <item name="carColorSecondary">@color/car_secondary</item>
+        <item name="carColorSecondaryDark">@color/car_secondary_dark</item>
+    </style>
 </resources>

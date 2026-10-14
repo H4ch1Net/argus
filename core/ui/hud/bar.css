@@ -26,58 +26,47 @@
   min-width: 8px;
 }
 
-/* Lockup: gray block (diamond + "AR" in the ground colour), then thin "GUS". */
+/* Wordmark: the diamond on a square ctosGray tile, then ARGUS in one size. */
 .ct-lockup {
   display: flex;
   align-items: stretch;
   flex: none;
   text-decoration: none;
 }
-.ct-lockup__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 84px;
-  padding: 0 2px 0 8px;
+.ct-lockup__mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(var(--bar-height) - 2px);
   background: var(--ctosGray);
-  color: var(--background);
-  box-sizing: border-box;
 }
-.ct-lockup__bar b {
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 1;
-  align-self: flex-end;
-  margin-bottom: 4px;
+.ct-lockup__mark svg {
+  display: block;
 }
-.ct-lockup__os {
+.ct-lockup__word {
   display: flex;
   align-items: center;
-  padding: 0 8px 0 2px;
+  padding: 0 12px 0 11px;
   color: var(--textPrimary);
-  font-size: 30px;
-  font-weight: 300;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.26em;
 }
-.ct-lockup--splash .ct-lockup__bar {
-  width: 190px;
-  height: 52px;
-  padding: 0 4px 0 12px;
+.ct-lockup--splash .ct-lockup__mark {
+  width: 56px;
+  height: 56px;
 }
-.ct-lockup--splash .ct-lockup__bar b {
-  font-size: 34px;
-  margin-bottom: 4px;
-}
-.ct-lockup--splash .ct-lockup__os {
-  font-size: 64px;
-  padding-left: 4px;
-  transform: translateY(3px);
+.ct-lockup--splash .ct-lockup__word {
+  padding: 0 0 0 20px;
+  font-size: 40px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
 }
 
-/* Segments: a slot 6px wider than its CornerFrame, frame 31px tall. */
-.ct-seg {
+/* Segments: a slot 6px wider than its CornerFrame, frame 31px tall. Spans
+   only: div.ct-seg is a menu's row of buttons (theme.css). */
+span.ct-seg {
   display: flex;
   align-items: center;
   padding: 0 3px;

@@ -6,12 +6,14 @@
 // that was on (with the view it gives back). Pure apart from the injected
 // storage and timers, so every shell can test it; main.js collects and
 // applies. The car (Android Auto) shares the origin and storage with the
-// phone app but keeps its own state, so it never reads or writes this record.
+// phone app. It never resumes the phone's view, but it shows the phone's
+// layers and its LAYERS list changes them in this same record (shared layers,
+// at the end of this file): one set of layers for the phone and the car.
 //
 // Decoding fails closed field by field: a malformed part is dropped, the rest
 // still restores (the hash itself is checked again by decodeShareHash).
 
-import { SHARE_MAX_LENGTH } from './state.js';
+import { SHARE_MAX_LENGTH, decodeShareHash } from './state.js';
 
 export const SESSION_KEY = 'argus.session.v1';
 /** Written by earlier versions ("Start in: last view"); read once as a fallback. */
@@ -275,6 +277,154 @@ export function createSessionSaver({
     },
     get writes() {
       return writes;
+    },
+  };
+}
+
+// ------------------------------------------------------------ shared layers
+// One set of layers for the phone and the car. The car page (shell-car) reads
+// the layers in this record when it mounts and shows those it can (its
+// car-safe `scope`); a toggle in the car's LAYERS list writes them back here,
+// changing only the keys in that scope, so the phone opens with them too. A
+// page that is still running when the other one writes (the phone in the
+// background while the car changes a layer, or the reverse) follows the
+// change: from the storage event, and where that does not arrive, when it is
+// shown again.
+
+const NO_CHANGE = Object.freeze({ on: Object.freeze([]), off: Object.freeze([]) });
+
+/** The layer keys in a stored record; null without a record, or without layers in it. */
+export function sessionLayers(text) {
+  const s = decodeSession(text);
+  if (!s?.hash) return null;
+  const shared = decodeShareHash(s.hash);
+  return Array.isArray(shared?.layers) ? shared.layers : null;
+}
+
+/** Replace (or add) the hash's layers field, leaving every other field as it was. */
+function hashWithLayers(hash, keys) {
+  const field = `layers=${keys.join(',')}`;
+  const parts = hash.slice(1).split('&');
+  const i = parts.findIndex((p) => p.startsWith('layers='));
+  if (i >= 0) parts[i] = field;
+  else parts.push(field);
+  return `#${parts.join('&')}`;
+}
+
+/**
+ * The record with its layers set for the keys in `scope` only: those in `on`
+ * on, the rest of the scope off, everything outside the scope as it was.
+ * Null when there is no record to change: the car never starts one, or the
+ * phone's first launch would resume a view it never had.
+ * @param {string|null} text
+ * @param {Iterable<string>} on
+ * @param {Iterable<string>} scope
+ * @param {number} [at]
+ */
+export function withSessionLayers(text, on, scope, at = Date.now()) {
+  const s = decodeSession(text);
+  if (!s?.hash) return null;
+  const inScope = new Set(scope);
+  const want = [...new Set(on)].filter((k) => inScope.has(k) && KEY.test(k));
+  const had = sessionLayers(text) ?? [];
+  const keys = had.filter((k) => !inScope.has(k) || want.includes(k));
+  for (const k of want) if (!keys.includes(k)) keys.push(k);
+  const hash = hashWithLayers(s.hash, keys);
+  if (!decodeShareHash(hash)) return null; // too long: leave the record alone
+  return encodeSession({ ...s, hash, at });
+}
+
+/**
+ * Which layers one record switches on and off against another, within
+ * `scope` when given. Nothing when the newer record has no layers (removed,
+ * or unreadable): there is nothing to follow then.
+ * @param {string|null} beforeText
+ * @param {string|null} afterText
+ * @param {Set<string>|null} [scope]
+ * @returns {{ on: string[], off: string[] }}
+ */
+export function layerChanges(beforeText, afterText, scope = null) {
+  const after = sessionLayers(afterText);
+  if (!after) return NO_CHANGE;
+  const before = new Set(sessionLayers(beforeText) ?? []);
+  const now = new Set(after);
+  const inScope = (k) => !scope || scope.has(k);
+  return {
+    on: after.filter((k) => !before.has(k) && inScope(k)),
+    off: [...before].filter((k) => !now.has(k) && inScope(k)),
+  };
+}
+
+/**
+ * Follow the shared layers. `apply({ on, off })` gets what another page
+ * changed (within `scope`; every key when null). read() gives the layers in
+ * the record now (within the scope; null without a record) and write(on)
+ * stores a choice for the scope (false without a record, or when storage
+ * refuses). stop() lets go of the events.
+ * @param {{ storage: object|null, scope?: Iterable<string>|null,
+ *   apply?: (changes: { on: string[], off: string[] }) => void,
+ *   target?: object, doc?: object, now?: () => number }} o
+ */
+export function createSharedLayers({
+  storage,
+  scope = null,
+  apply = () => {},
+  target = globalThis,
+  doc = globalThis.document,
+  now = () => Date.now(),
+}) {
+  const keys = scope ? new Set(scope) : null;
+  const get = () => {
+    try {
+      return storage?.getItem(SESSION_KEY) ?? null;
+    } catch {
+      return null;
+    }
+  };
+  let seen = get();
+  const follow = (before, after) => {
+    seen = after;
+    const c = layerChanges(before, after, keys);
+    if (c.on.length || c.off.length) apply({ on: [...c.on], off: [...c.off] });
+  };
+  const onStorage = (e) => {
+    if (e?.key !== SESSION_KEY) return;
+    if (storage && e.storageArea && e.storageArea !== storage) return;
+    follow(e.oldValue ?? seen, e.newValue ?? null);
+  };
+  // Where the storage event does not reach this page: compare with the
+  // record last seen when the page is shown again.
+  const onVisible = () => {
+    if (doc?.visibilityState !== 'visible') return;
+    const text = get();
+    if (text !== seen) follow(seen, text);
+  };
+  target?.addEventListener?.('storage', onStorage);
+  doc?.addEventListener?.('visibilitychange', onVisible);
+  return {
+    read() {
+      seen = get();
+      const all = sessionLayers(seen);
+      return all && keys ? all.filter((k) => keys.has(k)) : all;
+    },
+    write(on) {
+      const list = [...on];
+      const current = get();
+      // Without a scope the choice is the whole set.
+      const within = keys ?? new Set([...(sessionLayers(current) ?? []), ...list]);
+      const text = withSessionLayers(current, list, within, now());
+      if (!text) return false;
+      try {
+        storage.setItem(SESSION_KEY, text);
+      } catch {
+        return false;
+      }
+      seen = text;
+      return true;
+    },
+    stop() {
+      target?.removeEventListener?.('storage', onStorage);
+      doc?.removeEventListener?.('visibilitychange', onVisible);
     },
   };
 }

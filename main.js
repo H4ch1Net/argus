@@ -98,7 +98,13 @@ async function main() {
       fps: app.profile?.animationFps,
       onIcon: app.setSelfIcon,
       log: (entry) => app.logs?.add?.(entry),
+      // A map app: once location is allowed the position stays live (the
+      // sensors still close while the page is hidden).
+      stayLive: shellName !== 'car',
     });
+    // Show where you are from launch when location is already allowed (never
+    // a prompt here: GEO and Around Me ask). The car feeds its own fixes.
+    if (shellName !== 'car') app.selfPosition.startIfAllowed('app');
     if (import.meta.env.DEV) {
       // Expose for console poking during development only; never in a build.
       window.__argus = { shell: shellName, ...app };
@@ -250,7 +256,7 @@ async function setupScene(app, splash) {
   // follows the fingers, the trackpad pinch and the zoom envelope
   // (core/interaction/cameraInput.js; double and triple tap are the picker's),
   // and the scene's cluster policy (core/layers/sdk/cluster.js), on unless
-  // switched off in VIEW > CONTACTS.
+  // switched off in VIEW > ON THE MAP.
   const [{ tuneCameraInput }, { clusterPolicy }] = await Promise.all([
     import('./core/interaction/cameraInput.js'),
     import('./core/layers/sdk/cluster.js'),
@@ -282,7 +288,7 @@ async function setupScene(app, splash) {
       maximumLevel: app.tier === 'full' ? undefined : 5,
     });
   };
-  // Starlink dense mode (VIEW > SATELLITES), read by the constellation source.
+  // Starlink dense mode (the satellites layer's options), read by its source.
   let starlinkDense = false;
   // Recent imagery (NASA HLS / VIIRS): the catalogue the VIEW tool searches and
   // the layer shows from.
@@ -303,15 +309,21 @@ async function setupScene(app, splash) {
       : Promise.resolve(null);
 
   // The user's saved places (core/places/saved.js), on this device only: a
-  // map layer, TOOLS > MY PLACES, and search.
-  const { createPlacesStore, placeToNormalized } = await import('./core/places/saved.js');
+  // map layer, TOOLS > MY PLACES, WHERE TO (HOME, WORK, SAVED; the car's
+  // too), WHAT'S HERE > SAVE and search. The phone and car pages share the
+  // storage: a change in one is read again by the other (storage events).
+  // Recent destinations (core/places/recents.js) beside them.
+  const [{ createPlacesStore, placeToNormalized }, { createRecents }] = await Promise.all(
+    [import('./core/places/saved.js'), import('./core/places/recents.js')],
+  );
   let placesStorage = null;
   try {
     placesStorage = window.localStorage;
   } catch {
     placesStorage = null;
   }
-  const placesStore = createPlacesStore(placesStorage);
+  const placesStore = createPlacesStore(placesStorage, { events: window });
+  const recentPlaces = createRecents(placesStorage);
   const placesSource = async () => placesStore.list().map(placeToNormalized);
 
   // Keyed sources inside a layer (Windy, NPS, WSDOT, 511 states): offered only
@@ -322,7 +334,7 @@ async function setupScene(app, splash) {
   // tile and kept for hours (core/layers/overpass/tiles.js). "Nearest" counts
   // from your own position while the view follows you (the car's follow view,
   // or a shell that reports app.followingSelf()), else from the ground in the
-  // middle of the view. RELOAD (VIEW > SURVEILLANCE) fetches the areas again.
+  // middle of the view. Each layer's RELOAD (LAYERS) fetches its areas again.
   const [{ computeViewportQuery }, { windowToLatLon }, { createLandmarksLoader }] =
     await Promise.all([
       import('./core/layers/sdk/viewport.js'),
@@ -818,7 +830,7 @@ async function setupScene(app, splash) {
     {
       key: 'clouds',
       group: 'Earth & weather',
-      label: 'IR clouds',
+      label: 'Clouds (world)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
       // NOAA nowCOAST imagery via the proxy, timed: the source follows the
@@ -854,7 +866,7 @@ async function setupScene(app, splash) {
     {
       key: 'goes',
       group: 'Earth & weather',
-      label: 'IR clouds (GOES)',
+      label: 'Clouds (Americas, sharper)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.goesDefinition),
       proxy: timedWeather('goes'),
@@ -1406,7 +1418,7 @@ async function setupScene(app, splash) {
     { createLauncher },
     { createSegment, createCells },
     readouts,
-    { section, createChoice, createSwitch },
+    { section, disclosure, collapsible, createChoice, createSwitch },
     { CITIES },
     { h },
   ] = await Promise.all([
@@ -1694,7 +1706,8 @@ async function setupScene(app, splash) {
     'barEnd',
     readouts.createFeedSegment({
       live: Boolean(proxyClient),
-      onClick: () => app.showTab?.('view'),
+      // The feed state: SETUP shows the connection and the feeds.
+      onClick: () => app.showTab?.('setup'),
     }),
   );
   if (desktop) app.mount('barEnd', readouts.createStatusSegment({ prefs: app.settings }));
@@ -1725,7 +1738,13 @@ async function setupScene(app, splash) {
   });
 
   // ------------------------------------------------------------- view menu
-  // Base imagery, map labels, the tracking overlay, terrain and sensor modes.
+  // VIEW, most used first: MAP (base imagery and labels), TERRAIN, LOOK (the
+  // sensor modes), ON THE MAP (merge nearby, camera stills, 3D aircraft),
+  // SCREEN (tracking boxes, Intel HUD, clean view, orbit, point at sky) and
+  // one folded MORE for the fine tuning. A layer's own settings (webcam
+  // categories, surveillance scope, Shodan snapshot, weather history...) are
+  // not here: they open beside the layer's row in LAYERS while it is on
+  // (layerMenu.setOptions). Globe detail lives in SETTINGS > QUALITY only.
   const [
     { createImageryController, IMAGERY_SOURCES },
     { createLabelsController },
@@ -1795,7 +1814,8 @@ async function setupScene(app, splash) {
       : defaultTerrainId({ tier: app.tier, metered });
   if (!car && defTerrain !== 'flat') terrain.set(defTerrain);
   const terrainChoice = createChoice({
-    caption: 'Terrain',
+    label: 'Terrain',
+    columns: TERRAIN_SOURCES.length,
     options: TERRAIN_SOURCES,
     current: defTerrain,
     onSelect: async (id) => {
@@ -1805,10 +1825,46 @@ async function setupScene(app, splash) {
     },
   });
 
+  // `view`: every VIEW control root, for session memory (core/ui/viewState.js
+  // finds controls by label in these, layer options included); viewParts:
+  // the VIEW groups, filled below and mounted at the end.
   const view = [];
+  const viewParts = { map: [], terrain: [], look: [], onMap: [], screen: [], more: {} };
+  const moreItem = (group, ...els) => (viewParts.more[group] ??= []).push(...els);
+  // A module's section without its title (its controls go into a group here).
+  const bare = (_title, ...items) => {
+    const f = document.createDocumentFragment();
+    f.append(...items.filter(Boolean));
+    return f;
+  };
+  const layerOptions = (keys, title, ...els) => {
+    const el = h('div.ct-layeropts', { dataset: { title } }, ...els);
+    for (const k of [keys].flat()) layerMenu.setOptions(k, el);
+    view.push(el);
+    return el;
+  };
+  const BASEMAP_ORDER = [
+    'dark',
+    'satellite',
+    'streets',
+    'topo',
+    'base',
+    'sentinel',
+    'bluemarble',
+    'blackmarble',
+  ];
+  const BASEMAP_LABELS = {
+    satellite: 'Satellite',
+    sentinel: 'Sentinel',
+    bluemarble: 'Marble',
+    blackmarble: 'Night',
+  };
   const imageryChoice = createChoice({
     label: 'Base imagery',
-    options: IMAGERY_SOURCES,
+    columns: 4,
+    options: [...IMAGERY_SOURCES]
+      .sort((a, b) => BASEMAP_ORDER.indexOf(a.id) - BASEMAP_ORDER.indexOf(b.id))
+      .map((o) => ({ ...o, label: BASEMAP_LABELS[o.id] ?? o.label })),
     current: imagery.current(),
     onSelect: (id) => {
       imagery.set(id);
@@ -1824,7 +1880,7 @@ async function setupScene(app, splash) {
       onToggle: (on) => overlay.setOptions({ cities: on }),
     }),
     places: createSwitch({
-      label: 'Places + borders',
+      label: 'Place names',
       title: 'Country, region and place names from map tiles',
       onToggle: (on) => labels.set('places', on),
     }),
@@ -1834,45 +1890,37 @@ async function setupScene(app, splash) {
       onToggle: (on) => labels.set('roads', on),
     }),
   };
-  view.push(
-    section(
-      'BASEMAP',
-      imageryChoice.el,
-      createSwitch({
-        label: 'Mono imagery',
-        on: imagery.mono(),
-        title: 'Grayscale, dimmed imagery so the data reads first',
-        onToggle: (on) => imagery.setMono(on),
-      }).el,
-    ),
+  viewParts.map.push(
+    imageryChoice.el,
+    labelSwitches.cities.el,
+    labelSwitches.places.el,
+    labelSwitches.roads.el,
   );
-  view.push(
-    section(
-      'LABELS',
-      labelSwitches.cities.el,
-      labelSwitches.places.el,
-      labelSwitches.roads.el,
-    ),
+  moreItem(
+    'MAP',
+    createSwitch({
+      label: 'Mono imagery',
+      on: imagery.mono(),
+      title: 'Grayscale, dimmed imagery so the data reads first',
+      onToggle: (on) => imagery.setMono(on),
+    }).el,
+    createSwitch({
+      label: 'Viewport frame',
+      on: true,
+      title: 'Corner brackets and readouts around the view',
+      onToggle: (on) => overlay.setOptions({ frame: on }),
+    }).el,
   );
   const DENSITIES = ['off', 'low', 'med', 'high'];
   const densityChoice = createChoice({
     label: 'Tracking boxes',
+    caption: 'Tracking boxes',
+    columns: 4,
     options: DENSITIES.map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) })),
     current: app.tier === 'minimal' ? 'low' : 'med',
     onSelect: (density) => overlay.setOptions({ density }),
   });
-  view.push(
-    section(
-      'TRACKING',
-      densityChoice.el,
-      createSwitch({
-        label: 'Viewport frame',
-        on: true,
-        title: 'Corner brackets and readouts around the view',
-        onToggle: (on) => overlay.setOptions({ frame: on }),
-      }).el,
-    ),
-  );
+  viewParts.screen.push(densityChoice.el);
   if (app.tier === 'minimal') overlay.setOptions({ density: 'low' });
 
   // MERGE NEARBY: contacts close together on screen as one counted marker
@@ -1892,17 +1940,7 @@ async function setupScene(app, splash) {
     merge.set({ merge: value });
     mergeSwitch.set(value);
   });
-  view.push(
-    section(
-      'CONTACTS',
-      mergeSwitch.el,
-      h(
-        'div.ct-section__note',
-        {},
-        'Tap a group to fly to it. Below 3 km every contact is drawn.',
-      ),
-    ),
-  );
+  viewParts.onMap.push(mergeSwitch.el);
 
   // 3D aircraft close to the camera (glTF models per class), desktop default.
   const { createModelLod } = await import('./core/scene/modelLod.js');
@@ -1912,21 +1950,13 @@ async function setupScene(app, splash) {
   });
   if (!desktop) models.setEnabled(false);
   if (models.supported) {
-    view.push(
-      section(
-        '3D MODELS',
-        createSwitch({
-          label: 'Aircraft models',
-          on: models.enabled,
-          title: 'Close aircraft as 3D models of their class (below 800 km)',
-          onToggle: (on) => models.setEnabled(on),
-        }).el,
-        h(
-          'div.ct-section__note',
-          {},
-          'Nearest aircraft within 150 km. Models: CC BY 4.0.',
-        ),
-      ),
+    viewParts.onMap.push(
+      createSwitch({
+        label: 'Aircraft models',
+        on: models.enabled,
+        title: 'The nearest aircraft as 3D models of their class (within 150 km)',
+        onToggle: (on) => models.setEnabled(on),
+      }).el,
     );
   }
   // EARTH: terrain, relief exaggeration, detail, and the sun, atmosphere and
@@ -1941,65 +1971,53 @@ async function setupScene(app, splash) {
   earth.setAtmosphere(!car && (settings?.get('atmosphere') ?? true));
   earth.setStars(!car && (settings?.get('stars') ?? true));
   earth.setExaggeration(car ? 1 : (settings?.get('exaggeration') ?? 1));
-  view.push(
-    section(
-      'EARTH',
-      terrainChoice.el,
-      createChoice({
-        caption: 'Relief',
-        options: [1, 1.5, 2, 3].map((k) => ({ id: k, label: `${k}X` })),
-        current: earth.state().exaggeration,
-        onSelect: earthSetting('exaggeration', (k) => earth.setExaggeration(k)),
-      }).el,
-      createChoice({
-        caption: 'Detail',
-        options: [
-          { id: 'low', label: 'Low' },
-          { id: 'standard', label: 'Std' },
-          { id: 'high', label: 'High' },
-        ],
-        current: settings?.get('detail') ?? 'standard',
-        onSelect: earthSetting('detail', (d) => earth.setDetail(d)),
-      }).el,
-      createSwitch({
-        label: 'Sun lighting',
-        on: earth.state().lighting,
-        title: 'The real day and night terminator at the scene time',
-        onToggle: earthSetting('lighting', (on) => earth.setLighting(on)),
-      }).el,
-      createSwitch({
-        label: 'Atmosphere',
-        on: earth.state().atmosphere,
-        title: 'Sky limb, ground haze and fog',
-        onToggle: earthSetting('atmosphere', (on) => earth.setAtmosphere(on)),
-      }).el,
-      createSwitch({
-        label: 'Stars, sun, moon',
-        on: earth.state().stars,
-        onToggle: earthSetting('stars', (on) => earth.setStars(on)),
-      }).el,
-    ),
+  viewParts.terrain.push(terrainChoice.el);
+  moreItem(
+    'EARTH',
+    createChoice({
+      caption: 'Relief',
+      columns: 4,
+      options: [1, 1.5, 2, 3].map((k) => ({ id: k, label: `${k}X` })),
+      current: earth.state().exaggeration,
+      onSelect: earthSetting('exaggeration', (k) => earth.setExaggeration(k)),
+    }).el,
+    createSwitch({
+      label: 'Sun lighting',
+      on: earth.state().lighting,
+      title: 'The real day and night terminator at the scene time',
+      onToggle: earthSetting('lighting', (on) => earth.setLighting(on)),
+    }).el,
+    createSwitch({
+      label: 'Atmosphere',
+      on: earth.state().atmosphere,
+      title: 'Sky limb, ground haze and fog',
+      onToggle: earthSetting('atmosphere', (on) => earth.setAtmosphere(on)),
+    }).el,
+    createSwitch({
+      label: 'Stars, sun, moon',
+      on: earth.state().stars,
+      onToggle: earthSetting('stars', (on) => earth.setStars(on)),
+    }).el,
   );
 
   // Satellites: Starlink dense mode (thousands of points), full tier only.
   const { denseAllowedForTier } = await import('./core/layers/constellations/groups.js');
   if (denseAllowedForTier(app.tier)) {
-    view.push(
-      section(
-        'SATELLITES',
-        createSwitch({
-          label: 'Starlink dense',
-          title: 'Add the Starlink constellation to Nav, GEO & visual sats (heavy)',
-          onToggle: async (on) => {
-            starlinkDense = on;
-            // The constellation source reads the flag on its next fetch: reload.
-            if (manager.isEnabled('constellations')) {
-              manager.disable('constellations');
-              await manager.enable('constellations');
-            } else if (on) await manager.enable('constellations');
-          },
-        }).el,
-      ),
+    layerOptions(
+      'constellations',
+      'SATELLITES',
+      createSwitch({
+        label: 'Starlink dense',
+        title: 'Add the Starlink constellation (thousands of points, heavy)',
+        onToggle: async (on) => {
+          starlinkDense = on;
+          // The constellation source reads the flag on its next fetch: reload.
+          if (manager.isEnabled('constellations')) {
+            manager.disable('constellations');
+            await manager.enable('constellations');
+          } else if (on) await manager.enable('constellations');
+        },
+      }).el,
     );
   }
 
@@ -2008,19 +2026,17 @@ async function setupScene(app, splash) {
   // request). A layer that is off picks the filter up when enabled.
   const { createWebcamFilter, createCameraKindFilter } =
     await import('./core/layers/webcams/filter.js');
-  view.push(
-    section(
-      'WEBCAMS',
-      createWebcamFilter({ onChange: () => manager.getLayer('webcams')?.refresh?.() }).el,
-    ),
+  layerOptions(
+    'webcams',
+    'WEBCAMS',
+    createWebcamFilter({ onChange: () => manager.getLayer('webcams')?.refresh?.() }).el,
   );
-  view.push(
-    section(
-      'TRAFFIC CAMS',
-      createCameraKindFilter({
-        onChange: () => manager.getLayer('trafficcams')?.refresh?.(),
-      }).el,
-    ),
+  layerOptions(
+    'trafficcams',
+    'TRAFFIC CAMS',
+    createCameraKindFilter({
+      onChange: () => manager.getLayer('trafficcams')?.refresh?.(),
+    }).el,
   );
   // ROAD FLOW (the TomTom readout at the view centre) and SHODAN (the
   // snapshot and host sample), each only when the proxy has its key.
@@ -2029,24 +2045,27 @@ async function setupScene(app, splash) {
       import('./core/ui/roadFlow.js'),
       import('./core/layers/simtraffic/view.js'),
     ]);
-    view.push(
+    moreItem(
+      'ROAD SPEED',
       mountRoadFlow({
         viewer: app.viewer,
         proxyClient,
         settings: app.settings,
         mount: (slot, el) => app.mount(slot, el),
-        ui: { section, createSwitch, createSegment, h },
+        ui: { section: bare, createSwitch, createSegment, h },
         getView: () => simTrafficView(app.viewer),
       }),
     );
   }
   if (keyed('shodan') || (dev && !proxyClient)) {
     const { createShodanSection } = await import('./core/layers/shodan/controls.js');
-    view.push(
+    layerOptions(
+      'shodan',
+      'SHODAN',
       createShodanSection({
         settings: app.settings,
         manager,
-        ui: { section, createChoice, createSwitch, h },
+        ui: { section: bare, createChoice, createSwitch, h },
       }),
     );
   }
@@ -2060,43 +2079,26 @@ async function setupScene(app, splash) {
     import('./core/ui/cameraPreviews.js'),
     import('./core/layers/trafficcams/still.js'),
   ]);
-  view.push(
-    section(
-      'SURVEILLANCE',
-      createChoice({
-        label: 'Surveillance shows',
-        options: [
-          {
-            id: 'nearest',
-            label: 'Nearest 60',
-            title: 'The 60 nearest the middle of the view',
-          },
-          { id: 'all', label: 'All in view', title: 'Every mapped device in view' },
-        ],
-        current: settings?.get('survScope') ?? 'nearest',
-        onSelect: (id) => {
-          settings?.set('survScope', id);
-          osm.refresh('surveillance');
-        },
-      }).el,
-      h(
-        'button.ct-btn',
+  layerOptions(
+    'surveillance',
+    'SURVEILLANCE',
+    createChoice({
+      label: 'Surveillance shows',
+      columns: 2,
+      options: [
         {
-          type: 'button',
-          title: 'Fetch the surveillance, traffic light and landmark areas again',
-          onclick: () => {
-            osm.reload();
-            notify({ title: 'OSM LAYERS RELOADING', level: 'low', timeoutMs: 2000 });
-          },
+          id: 'nearest',
+          label: 'Nearest 60',
+          title: 'The 60 nearest the middle of the view (or you, while following you)',
         },
-        'RELOAD OSM',
-      ),
-      h(
-        'div.ct-section__note',
-        {},
-        'OpenStreetMap and DeFlock mapping: locations only. Each area is fetched once and kept for 12 to 24 h.',
-      ),
-    ),
+        { id: 'all', label: 'All in view', title: 'Every mapped device in view' },
+      ],
+      current: settings?.get('survScope') ?? 'nearest',
+      onSelect: (id) => {
+        settings?.set('survScope', id);
+        osm.refresh('surveillance');
+      },
+    }).el,
   );
   let hubAt = null;
   overlay.subscribe((sum) => (hubAt = sum.hub?.visible ? sum.hub : null));
@@ -2113,40 +2115,41 @@ async function setupScene(app, splash) {
     count: settings?.get('camPreviewCount') ?? 4,
   });
   app.cameraPreviews = previews;
-  view.push(
-    section(
-      'CAMERA PREVIEWS',
-      createSwitch({
-        label: 'Show stills',
-        on: previews.enabled,
-        title: 'Stills beside the nearest traffic cameras and webcams when zoomed in',
-        onToggle: (on) => {
-          settings?.set('camPreviews', on);
-          previews.setEnabled(on);
-        },
-      }).el,
-      createChoice({
-        caption: 'Previews',
-        options: [2, 4, 6, 8].map((n) => ({ id: n, label: String(n) })),
-        current: settings?.get('camPreviewCount') ?? 4,
-        onSelect: (n) => {
-          settings?.set('camPreviewCount', n);
-          previews.setCount(n);
-        },
-      }).el,
-      h(
-        'div.ct-section__note',
-        {},
-        'Under 15 km across. Each still refreshes at most once a minute while its layer is on. Display only.',
-      ),
-    ),
+  viewParts.onMap.push(
+    createSwitch({
+      label: 'Camera stills',
+      on: previews.enabled,
+      title:
+        'Stills beside the nearest traffic cameras and webcams, zoomed in under 15 km (each at most once a minute)',
+      onToggle: (on) => {
+        settings?.set('camPreviews', on);
+        previews.setEnabled(on);
+      },
+    }).el,
+  );
+  moreItem(
+    'CAMERAS',
+    createChoice({
+      caption: 'Camera stills at once',
+      columns: 4,
+      options: [2, 4, 6, 8].map((n) => ({ id: n, label: String(n) })),
+      current: settings?.get('camPreviewCount') ?? 4,
+      onSelect: (n) => {
+        settings?.set('camPreviewCount', n);
+        previews.setCount(n);
+      },
+    }).el,
   );
 
   // Weather history: step the timed overlays (radar, clouds, lightning) back
   // through the last day of observations. Shown once a product reports times.
   const { createWeatherStrip } = await import('./core/ui/weatherStrip.js');
   const weatherStrip = createWeatherStrip({ timeline: weatherTimeline });
-  view.push(section('WEATHER HISTORY', weatherStrip.el));
+  layerOptions(
+    ['radar', 'clouds', 'lightning', 'goes'],
+    'WEATHER HISTORY',
+    weatherStrip.el,
+  );
 
   // Sensor shaders (NVG/FLIR/CRT...): desktop-favored, mobile-gated. Not on the
   // weakest tier at all; balanced renders reduced-resolution single-pass; full
@@ -2183,6 +2186,7 @@ async function setupScene(app, splash) {
     };
     sensorChoice = createChoice({
       label: 'Sensor mode',
+      columns: Math.min(4, modes.length),
       options: modes,
       current: shaders.sensor ?? 'none',
       onSelect: (id) => {
@@ -2193,7 +2197,8 @@ async function setupScene(app, splash) {
       },
     });
     syncLookOptions();
-    const items = [sensorChoice.el, gainChoice.el, flirChoice.el];
+    viewParts.look.push(sensorChoice.el, gainChoice.el, flirChoice.el);
+    const items = [];
     if (shaders.crtSupported) {
       crtSwitch = createSwitch({
         label: 'CRT overlay',
@@ -2212,7 +2217,7 @@ async function setupScene(app, splash) {
         createSwitch({ label: 'Bloom', onToggle: (on) => shaders.setBloom(on) }).el,
       );
     }
-    view.push(section('SENSOR', ...items));
+    if (items.length) moreItem('LOOK', ...items);
     if (dev && window.__argus) window.__argus.shaders = shaders;
   }
   const syncSensorUi = () => {
@@ -2291,7 +2296,7 @@ async function setupScene(app, splash) {
     if (!hudByHand) setHud(look === 'nvg' || look === 'flir', { byHand: false });
   };
   camera.beforeMove(() => orbit.stop());
-  view.push(section('DISPLAY', hudSwitch.el, cleanSwitch.el, orbitSwitch.el));
+  viewParts.screen.push(hudSwitch.el, cleanSwitch.el, orbitSwitch.el);
 
   // Contact cycling (N / P, and the arrows on the target panel): walk the
   // contacts the overlay lists, from a snapshot taken when the walk starts, so
@@ -2395,6 +2400,10 @@ async function setupScene(app, splash) {
     openSettings: () => settingsPanel.open(),
     openKeys: () => keyHelpRef?.open(),
     logs,
+    // SETUP > MORE > DETAILS: the capability readout (was VIEW > SYSTEM).
+    readout: app.readout?.el ?? null,
+    // The shortcut list only where there is a keyboard.
+    keyboard: desktop || Boolean(window.matchMedia?.('(pointer: fine)').matches),
   });
   app.mount('setup', setup.el);
   let keyHelpRef = null;
@@ -2432,8 +2441,28 @@ async function setupScene(app, splash) {
     preset: (i) => PRESETS[i] && runPreset(PRESETS[i]),
   });
 
-  view.push(section('SYSTEM', app.readout.el));
-  for (const el of view) app.mount('view', el);
+  // Assemble VIEW: the groups that have something, then MORE (folded), its
+  // own small groups inside. The capability readout is SETUP's now.
+  const viewSections = [
+    ['MAP', viewParts.map],
+    ['TERRAIN', viewParts.terrain],
+    ['LOOK', viewParts.look],
+    ['ON THE MAP', viewParts.onMap],
+    ['SCREEN', viewParts.screen],
+  ]
+    .filter(([, items]) => items.length)
+    .map(([title, items]) => section(title, ...items));
+  const moreGroups = Object.entries(viewParts.more).map(([title, items]) =>
+    section(title, ...items),
+  );
+  if (moreGroups.length)
+    viewSections.push(disclosure('MORE', { id: 'view.more' }, ...moreGroups));
+  // SCREEN's body, for the phone's point-at-sky row (added below).
+  const screenBody = viewSections
+    .find((el) => el.querySelector(':scope > .ct-head')?.textContent === 'SCREEN')
+    ?.querySelector(':scope > .ct-section__body');
+  view.unshift(...viewSections);
+  for (const el of viewSections) app.mount('view', el);
 
   // ------------------------------------------------------------------ intel
   // Certificate Transparency firehose (P16 CT/BGP stage): a live issuance list,
@@ -2526,6 +2555,8 @@ async function setupScene(app, splash) {
   app.nav = createNavigator({
     proxyClient: proxyClient ?? navMock?.createNavMockProxy() ?? null,
     hasFeed: (id) => Boolean(proxyClient && feedConfigured(health, id)),
+    places: placesStore,
+    recents: recentPlaces,
     log: (e) => {
       console.warn(`[argus] nav: ${e.title}${e.body ? `: ${e.body}` : ''}`);
       app.logs?.add?.(e);
@@ -2562,7 +2593,10 @@ async function setupScene(app, splash) {
     return p ? { ...p, name: tracking.labelFor(t) ?? 'TARGET' } : null;
   };
   if (app.shell === 'desktop' || app.shell === 'mobile') {
-    const { createNavPanel } = await import('./core/ui/navPanel.js');
+    const [{ createNavPanel }, { encodeShareHash }] = await Promise.all([
+      import('./core/ui/navPanel.js'),
+      import('./core/share/state.js'),
+    ]);
     const cv = app.viewer.scene.canvas;
     navUi = createNavPanel({
       nav: app.nav,
@@ -2580,6 +2614,23 @@ async function setupScene(app, splash) {
       demo: !proxyClient,
       // On the phone the sheet makes way for the preview and the drive.
       onActive: () => app.collapseSheet?.(),
+      // WHAT'S HERE and WHERE TO: saved places, recents, the pressed point.
+      places: placesStore,
+      recents: recentPlaces,
+      sketch,
+      // A link to a point: this app's own view there, unless it is served on
+      // loopback (the Android app, a desk at localhost), where an
+      // OpenStreetMap link is the one another device can open.
+      shareLink: (p) =>
+        /^(127\.|localhost$|\[?::1\]?$)/.test(location.hostname)
+          ? null
+          : `${location.origin}${location.pathname}${encodeShareHash({
+              camera: { lat: p.lat, lon: p.lon, alt: 1200, heading: 0, pitch: -90 },
+            })}`,
+      // A saved place shows on the map.
+      onSaved: () => {
+        if (!manager.isEnabled('myplaces')) manager.enable('myplaces');
+      },
     });
     app.mount('navTop', navUi.top);
     app.mount('navBottom', navUi.bottom);
@@ -2874,15 +2925,14 @@ async function setupScene(app, splash) {
   );
   intel.push(
     section(
-      'CONSOLE',
-      h(
-        'div.ct-section__note',
-        {},
-        'Passive lookups and app commands. Toggle with ` (backtick).',
-      ),
+      'TERMINAL',
       h(
         'button.ct-btn',
-        { type: 'button', onclick: () => terminal.toggle() },
+        {
+          type: 'button',
+          title: 'Passive lookups and app commands (` on a keyboard)',
+          onclick: () => terminal.toggle(),
+        },
         'OPEN TERMINAL',
       ),
     ),
@@ -2958,28 +3008,84 @@ async function setupScene(app, splash) {
   } else {
     intel.push(section('TIMELINE', scrubber.el));
   }
-  intel.push(
-    tools.createCreditsView({
-      manager,
-      activeKeys: () =>
-        manager
-          .list()
-          .filter((l) => l.enabled)
-          .map((l) => l.key)
-          .concat(models.enabled ? ['models'] : []),
-    }).el,
+  // Mount TOOLS by section title: the everyday tools first, each folded to
+  // one line (ROUTE open), anything not named here after them, then one MORE
+  // for the rest. Data credits live in SETUP.
+  const TOOLS_FIRST = ['ROUTE', 'MY PLACES', 'LANDMARKS', 'DRAW + MEASURE', 'SHARE'];
+  const TOOLS_MORE = [
+    'SCENES',
+    'WATCH AREAS',
+    'SITUATION TOUR',
+    'RECENT IMAGERY',
+    'RADIO',
+    'TERMINAL',
+    'CERTIFICATE TRANSPARENCY',
+  ];
+  const NO_FOLD = ['SHARE', 'TIMELINE'];
+  const titleOf = (el) =>
+    el?.querySelector?.(':scope > .ct-head')?.textContent.trim().toUpperCase() ?? '';
+  const toolEls = intel.filter(Boolean).map((el) => ({ el, title: titleOf(el) }));
+  const fold = ({ el, title }) =>
+    NO_FOLD.includes(title)
+      ? el
+      : collapsible(el, {
+          id: `tools.${title.toLowerCase().replace(/[^a-z]+/g, '-')}`,
+          open: title === 'ROUTE',
+        });
+  const rank = (t) => (TOOLS_FIRST.includes(t) ? TOOLS_FIRST.indexOf(t) : 50);
+  const mainTools = toolEls
+    .filter((t) => !TOOLS_MORE.includes(t.title))
+    .sort((a, b) => rank(a.title) - rank(b.title));
+  const moreTools = toolEls
+    .filter((t) => TOOLS_MORE.includes(t.title))
+    .sort((a, b) => TOOLS_MORE.indexOf(a.title) - TOOLS_MORE.indexOf(b.title));
+  for (const t of mainTools) app.mount('intel', fold(t));
+  if (moreTools.length)
+    app.mount('intel', disclosure('MORE', { id: 'tools.more' }, ...moreTools.map(fold)));
+  app.mount(
+    'setup',
+    collapsible(
+      tools.createCreditsView({
+        manager,
+        activeKeys: () =>
+          manager
+            .list()
+            .filter((l) => l.enabled)
+            .map((l) => l.key)
+            .concat(models.enabled ? ['models'] : []),
+      }).el,
+      { id: 'setup.credits' },
+    ),
   );
-  for (const el of intel) app.mount('intel', el);
 
   // ------------------------------------------------------------ view stack
   const { createZoomControls } = await import('./core/ui/zoomControls.js');
+  // GEO (core/geo/geoControl.js): centre on me and follow, again heading up,
+  // again free; a drag pauses following (RECENTER). Navigation drives the
+  // camera itself while it follows the route (core/nav/view.js): self-follow
+  // waits meanwhile, and GEO during a drive recentres the route view.
+  const navDriving = () => {
+    const s = app.nav?.state?.status;
+    return s === 'navigating' || s === 'rerouting';
+  };
+  app.selfPosition?.setFollowGuard?.(
+    () => Boolean(app.navView?.following) || Boolean(tracking?.cockpit?.isActive?.()),
+  );
+  app.followingSelf = () => Boolean(app.selfPosition?.following);
   app.mount(
     'stack',
     createZoomControls({
       camera,
-      // GEO: centre on me, again to follow (core/geo/geoControl.js).
       geo: app.geo?.(camera, {
-        beforeFollow: () => tracker?.unfollow?.(),
+        beforeFollow: () => {
+          tracker?.unfollow?.();
+          orbit.stop();
+        },
+        intercept: () => {
+          if (!navDriving() || !app.navView) return false;
+          app.navView.recenter();
+          return true;
+        },
         log: (entry) => app.logs?.add?.(entry),
         units: () => app.settings?.get('units'),
       }),
@@ -3084,6 +3190,8 @@ async function setupScene(app, splash) {
         return entity ? { entity, label: labelFor(entity) } : null;
       },
       onLock: (entity) => tracker.select(entity),
+      // Its POINT AT SKY row joins VIEW > SCREEN.
+      mountRow: screenBody ? (row) => screenBody.appendChild(row) : null,
     });
   }
 
@@ -3131,8 +3239,8 @@ async function setupScene(app, splash) {
   // record on this device (core/share/session.js). Saved on every change
   // (debounced) and at once when the page is hidden or closed, since the
   // Android WebView can be killed in the background without an unload. The
-  // car shares this origin and storage but keeps its own state: it never
-  // reads or writes the record.
+  // car shares this origin and storage: it never resumes this view, but it
+  // shows these layers and changes them (shared layers, below).
   const sessionMod = await import('./core/share/session.js');
   const viewState = await import('./core/ui/viewState.js');
   const [{ webcamFilter }, { trafficCamKindFilter }] = await Promise.all([
@@ -3287,6 +3395,17 @@ async function setupScene(app, splash) {
     // The state this launch settled into is itself worth keeping.
     sessionSaver.schedule();
     if (dev && window.__argus) window.__argus.session = sessionSaver;
+    // Shared layers (W1): the car (Android Auto) shows these layers and its
+    // LAYERS list changes them in this same record (core/share/session.js).
+    // A change it makes while this page runs (usually in the background) is
+    // followed here, so the phone shows it and does not save it away again.
+    sessionMod.createSharedLayers({
+      storage: sessionStore,
+      apply: ({ on, off }) => {
+        for (const k of off) manager.disable(k);
+        for (const k of on) manager.enable(k);
+      },
+    });
   }
 
   if (dev && window.__argus)
@@ -3598,10 +3717,13 @@ async function attachTracking(
   if (import.meta.env.DEV && window.__argus)
     Object.assign(window.__argus, { tracker, cockpit });
 
-  // The label of a contact, for tracking boxes, contacts and the sky HUD.
+  // The label of a contact, for tracking boxes, contacts and the sky HUD: at
+  // most 20 characters, with an ellipsis where it is cut.
   const labelFor = (target) => {
     const t = resolve(target)?.metadata?.title;
-    return t ? String(t).toUpperCase().slice(0, 18) : null;
+    if (!t) return null;
+    const s = String(t).toUpperCase();
+    return s.length > 20 ? `${s.slice(0, 19).trimEnd()}…` : s;
   };
   // Select without bringing the target panel forward (the phone's radio
   // tuner lives in TOOLS: stepping the dial must not switch the sheet away).

@@ -1,42 +1,43 @@
 package net.h4ch1.argus
 
 import android.app.Activity
-import android.content.res.ColorStateList
-import android.graphics.Typeface
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 import java.io.IOException
 import java.util.Locale
 
 /**
- * Native settings: the keys file the proxy reads (app-private, never backed
- * up, never sent to the page), sharing the proxy on Wi-Fi, full screen, the
- * vehicle for the car screen's VEHICLE panel (tank size, silhouette), and the
- * proxy log. Saving restarts the app so the proxy reloads its keys. (The
- * globe's own SETUP tab, where present, writes the same file.)
+ * Native settings, in the ctOS look: the keys file the proxy reads
+ * (app-private, never backed up, never sent to the page), full screen,
+ * sharing the proxy on Wi-Fi, the car's tank size (for the VEHICLE strip's
+ * average consumption), the last crash (with COPY) and the proxy log. Saving
+ * restarts the app so the proxy reloads its keys. (The globe's own SETUP tab,
+ * where present, writes the same keys file.)
  */
 class SettingsActivity : Activity() {
     private lateinit var keys: EditText
-    private lateinit var lan: Switch
-    private lateinit var fullscreen: Switch
+    private lateinit var lan: CtSwitch
+    private lateinit var fullscreen: CtSwitch
     private lateinit var tank: EditText
-    private lateinit var tankGallons: Switch
-    private lateinit var body: RadioGroup
-    private val bodyIds = HashMap<Int, String>()
+    private lateinit var tankGallons: CtSwitch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,120 +51,183 @@ class SettingsActivity : Activity() {
 
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(24), dp(16), dp(32))
+            setPadding(dp(18), dp(20), dp(18), dp(36))
         }
-        column.addView(heading(getString(R.string.settings_title), 20f))
-        column.addView(note(getString(R.string.settings_version, BuildConfig.VERSION_NAME, NodeRuntime.baseUrl() ?: "-")))
+        column.addView(header())
+        column.addView(
+            ctNote(getString(R.string.settings_version, BuildConfig.VERSION_NAME, NodeRuntime.baseUrl() ?: "--")),
+        )
 
-        column.addView(heading(getString(R.string.settings_keys), 14f))
-        column.addView(note(getString(R.string.settings_keys_help, paths.keysFile.absolutePath)))
-        keys = EditText(this).apply {
-            setText(readKeys(paths))
-            typeface = Typeface.MONOSPACE
+        CrashLog.read(this)?.let { column.addCrash(it) }
+
+        column.addView(ctHeading(getString(R.string.settings_keys)))
+        column.addView(ctNote(getString(R.string.settings_keys_help)))
+        keys = field(readKeys(paths), "OPENSKY_CLIENT_ID=...").apply {
             textSize = 12f
-            setTextColor(Ink.TEXT)
-            setHintTextColor(Ink.SECONDARY)
-            hint = "OPENSKY_CLIENT_ID=..."
             gravity = Gravity.TOP or Gravity.START
-            minLines = 10
+            minLines = 8
             // No suggestions and no learning: these are secrets.
             inputType = InputType.TYPE_CLASS_TEXT or
                 InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
                 InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             setHorizontallyScrolling(false)
-            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
-            background = GradientDrawable().apply {
-                setColor(Ink.PANEL)
-                setStroke(dp(1), Ink.SECONDARY)
-            }
-            setPadding(dp(10), dp(10), dp(10), dp(10))
         }
-        column.addView(keys, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
+        column.addView(keys, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
 
-        column.addView(heading(getString(R.string.settings_display), 14f))
-        fullscreen = switch(getString(R.string.settings_fullscreen), prefs.immersive)
+        column.addView(ctHeading(getString(R.string.settings_display)))
+        fullscreen = CtSwitch(this, getString(R.string.settings_fullscreen), prefs.immersive)
         column.addView(fullscreen)
-        column.addView(heading(getString(R.string.settings_network), 14f))
-        lan = switch(getString(R.string.settings_lan), prefs.lan)
-        column.addView(lan)
-        column.addView(note(getString(R.string.settings_lan_help)))
 
-        column.addView(heading(getString(R.string.settings_vehicle), 14f))
-        column.addView(note(getString(R.string.settings_tank_help)))
-        tank = EditText(this).apply {
-            val litres = prefs.tankLitres
-            setText(if (litres > 0f) formatTank(if (prefs.tankGallons) litres / LITRES_PER_GALLON else litres) else "")
-            hint = getString(R.string.settings_tank_hint)
-            typeface = Typeface.MONOSPACE
+        column.addView(ctHeading(getString(R.string.settings_network)))
+        lan = CtSwitch(this, getString(R.string.settings_lan), prefs.lan)
+        column.addView(lan)
+        column.addView(ctNote(getString(R.string.settings_lan_help)))
+
+        column.addView(ctHeading(getString(R.string.settings_vehicle)))
+        tank = field(tankText(prefs), getString(R.string.settings_tank_hint)).apply {
             textSize = 14f
-            setTextColor(Ink.TEXT)
-            setHintTextColor(Ink.SECONDARY)
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
-            background = GradientDrawable().apply {
-                setColor(Ink.PANEL)
-                setStroke(dp(1), Ink.SECONDARY)
-            }
-            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
-        column.addView(label(getString(R.string.settings_tank)))
-        column.addView(tank, LinearLayout.LayoutParams(dp(140), WRAP))
-        tankGallons = switch(getString(R.string.settings_tank_gallons), prefs.tankGallons).apply {
+        column.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(
+                    TextView(context).apply {
+                        text = getString(R.string.settings_tank)
+                        ctType(13f, Ink.DIM)
+                    },
+                    LinearLayout.LayoutParams(0, WRAP, 1f),
+                )
+                addView(tank, LinearLayout.LayoutParams(dp(110), WRAP))
+            },
+        )
+        tankGallons = CtSwitch(this, getString(R.string.settings_tank_gallons), prefs.tankGallons) onChange@{ gallons ->
             // Switching the unit converts what is typed.
-            setOnCheckedChangeListener { _, gallons ->
-                val v = parseTank() ?: return@setOnCheckedChangeListener
-                tank.setText(formatTank(if (gallons) v / LITRES_PER_GALLON else v * LITRES_PER_GALLON))
-            }
+            val v = parseTank() ?: return@onChange
+            tank.setText(formatTank(if (gallons) v / LITRES_PER_GALLON else v * LITRES_PER_GALLON))
         }
         column.addView(tankGallons)
-        column.addView(label(getString(R.string.settings_body)))
-        body = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        listOf(
-            "auto" to R.string.settings_body_auto,
-            "sedan" to R.string.settings_body_sedan,
-            "suv" to R.string.settings_body_suv,
-            "ev" to R.string.settings_body_ev,
-        ).forEach { (key, title) ->
-            val id = View.generateViewId()
-            bodyIds[id] = key
-            body.addView(
-                RadioButton(this).apply {
-                    this.id = id
-                    text = getString(title)
-                    typeface = Typeface.MONOSPACE
-                    textSize = 13f
-                    setTextColor(Ink.DIM)
-                    buttonTintList = ColorStateList.valueOf(Ink.TEXT)
-                    setPadding(0, 0, dp(12), 0)
-                },
-            )
-            if (key == prefs.vehicleBody) body.check(id)
-        }
-        column.addView(body)
+        column.addView(ctNote(getString(R.string.settings_tank_help)))
 
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(20), 0, dp(8))
-            addView(ctButton(getString(R.string.action_save_restart)) { save(paths, prefs) })
-            addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
-            addView(ctButton(getString(R.string.action_cancel)) { finish() })
-        }
-        column.addView(actions)
-
-        column.addView(heading(getString(R.string.settings_log), 14f))
         column.addView(
-            TextView(this).apply {
-                text = NodeRuntime.tail(paths.logFile, 150).ifEmpty { getString(R.string.settings_log_empty) }
-                typeface = Typeface.MONOSPACE
-                textSize = 10f
-                setTextColor(Ink.DIM)
-                setTextIsSelectable(true)
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(22), 0, dp(4))
+                addView(ctButton(getString(R.string.action_save_restart)) { save(paths, prefs) })
+                addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
+                addView(ctButton(getString(R.string.action_cancel)) { finish() })
             },
         )
 
-        setContentView(ScrollView(this).apply { addView(column) })
+        column.addView(ctHeading(getString(R.string.settings_log)))
+        column.addView(
+            block(NodeRuntime.tail(paths.logFile, 150).ifEmpty { getString(R.string.settings_log_empty) }),
+            LinearLayout.LayoutParams(MATCH, dp(260)),
+        )
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(column)
+        }
+        setContentView(scroll)
+        // Edge to edge (Android 15 and later always are): keep the content
+        // clear of the status and navigation bars and the keyboard.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+            val b = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.ime(),
+            )
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
     }
+
+    private fun header(): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(6))
+            addView(
+                ImageView(context).apply { setImageResource(R.drawable.ic_diamond) },
+                LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(12) },
+            )
+            addView(
+                TextView(context).apply {
+                    text = getString(R.string.settings_title)
+                    ctType(18f, Ink.TEXT, bold = true, tracking = 0.16f)
+                },
+            )
+        }
+
+    // The last crash: when, what, the whole trace (scrolls), COPY and CLEAR.
+    private fun LinearLayout.addCrash(trace: String) {
+        CrashLog.markSeen(this@SettingsActivity)
+        addView(ctHeading(getString(R.string.settings_crash)))
+        addView(
+            TextView(context).apply {
+                text = CrashLog.summary(trace)
+                ctType(12f, Ink.ERROR, tracking = 0.08f)
+                setPadding(0, 0, 0, dp(6))
+            },
+        )
+        addView(block(trace), LinearLayout.LayoutParams(MATCH, dp(220)))
+        addView(
+            LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(10), 0, 0)
+                addView(ctButton(getString(R.string.action_copy)) { copy(trace) })
+                addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
+                addView(
+                    ctButton(getString(R.string.action_clear)) {
+                        CrashLog.clear(this@SettingsActivity)
+                        recreate()
+                    },
+                )
+            },
+        )
+    }
+
+    private fun copy(text: String) {
+        val clip = getSystemService(ClipboardManager::class.java) ?: return
+        clip.setPrimaryClip(ClipData.newPlainText("Argus crash", text))
+        // Android 13 and later confirm a copy themselves.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(this, getString(R.string.settings_copied), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** A framed, scrolling monospace block (a trace, the log), selectable. */
+    private fun block(text: String): View =
+        ScrollView(this).apply {
+            background = ctFrame()
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            addView(
+                HorizontalScrollView(context).apply {
+                    addView(
+                        TextView(context).apply {
+                            this.text = text
+                            ctType(10f, Ink.DIM, tracking = 0f)
+                            setTextIsSelectable(true)
+                        },
+                    )
+                },
+            )
+        }
+
+    /** A ctOS text field: monospace on the panel, in corner brackets. */
+    private fun field(value: String, hintText: String): EditText =
+        EditText(this).apply {
+            setText(value)
+            hint = hintText
+            ctType(13f, Ink.TEXT, tracking = 0.02f)
+            setHintTextColor(Ink.SECONDARY)
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+            background = ctFrame()
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
 
     /** The keys file, or the documented template on first use. */
     private fun readKeys(paths: ArgusPaths): String {
@@ -199,8 +263,13 @@ class SettingsActivity : Activity() {
         } else {
             (if (tankGallons.isChecked) size * LITRES_PER_GALLON else size).coerceAtMost(MAX_TANK_LITRES)
         }
-        prefs.vehicleBody = bodyIds[body.checkedRadioButtonId] ?: "auto"
         NodeRuntime.restartApp(this)
+    }
+
+    private fun tankText(prefs: Prefs): String {
+        val litres = prefs.tankLitres
+        if (litres <= 0f) return ""
+        return formatTank(if (prefs.tankGallons) litres / LITRES_PER_GALLON else litres)
     }
 
     /** The tank size typed, in the unit shown; null when not a number. */
@@ -209,39 +278,6 @@ class SettingsActivity : Activity() {
 
     private fun formatTank(v: Float): String =
         String.format(Locale.ROOT, "%.1f", v).removeSuffix(".0")
-
-    private fun label(text: String) = TextView(this).apply {
-        this.text = text
-        typeface = Typeface.MONOSPACE
-        textSize = 12f
-        setTextColor(Ink.DIM)
-        setPadding(0, dp(10), 0, dp(4))
-    }
-
-    private fun heading(text: String, size: Float) = TextView(this).apply {
-        this.text = text
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        textSize = size
-        letterSpacing = 0.12f
-        setTextColor(Ink.TEXT)
-        setPadding(0, dp(18), 0, dp(4))
-    }
-
-    private fun note(text: String) = TextView(this).apply {
-        this.text = text
-        typeface = Typeface.MONOSPACE
-        textSize = 11f
-        setTextColor(Ink.SECONDARY)
-    }
-
-    private fun switch(label: String, checked: Boolean) = Switch(this).apply {
-        text = label
-        isChecked = checked
-        typeface = Typeface.MONOSPACE
-        textSize = 13f
-        setTextColor(Ink.DIM)
-        setPadding(0, dp(8), 0, dp(8))
-    }
 
     private companion object {
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT

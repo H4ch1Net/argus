@@ -61,6 +61,7 @@ export async function runTui(argv = []) {
   const backend = await connectBackend({
     proxyUrl: args.proxyUrl,
     demo: args.demo,
+    near: args.at ? { lat: args.at.lat, lon: args.at.lon } : null,
     warn: (m) => warnings.push(m),
   });
 

@@ -264,7 +264,7 @@ export function createScenesTool({
 
   function renderShots() {
     list.textContent = '';
-    if (!shots.length) list.append(note('NO SHOTS. CAPTURE SHOT ADDS THE CURRENT VIEW.'));
+    if (!shots.length) list.append(note('NO SHOTS YET'));
     shots.forEach((shot, i) => list.append(shotRow(shot, i)));
     paintPlayingRow();
     renderStatus();
@@ -492,7 +492,7 @@ export function createScenesTool({
     const items = store.list();
     if (selected && !items.some((s) => same(s.name, selected))) selected = null;
     savedList.textContent = '';
-    if (!items.length) savedList.append(note('NO SAVED SCENES ON THIS DEVICE.'));
+    if (!items.length) savedList.append(note('NO SAVED SCENES'));
     for (const s of items) {
       savedList.append(
         h(
@@ -658,7 +658,6 @@ export function createScenesTool({
   // ------------------------------------------------------------ section
   const el = section(
     'SCENES',
-    note('Captured views played in order: fly, then hold. Kept on this device only.'),
     h('label.ct-scenes__field', {}, h('span.ct-scenes__label', {}, 'NAME'), nameInput),
     h('div.ct-seg', {}, captureBtn, newBtn),
     list,

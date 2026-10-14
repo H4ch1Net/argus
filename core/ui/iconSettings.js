@@ -1,5 +1,5 @@
 import { h } from './dom.js';
-import { createChoice, createSwitch } from './controls.js';
+import { createChoice } from './controls.js';
 import { glyph } from './glyphs.js';
 import { layerTile } from './layerGlyphs.js';
 import { inkFor } from './palette.js';
@@ -18,7 +18,7 @@ import {
 } from './iconPrefs.js';
 
 // SETTINGS > ICONS (core/ui/settingsPanel.js): how map icons size with zoom,
-// one size for all of them, and, under ADVANCED, each layer's own size and
+// one size for all of them, and, under PER LAYER (folded), each layer's own size and
 // icon variant with live previews drawn from the same glyphs the map uses
 // (core/ui/glyphs.js), tinted with the layer's ink. Every control writes the
 // settings store; the scene's icon policy (core/ui/iconPrefs.js) restyles the
@@ -72,13 +72,15 @@ function layerPreview(key, variantId, cssPx) {
  * @returns {{ el: HTMLElement, repaint: () => void }}
  */
 export function createIconSettings({ settings, layers }) {
+  const near = Math.round(ZOOM.max * 10) / 10;
   const scaling = createChoice({
     caption: 'Icon size',
+    columns: 2,
     options: [
       {
         id: 'zoom',
-        label: 'Scale with zoom',
-        title: 'Icons grow as you zoom in to the street',
+        label: 'Grow with zoom',
+        title: `Icons grow as you come down to the street (up to ${near}x at 100 m)`,
       },
       {
         id: 'fixed',
@@ -91,6 +93,7 @@ export function createIconSettings({ settings, layers }) {
   });
   const global = createChoice({
     caption: 'All icons',
+    columns: 5,
     options: ICON_SETTINGS_SCHEMA.iconSize.values.map((v) => ({ id: v, label: `${v}%` })),
     current: settings.get('iconSize'),
     onSelect: (id) => settings.set('iconSize', id),
@@ -189,15 +192,25 @@ export function createIconSettings({ settings, layers }) {
     return { el, paint };
   }
 
-  const advanced = createSwitch({
-    label: 'Per-layer icons',
-    title: 'Size and icon style for each layer',
-    on: false,
-    onToggle: (on) => {
-      if (on && !built) build();
-      list.hidden = !on;
+  // PER LAYER: folded; the rows are built the first time it opens.
+  const caret = h('span.ct-fold__caret', {}, '[+]');
+  const advanced = h(
+    'button.ct-head.ct-fold__head.ct-icons__fold',
+    {
+      type: 'button',
+      'aria-expanded': 'false',
+      title: 'Size and icon style for each layer',
+      onclick: () => {
+        const open = list.hidden;
+        if (open && !built) build();
+        list.hidden = !open;
+        caret.textContent = open ? '[-]' : '[+]';
+        advanced.setAttribute('aria-expanded', String(open));
+      },
     },
-  });
+    h('span.ct-fold__title', {}, 'PER LAYER'),
+    caret,
+  );
   const resetBtn = h(
     'button.ct-btn',
     {
@@ -228,19 +241,14 @@ export function createIconSettings({ settings, layers }) {
     }
   });
 
-  const near = Math.round(ZOOM.max * 10) / 10;
   const el = h(
     'div.ct-icons',
     {},
     scaling.el,
-    h(
-      'div.ct-section__note',
-      {},
-      `Scale with zoom: icons grow as you come down to the street (up to ${near}x at 100 m) and stay as they were from far away. Fixed: one screen size at every height.`,
-    ),
     global.el,
-    h('div.ct-icons__bar', {}, advanced.el, resetBtn),
+    advanced,
     list,
+    h('div.ct-seg', {}, resetBtn),
   );
   return { el, repaint };
 }

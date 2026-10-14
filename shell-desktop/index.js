@@ -145,8 +145,8 @@ export async function mountShell(root, bootOpts = {}) {
       root.classList.toggle('argus-clean', clean);
       layout();
     },
-    // "Around Me" preset fly-to (regional) and the GEO button (street level,
-    // a second press follows).
+    // "Around Me" preset fly-to (regional) and the GEO button (centre on me
+    // and follow, again heading up, again free).
     aroundMe: (camera) =>
       api.selfPosition
         ? flyToSelf(api.selfPosition, camera, { altitude: 120_000 })

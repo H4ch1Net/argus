@@ -14,53 +14,19 @@
 // Places here are { name, detail?, lat, lon } (core/nav/search.js) or
 // { name, latitude, longitude } (core/search/geocoder.js); both are read.
 
+import { foldStreet, foldRoutes } from './roads.js';
+
 /** Beyond this a result is "far": it needs a clearly better text match. */
 export const LOCAL_RADIUS_KM = 300;
 
-// Street words and their usual abbreviations, one spelling each, so
-// "Jackson Street" matches "JACKSON ST" (US Census) and "jackson st".
-const CANON = new Map(
-  Object.entries({
-    street: 'st',
-    avenue: 'ave',
-    av: 'ave',
-    boulevard: 'blvd',
-    road: 'rd',
-    drive: 'dr',
-    lane: 'ln',
-    court: 'ct',
-    place: 'pl',
-    parkway: 'pkwy',
-    highway: 'hwy',
-    terrace: 'ter',
-    circle: 'cir',
-    square: 'sq',
-    trail: 'trl',
-    mount: 'mt',
-    fort: 'ft',
-    north: 'n',
-    south: 's',
-    east: 'e',
-    west: 'w',
-    northeast: 'ne',
-    northwest: 'nw',
-    southeast: 'se',
-    southwest: 'sw',
-  }),
-);
+// Street words, one spelling each ("Jackson Street" matches "JACKSON ST",
+// "Golf Center pkway" matches "Golf Center Parkway"), and numbered routes as
+// one word however they are written ("Highway 111" matches "CA 111"):
+// ./roads.js.
 
-/** Lower case, accents off, words only, street words abbreviated. */
+/** Lower case, accents off, words only, street words abbreviated, routes folded. */
 export function placeTokens(s) {
-  return (
-    String(s ?? '')
-      .toLowerCase()
-      .normalize('NFKD')
-      // Combining marks (U+0300-036F), spelled out.
-      .replace(/[̀-ͯ]/g, '')
-      .split(/[^a-z0-9]+/)
-      .filter(Boolean)
-      .map((t) => CANON.get(t) ?? t)
-  );
+  return foldRoutes(foldStreet(s));
 }
 
 const has = (list, t, prefix) =>

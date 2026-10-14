@@ -2,154 +2,134 @@ import { h } from '../core/ui/dom.js';
 import { maneuverSvg } from './maneuvers.js';
 import { formatClock, formatDuration, formatStepDistance } from './nav.js';
 
-// The car's two ctOS panels. Both write the DOM only when what they show has
-// changed (a car display repaints the WebGL map under them), and both slide
-// in and out on a short transform/opacity transition, nothing that animates
-// while they rest.
+// The car's two ctOS readouts. Both write the DOM only when what they show has
+// changed (a car display repaints the WebGL map under them), and nothing on
+// them animates while they rest.
 //
-// VEHICLE: the car itself (make, model, year, a silhouette for its body,
-// fuel, battery, range, odometer, average consumption), shown while parked.
+// VEHICLE: one small strip under the status strip, parked only: the fuel (or
+// an electric car's battery) with a thin meter, and the range. A tap opens the
+// rest for a few seconds (the car's name, odometer, average consumption).
 // Maneuver banner and ETA strip: the page's own turn-by-turn readout, only
 // outside the Android app (in the app, Android Auto draws its routing card).
 
-// Side views on a 240 x 96 box, facing right: white hairlines, glass in a
-// faint fill, wheels with square hubs.
-const WHEEL = (x, y, r) =>
-  `<circle cx="${x}" cy="${y}" r="${r}"/><rect x="${x - 3}" y="${y - 3}" width="6" height="6" fill="currentColor" stroke="none"/>`;
-const BODIES = {
-  sedan: {
-    body: 'M20,70V58Q21,52 34,50L68,47L92,29Q97,25 106,25H150Q158,25 165,31L186,47L212,51Q221,53 221,61V70H192A14,14 0 0 0 164,70H76A14,14 0 0 0 48,70Z',
-    glass: 'M98,31L81,45H124V31ZM130,31V45H176L161,33Q158,31 153,31Z',
-    wheels: [
-      [62, 70, 11],
-      [178, 70, 11],
-    ],
-  },
-  suv: {
-    body: 'M20,72V44Q20,38 28,37L60,34L72,20Q75,17 82,17H160Q166,17 170,22L186,36L214,40Q222,42 222,50V72H194A15,15 0 0 0 164,72H78A15,15 0 0 0 48,72Z',
-    glass: 'M80,22L70,33H112V22ZM118,22V33H178L168,24Q166,22 162,22Z',
-    extra: 'M84,12H156',
-    wheels: [
-      [63, 72, 12],
-      [179, 72, 12],
-    ],
-  },
-  ev: {
-    body: 'M20,70V60Q22,52 40,49L76,45L100,27Q106,23 116,23H146Q156,23 164,29L196,48L214,52Q222,55 222,62V70H192A14,14 0 0 0 164,70H76A14,14 0 0 0 48,70Z',
-    glass: 'M104,29L87,44H184L161,30Q157,28 150,28Z',
-    bolt: 'M125,49L116,60H123L119,68L131,56H124L128,49Z',
-    wheels: [
-      [62, 70, 11],
-      [178, 70, 11],
-    ],
-  },
-};
+/** A tapped-open widget folds back after this long. */
+export const VEHICLE_OPEN_MS = 6000;
 
-export function vehicleSvg(variant) {
-  const v = BODIES[variant] ?? BODIES.sedan;
-  return `<svg viewBox="0 0 240 96" aria-hidden="true">
-<path d="M6,84H234" stroke="currentColor" stroke-opacity="0.35" stroke-width="1"/>
-<path d="M6,88H40M200,88H234" stroke="currentColor" stroke-opacity="0.2" stroke-width="1"/>
-<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="miter">
-<path d="${v.glass}" fill="currentColor" fill-opacity="0.12" stroke-width="1.2"/>
-<path d="${v.body}"/>${v.extra ? `<path d="${v.extra}" stroke-width="2.4"/>` : ''}
-${v.wheels.map(([x, y, r]) => WHEEL(x, y, r)).join('')}
-</g>${v.bolt ? `<path d="${v.bolt}" fill="currentColor"/>` : ''}
-</svg>`;
-}
-
-/** The VEHICLE panel. show(view) / hide(); view from vehicle.js vehicleView. */
-export function createVehiclePanel() {
-  const art = h('div.car-vehicle__art');
-  const title = h('div.car-vehicle__name', {}, 'VEHICLE');
-  const low = h('span.ct-tag.car-vehicle__low', { hidden: true }, 'LOW FUEL');
-  const grid = h('div.car-vehicle__grid');
+/**
+ * The VEHICLE widget. show(chip) / hide() with vehicle.js vehicleChip;
+ * toggle() opens or folds it (a tap: hit(x, y) says whether one landed on it).
+ */
+export function createVehicleWidget() {
+  const levelLabel = h('span.car-veh__label', {}, 'FUEL');
+  const fill = h('i');
+  const meter = h('span.ct-meter.car-veh__meter', {}, fill);
+  const levelValue = h('span.car-veh__value', {}, '--');
+  const low = h('span.car-veh__low', { hidden: true }, 'LOW');
+  const rangeValue = h('span.car-veh__value', {}, '--');
+  const title = h('div.car-veh__name', { hidden: true });
+  const rows = h('div.car-veh__rows');
+  const more = h('div.car-veh__more', { hidden: true }, title, rows);
   const el = h(
-    'section.car-vehicle.ct-frame',
+    'section.car-veh',
     { hidden: true, 'aria-label': 'Vehicle' },
     h(
-      'div.car-vehicle__head',
+      'div.car-veh__main',
       {},
-      h('span.ct-sq'),
-      h('span', {}, 'VEHICLE'),
-      low,
-      h('span.car-vehicle__state', {}, 'PARKED'),
+      h('span.car-veh__cell', {}, levelLabel, meter, levelValue, low),
+      h('span.car-veh__cell', {}, h('span.car-veh__label', {}, 'RNG'), rangeValue),
     ),
-    title,
-    art,
-    grid,
+    more,
   );
-  let variant = '';
   let rowsKey = '';
-  let hideTimer = 0;
-  const cells = new Map(); // key -> { value, bar }
+  const cells = new Map(); // detail key -> value node
+  let foldTimer = 0;
+  let last = null;
+  const put = (node, text) => {
+    if (node.textContent !== text) node.textContent = text;
+  };
 
-  function render(view) {
-    if (view.variant !== variant) {
-      variant = view.variant;
-      art.innerHTML = vehicleSvg(variant);
-    }
-    if (title.textContent !== view.title) title.textContent = view.title;
-    low.hidden = !view.lowFuel;
-    const key = view.rows.map((r) => r.key).join(',');
+  function render(chip) {
+    last = chip;
+    put(levelLabel, chip.level.label);
+    put(levelValue, chip.level.value);
+    const w = chip.level.meter === null ? '0%' : `${Math.round(chip.level.meter)}%`;
+    if (fill.style.width !== w) fill.style.width = w;
+    meter.hidden = chip.level.meter === null;
+    low.hidden = !chip.low;
+    el.classList.toggle('is-low', chip.low);
+    put(rangeValue, chip.range.value);
+    put(title, chip.title);
+    title.hidden = !chip.title;
+    const key = chip.details.map((d) => d.key).join(',');
     if (key !== rowsKey) {
       rowsKey = key;
       cells.clear();
-      grid.replaceChildren(
-        ...view.rows.map((r) => {
-          const value = h('span.car-stat__value', {}, '--');
-          const bar = 'meter' in r ? h('i') : null;
-          cells.set(r.key, { value, bar });
-          return h(
-            `div.car-stat.car-stat--${r.key}`,
-            {},
-            h('span.car-stat__label', {}, r.label),
-            value,
-            bar ? h('span.ct-meter.car-stat__meter', {}, bar) : null,
-          );
+      rows.replaceChildren(
+        ...chip.details.map((d) => {
+          const value = h('span.car-veh__value', {}, d.value);
+          cells.set(d.key, value);
+          return h('div.car-veh__row', {}, h('span.car-veh__label', {}, d.label), value);
         }),
       );
     }
-    for (const r of view.rows) {
-      const c = cells.get(r.key);
-      if (!c) continue;
-      if (c.value.textContent !== r.value) c.value.textContent = r.value;
-      if (c.bar) {
-        const w = Number.isFinite(r.meter)
-          ? `${Math.max(0, Math.min(100, r.meter))}%`
-          : '0%';
-        if (c.bar.style.width !== w) c.bar.style.width = w;
-      }
+    for (const d of chip.details) {
+      const node = cells.get(d.key);
+      if (node) put(node, d.value);
     }
   }
 
-  return {
+  function fold() {
+    clearTimeout(foldTimer);
+    foldTimer = 0;
+    more.hidden = true;
+    el.classList.remove('is-open');
+  }
+
+  const api = {
     el,
-    show(view) {
-      render(view);
-      clearTimeout(hideTimer);
-      if (el.hidden) {
-        el.hidden = false;
-        // Next frame, so the transition runs from the hidden pose.
-        requestAnimationFrame(() => el.classList.add('is-in'));
-      }
-    },
-    update(view) {
-      if (!el.hidden) render(view);
+    show(chip) {
+      render(chip);
+      el.hidden = false;
     },
     hide() {
-      if (el.hidden || !el.classList.contains('is-in')) {
-        el.hidden = true;
-        return;
+      fold();
+      el.hidden = true;
+    },
+    /** Open (or fold) the details; open folds back by itself. */
+    toggle() {
+      if (el.hidden) return false;
+      if (!more.hidden) {
+        fold();
+        return true;
       }
-      el.classList.remove('is-in');
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => (el.hidden = true), 220);
+      // Nothing more to show than the strip itself.
+      if (!last?.title && !last?.details.length) return true;
+      more.hidden = false;
+      el.classList.add('is-open');
+      foldTimer = setTimeout(fold, VEHICLE_OPEN_MS);
+      return true;
+    },
+    /** Whether a tap at (x, y), in CSS pixels, lands on the widget. */
+    hit(x, y) {
+      if (el.hidden) return false;
+      const r = el.getBoundingClientRect();
+      const pad = 8; // fingertips at arm's length
+      return (
+        x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad
+      );
     },
     get shown() {
       return !el.hidden;
     },
+    get open() {
+      return !el.hidden && !more.hidden;
+    },
   };
+  // In a browser (?shell=car) a real press opens it too.
+  el.addEventListener('pointerup', (e) => {
+    if (e.isTrusted) api.toggle();
+  });
+  return api;
 }
 
 /**

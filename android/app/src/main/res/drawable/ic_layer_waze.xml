@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WAZE: a square speech bubble with three dots (glyphs.js report). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3,4H21V16H10.5L5.5,20.5V16H3Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="square" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,9H9.4V11.4H7Z M10.8,9H13.2V11.4H10.8Z M14.6,9H17V11.4H14.6Z" />
+</vector>

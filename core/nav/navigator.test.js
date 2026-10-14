@@ -238,3 +238,47 @@ test('a late signal count still lands, and re-sends the state', async () => {
   assert.equal(r.signals, 9);
   assert.equal(sent, 1);
 });
+
+test('a planned destination becomes a recent one; saved places are searched', async () => {
+  const mem = new Map();
+  const storage = {
+    getItem: (k) => mem.get(k) ?? null,
+    setItem: (k, v) => mem.set(k, v),
+  };
+  const { createRecents } = await import('../places/recents.js');
+  const { createPlacesStore } = await import('../places/saved.js');
+  const recents = createRecents(storage);
+  const places = createPlacesStore(storage);
+  places.add({ name: 'Ferry dock', lat: 37.795, lon: -122.393, kind: 'work' });
+  const proxy = fakeProxy({ osrm: fixture('osrm-sf-car.json') });
+  const nav = createNavigator({
+    proxyClient: proxy,
+    hasFeed: () => false,
+    signals: false,
+    places,
+    recents,
+    roads: null,
+  });
+  await nav.plan(FROM, TO, { mode: 'drive' });
+  assert.deepEqual(
+    recents.list().map((p) => p.name),
+    ['Folsom St'],
+  );
+  // A dropped pin is kept by its coordinates until it has a name.
+  await nav.plan(FROM, { lat: 37.77, lon: -122.41 }, { mode: 'drive' });
+  assert.equal(recents.list()[0].name, '37.77000, -122.41000');
+  nav.remember({ lat: 37.77, lon: -122.41, name: '1500 Folsom Street' });
+  assert.equal(recents.list()[0].name, '1500 Folsom Street');
+  assert.equal(recents.list().length, 2);
+  // A moving target is not a place to go back to.
+  await nav.plan(FROM, { lat: 37.7, lon: -122.45, name: 'N123', kind: 'target' });
+  assert.equal(recents.list().length, 2);
+  // HOME / WORK / SAVED through the navigator (the car asks this before typing).
+  const list = await nav.search('@saved', { near: FROM });
+  assert.deepEqual(
+    list.map((p) => p.kind),
+    ['work', 'recent', 'recent'],
+  );
+  assert.equal(nav.places, places);
+  assert.equal(nav.recents, recents);
+});

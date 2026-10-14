@@ -9,8 +9,14 @@ import {
   mergePlaces,
   searchDestinations,
   reverseName,
+  savedShortlist,
+  savedPlace,
+  SAVED_QUERY,
 } from './search.js';
 import { resetRegionMemo } from '../search/region.js';
+import { resetReverseMemo } from '../search/reverse.js';
+import { createPlacesStore } from '../places/saved.js';
+import { createRecents } from '../places/recents.js';
 
 const fixture = (name) =>
   JSON.parse(fs.readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
@@ -250,4 +256,215 @@ test('the report: biased to a view over Cincinnati, Photon answers Cincinnati', 
     client.asked.find((a) => a.feed === 'census-geocoder').params.address,
     '46211 Jackson street, Kentucky',
   );
+});
+
+// --- saved places, recents and street crossings (round 8) --------------------
+
+const memory = () => {
+  const m = new Map();
+  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) };
+};
+const roadsFixture = JSON.parse(
+  fs.readFileSync(
+    new URL('../search/fixtures/indio-roads.json', import.meta.url),
+    'utf8',
+  ),
+);
+const reverseFixture = JSON.parse(
+  fs.readFileSync(
+    new URL('../search/fixtures/photon-reverse-hwy111-golf.json', import.meta.url),
+    'utf8',
+  ),
+);
+const HERE = { lat: 33.7206, lon: -116.2156 };
+
+function savedSetup() {
+  const st = memory();
+  const places = createPlacesStore(st);
+  const recents = createRecents(st);
+  places.add({ name: '46211 Jackson St', lat: 33.71306, lon: -116.21643, kind: 'home' });
+  places.add({ name: 'Office', lat: 33.74, lon: -116.25, kind: 'work' });
+  places.add({ name: 'Far gym', lat: 33.8, lon: -116.4 });
+  places.add({ name: 'Near taco stand', lat: 33.721, lon: -116.216 });
+  recents.add({ name: 'Indio Fashion Mall', lat: 33.725, lon: -116.235 });
+  recents.add({ name: 'Home again', lat: 33.71307, lon: -116.21644 }); // a saved place
+  return { places, recents };
+}
+
+test('before typing ("@saved"): HOME, WORK, saved nearest first, then recents', async () => {
+  const { places, recents } = savedSetup();
+  const list = savedShortlist({ places, recents, near: HERE });
+  assert.deepEqual(
+    list.map((p) => `${p.kind}:${p.name}`),
+    [
+      'home:Home',
+      'work:Work',
+      'saved:Near taco stand',
+      'saved:Far gym',
+      'recent:Indio Fashion Mall',
+    ],
+  );
+  assert.equal(list[0].detail, '46211 Jackson St');
+  assert.equal(list[0].id, `saved:${places.role('home').id}`);
+  // The car asks the same through the search channel (shell-car search()).
+  const viaSearch = await searchDestinations(null, SAVED_QUERY, {
+    near: HERE,
+    places,
+    recents,
+  });
+  assert.deepEqual(viaSearch, list);
+  assert.deepEqual(savedShortlist({}), []);
+});
+
+test('typing: the saved places that match come first; "home" finds HOME', async () => {
+  const { places } = savedSetup();
+  const client = {
+    getJson: async (feed) => {
+      if (feed === 'photon') return fixture('photon-46211-jackson-indio.json');
+      throw new Error(`unexpected ${feed}`);
+    },
+  };
+  const out = await searchDestinations(client, 'taco', { near: HERE, places });
+  assert.equal(out[0].name, 'Near taco stand');
+  assert.equal(out[0].kind, 'saved');
+  const home = await searchDestinations(null, 'home', { near: HERE, places });
+  assert.equal(home[0].kind, 'home');
+  assert.deepEqual(savedPlace(places.role('work')).name, 'Work');
+});
+
+test('a HOME saved under the name "Home" does not repeat it as the detail', () => {
+  const home = savedPlace({
+    id: 'h1',
+    name: ' home ',
+    lat: 33.7,
+    lon: -116.2,
+    kind: 'home',
+    note: 'side entrance',
+  });
+  assert.equal(home.name, 'Home');
+  assert.equal(home.detail, 'side entrance');
+  const work = savedPlace({
+    id: 'w1',
+    name: 'Work',
+    lat: 33.7,
+    lon: -116.2,
+    kind: 'work',
+  });
+  assert.equal(work.detail, '');
+  assert.equal(
+    savedPlace({
+      id: 'w2',
+      name: '82 Civic Center',
+      lat: 33.7,
+      lon: -116.2,
+      kind: 'work',
+    }).detail,
+    '82 Civic Center',
+  );
+});
+
+test('"Highway 111 and Golf Center pkway" near Indio: the crossing first, in Indio', async () => {
+  resetReverseMemo();
+  const asked = [];
+  const client = {
+    getJson: async (feed, path, opts) => {
+      asked.push({ feed, params: opts?.params });
+      if (feed === 'photon') return { type: 'FeatureCollection', features: [] };
+      if (feed === 'photon-reverse') return reverseFixture;
+      throw new Error(`unexpected ${feed}`);
+    },
+  };
+  const roads = async () => roadsFixture.lines;
+  const out = await searchDestinations(client, 'Highway 111 and Golf Center pkway', {
+    near: HERE,
+    roads,
+  });
+  assert.equal(out[0].name, 'Highway 111 & Golf Center Parkway');
+  assert.equal(out[0].detail, 'Indio, California');
+  assert.equal(out[0].kind, 'intersection');
+  assert.equal(near(out[0], { lat: 33.7149, lon: -116.2103 }, 0.05), true);
+  for (const p of out) assert.deepEqual(Object.keys(p).sort(), PLACE_KEYS);
+  // The town of the crossing: one precise reverse question (four decimals).
+  const rev = asked.find((a) => a.feed === 'photon-reverse');
+  assert.equal(rev.params.lat, '33.7149');
+  // No user position: no crossing search (it is local by nature).
+  const far = await searchDestinations(client, 'Highway 111 and Golf Center pkway', {
+    roads,
+  });
+  assert.equal(far.length, 0);
+});
+
+test('"and" in a name: places that match stay first, crossings follow', async () => {
+  resetReverseMemo();
+  // Two made-up streets crossing near the user, and a shop named after them.
+  const lines = [
+    {
+      names: ['Lord Street'],
+      coords: [
+        [33.72, -116.22],
+        [33.72, -116.21],
+      ],
+    },
+    {
+      names: ['Taylor Street'],
+      coords: [
+        [33.715, -116.215],
+        [33.725, -116.215],
+      ],
+    },
+  ];
+  const shop = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-116.3, 33.8] },
+        properties: {
+          name: 'Lord and Taylor',
+          osm_key: 'shop',
+          osm_value: 'department_store',
+          countrycode: 'US',
+        },
+      },
+    ],
+  };
+  const client = (photon) => ({
+    getJson: async (feed) => {
+      if (feed === 'photon') return photon;
+      if (feed === 'photon-reverse') return { features: [] };
+      throw new Error(`unexpected ${feed}`);
+    },
+  });
+  const roads = async () => lines;
+  const withShop = await searchDestinations(client(shop), 'Lord and Taylor', {
+    near: HERE,
+    roads,
+  });
+  assert.deepEqual(
+    withShop.map((p) => p.name),
+    ['Lord and Taylor', 'Lord Street & Taylor Street'],
+  );
+  // Nothing that matches well: the crossing leads ("Monroe and Avenue 44").
+  const noShop = await searchDestinations(
+    client({ type: 'FeatureCollection', features: [] }),
+    'Lord and Taylor',
+    { near: HERE, roads },
+  );
+  assert.equal(noShop[0].name, 'Lord Street & Taylor Street');
+});
+
+test('a found crossing does not wait for a place search that hangs', async () => {
+  resetReverseMemo();
+  const client = {
+    getJson: (feed) =>
+      feed === 'photon-reverse' ? Promise.resolve(reverseFixture) : new Promise(() => {}), // Photon down
+  };
+  const t0 = Date.now();
+  const out = await searchDestinations(client, 'Jackson St & Indio Blvd', {
+    near: HERE,
+    roads: async () => roadsFixture.lines,
+  });
+  assert.ok(Date.now() - t0 < 4000);
+  assert.equal(out[0].name, 'Jackson Street & Indio Boulevard');
+  assert.equal(near(out[0], { lat: 33.7206, lon: -116.2162 }, 0.05), true);
 });

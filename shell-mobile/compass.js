@@ -25,11 +25,19 @@ const screenAngle = () => screen.orientation?.angle ?? window.orientation ?? 0;
  * @param {{ cameraControls: object, pickCenter: () => ({entity:object,label:string}|null), onLock: (entity: object) => void }} deps
  */
 export function createCompass({ cameraControls, pickCenter, onLock }) {
+  // A switch row (VIEW > SCREEN): POINT AT SKY ...... [ ] OFF
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'ct-btn argus-compass-btn';
+  button.className = 'ct-switch argus-compass-btn';
   button.title = 'Point the phone at the sky to identify what is overhead';
-  button.textContent = 'SKY';
+  button.setAttribute('aria-pressed', 'false');
+  button.innerHTML =
+    '<span class="ct-switch__label">Point at sky</span><span class="ct-switch__box"></span><span class="ct-switch__state">OFF</span>';
+  const stateEl = button.querySelector('.ct-switch__state');
+  const show = (on, text = on ? 'ON' : 'OFF') => {
+    button.setAttribute('aria-pressed', String(on));
+    stateEl.textContent = text;
+  };
 
   const reticle = document.createElement('div');
   reticle.className = 'argus-reticle';
@@ -68,10 +76,8 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
   async function enable() {
     const granted = await requestOrientationPermission();
     if (!granted) {
-      button.textContent = 'BLOCKED';
-      setTimeout(() => {
-        button.textContent = 'SKY';
-      }, 2500);
+      show(false, 'BLOCKED');
+      setTimeout(() => show(false), 2500);
       return;
     }
     userPos = await getPosition();
@@ -87,8 +93,7 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
     hudTimer = setInterval(refreshHud, 250);
     reticle.hidden = false;
     active = true;
-    button.classList.add('is-on');
-    button.textContent = 'EXIT SKY';
+    show(true);
   }
 
   function disable() {
@@ -103,8 +108,7 @@ export function createCompass({ cameraControls, pickCenter, onLock }) {
     reticle.hidden = true;
     active = false;
     current = null;
-    button.classList.remove('is-on');
-    button.textContent = 'SKY';
+    show(false);
   }
 
   button.addEventListener('click', () => (active ? disable() : enable()));

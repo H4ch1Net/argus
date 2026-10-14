@@ -132,14 +132,17 @@ test('census-geocoder: one address line, the current benchmark, JSON; nothing el
   assert.ok(f.cache.ttlMs >= 60 * 60_000);
 });
 
-test('photon-reverse: one rounded point, one answer', () => {
+test('photon-reverse: one point (five decimals at most), one answer', () => {
   assert.equal(pathOk('photon-reverse', '/reverse'), true);
   assert.equal(pathOk('photon-reverse', '/api/'), false);
   assert.equal(
     queryOk('photon-reverse', qs(regionParams({ lat: 33.72, lon: -116.21 }))),
     true,
   );
-  assert.equal(queryOk('photon-reverse', 'lat=33.72&lon=-116.2&limit=1'), false); // finer than 0.1
+  // A pressed point or a crossing (core/search/reverse.js): five decimals.
+  assert.equal(queryOk('photon-reverse', 'lat=33.71491&lon=-116.21031&limit=1'), true);
+  assert.equal(queryOk('photon-reverse', 'lat=33.714912&lon=-116.2&limit=1'), false);
+  assert.equal(queryOk('photon-reverse', 'lat=3e1&lon=-116.2&limit=1'), false);
   assert.equal(queryOk('photon-reverse', 'lat=33.7&lon=-116.2&limit=5'), false);
   assert.equal(queryOk('photon-reverse', 'lat=33.7&lon=-116.2'), false);
   assert.equal(queryOk('photon-reverse', 'lat=95&lon=0&limit=1'), false);

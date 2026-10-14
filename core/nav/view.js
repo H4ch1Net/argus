@@ -204,17 +204,21 @@ export function createNavView(
   }
   const removePreRender = scene.preRender.addEventListener(frame);
 
-  // A drag (not a tap) or a wheel on the globe hands the camera back.
+  // A one-finger drag (not a tap) or a wheel on the globe hands the camera
+  // back; a two-finger pinch or twist only changes the view it follows with.
   const canvas = scene.canvas;
   let press = null;
+  const down = new Set();
   const onDown = (e) => {
-    press = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    down.add(e.pointerId);
+    press = down.size === 1 ? { x: e.clientX, y: e.clientY, id: e.pointerId } : null;
   };
   const onMove = (e) => {
-    if (!press || !following || e.pointerId !== press.id) return;
+    if (!press || !following || down.size > 1 || e.pointerId !== press.id) return;
     if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) setFollow(false);
   };
-  const onUp = () => {
+  const onUp = (e) => {
+    down.delete(e.pointerId);
     press = null;
   };
   const onWheel = () => following && setFollow(false);

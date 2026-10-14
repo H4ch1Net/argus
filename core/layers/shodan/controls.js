@@ -1,6 +1,7 @@
 import { SHODAN_SNAPSHOTS } from './snapshots.js';
 
-// VIEW > SHODAN: which curated snapshot the density map shows, and the opt-in
+// The Shodan layer's options (LAYERS, beside its row): which curated snapshot
+// the density map shows, and the opt-in
 // host sample. A change re-fetches the layer once (the proxy answers from its
 // 12 hour cache when it can); nothing here searches on pan.
 
@@ -31,14 +32,7 @@ export function createShodanSection({ settings, manager, ui }) {
       refresh();
     },
   });
-  return ui.section(
-    'SHODAN',
-    choice.el,
-    sample.el,
-    ui.h(
-      'div.ct-section__note',
-      {},
-      'Counts by country are credit-free snapshots, never a live search. The host sample costs one query credit per snapshot; tap a host for its InternetDB exposure.',
-    ),
-  );
+  // Counts by country are credit-free snapshots, never a live search; the
+  // host sample costs one query credit per snapshot (its switch says so).
+  return ui.section('SHODAN', choice.el, sample.el);
 }

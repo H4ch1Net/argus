@@ -17,7 +17,7 @@ Status: Round 7 ran the app on real CesiumJS (headless Chromium with software We
 - Public traffic cameras, public webcams, border wait times, traffic flow and incidents.
 - Surveillance infrastructure: where cameras and ALPR readers are, traffic lights, data centres, dams, and submarine cables.
 - Internet telemetry: BGP activity, certificate transparency issuance, Tor relays, and Shodan exposure snapshots.
-- Search, routing, and distances, plus an OSINT console that takes an IP, domain or ASN and shows its routing, registry, geography and exposure.
+- Search (places, addresses and street crossings such as "Highway 111 and Golf Center Pkwy"), saved places, routing and distances, plus an OSINT console that takes an IP, domain or ASN and shows its routing, registry, geography and exposure.
 
 Most of this needs no key. Free keys add OpenSky flights, NASA FIRMS fires, AIS ships and TomTom traffic. A Mapillary token adds street photos. Each key is optional, and the app runs with whichever ones you have.
 
@@ -84,7 +84,7 @@ Commands:
 - `argus quakes`, `flights`, `military`, `storms`, `launches`, `sats`, `fires`, `geocode`, `flow`, `shodan`, `photo`, `bgp`, `ct` and `health` return live data. Add `--json` for machine-readable output.
 - `argus route` and `argus measure` take two places.
 
-In the globe, click or tap a contact to track it. `G` opens WHERE TO, `F` follows the target, `/` opens search, the backtick opens the terminal, and `?` lists every shortcut.
+In the globe, click or tap a contact to track it. Long-press (or right-click) the map for WHAT'S HERE: save the place, route to or from it, copy or share it. GEO shows and follows your position like a map app (tap again for heading-up). `G` opens WHERE TO, `F` follows the target, `/` opens search, the backtick opens the terminal, and `?` lists every shortcut.
 
 The terminal version draws the world with braille characters, or ASCII with `--ascii`, and shows every live layer as coloured glyphs. Move with the arrow keys or `hjkl`, zoom with `+` and `-`, toggle the first nine layers with `1` to `9`, and press `:` for the command line. A terminal has no GPS, so set `ARGUS_HOME=lat,lon` (or pass `--at`) to set the "Around Me" location.
 
