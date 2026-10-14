@@ -1,16 +1,20 @@
 import './settings.css';
 import { h } from './dom.js';
-import { section } from './controls.js';
+import { collapsible, disclosure, section } from './controls.js';
 import { createLogsPanel, copyText } from './logs.js';
 
-// SETUP: everything needed to get Argus running well, in one tab, in the
-// order a first run needs it. STATUS (proxy, GPU, tier, font, secure context),
-// KEYS (which optional keys are set, saving new ones to the proxy on this
-// machine: never kept in the browser; and moving them to another machine as
-// a passphrase-encrypted file), PROXY (point the app at another proxy, e.g.
-// your home machine from the phone), PERMISSIONS (location, motion), INSTALL
-// (as an app, the Android app, Android Auto), a short START guide, and LOGS
-// (feed failures, collapsed, out of the way).
+// SETUP: getting Argus running well, in one tab, the everyday first.
+//   SETTINGS (the dialog; in the Android app also its own settings screen)
+//   STATUS   connection, feeds, location and compass (with ALLOW where a
+//            permission is missing), GPU
+//   KEYS     folded: which optional keys are set; tap one to set it (saved by
+//            the proxy on this machine, never in the browser); move them to
+//            another device as a passphrase-encrypted file
+//   INSTALL  in a browser only: install as an app, the Android app
+//   MORE     folded: details for a bug report (tier, renderer, font, the
+//            capability readout), another proxy (a phone browser using the
+//            proxy on a home machine), keyboard shortcuts
+//   LOGS     folded: feed failures. main.js adds CREDITS after it.
 
 const RELEASES = 'https://github.com/H4ch1Net/argus/releases/latest';
 export const PROXY_OVERRIDE_KEY = 'argus.proxyBase';
@@ -41,7 +45,9 @@ export function importPayload(text) {
 /**
  * @param {{ proxyBase: string|null, health: object|null, tier: string,
  *   capabilities: object, notify: Function, openSettings: () => void,
- *   openKeys: () => void, logs?: object }} deps  logs: the app's log store
+ *   openKeys: () => void, logs?: object, readout?: HTMLElement|null,
+ *   keyboard?: boolean }} deps  logs: the app's log store; readout: the
+ *   capability readout (MORE > DETAILS); keyboard: offer the shortcut list
  */
 export function createSetupTab({
   proxyBase,
@@ -52,55 +58,105 @@ export function createSetupTab({
   openSettings,
   openKeys,
   logs = null,
+  readout = null,
+  keyboard = true,
 }) {
-  const checks = h('div');
-  const check = (label, value, state = '') =>
+  const host = typeof window !== 'undefined' ? window.ArgusAndroid : null;
+  const inApp = Boolean(host && typeof host.openSettings === 'function');
+
+  // A status row: LABEL ........ VALUE [ACTION]
+  const row = (label, value, state = '', action = null) =>
     h(
       'div.ct-setup__check',
       {},
       h('span', {}, label),
       h('b', { dataset: { state } }, value),
+      action,
     );
 
+  // ---------------------------------------------------------------- STATUS
   const feeds = health?.feeds ?? [];
   const ready = feeds.filter((f) => f.configured).length;
-  const gpu = capabilities?.webgl?.renderer || 'unknown';
-  let fontOk = false;
-  try {
-    fontOk = document.fonts?.check?.("12px 'JetBrains Mono'") ?? false;
-  } catch {
-    fontOk = false;
-  }
-  checks.append(
-    check('PROXY', proxyBase ? 'LIVE' : 'DEMO (NO PROXY)', proxyBase ? 'ok' : 'bad'),
-    check(
-      'FEEDS READY',
-      feeds.length ? `${ready}/${feeds.length}` : '--',
-      ready ? 'ok' : '',
-    ),
-    check('QUALITY TIER', String(tier).toUpperCase()),
-    check(
-      'GPU',
-      capabilities?.webgl?.softwareRendering ? 'SOFTWARE (SLOW)' : 'HARDWARE',
-      capabilities?.webgl?.softwareRendering ? 'bad' : 'ok',
-    ),
-    h('div.ct-section__note', {}, String(gpu).slice(0, 120)),
-    check('FONT', fontOk ? 'JETBRAINS MONO' : 'FALLBACK MONO', fontOk ? 'ok' : ''),
-    check(
-      'SECURE CONTEXT',
-      window.isSecureContext ? 'YES' : 'NO (LOCATION OFF)',
-      window.isSecureContext ? 'ok' : 'bad',
-    ),
+  const soft = Boolean(capabilities?.webgl?.softwareRendering);
+
+  const locState = h('b', {}, '--');
+  const locAllow = h(
+    'button.ct-btn.ct-setup__act',
+    { type: 'button', hidden: true, onclick: () => askLocation() },
+    'ALLOW',
+  );
+  const paintLocation = (state) => {
+    locState.textContent = state;
+    locState.dataset.state = state === 'GRANTED' ? 'ok' : state === 'DENIED' ? 'bad' : '';
+    locAllow.hidden = state === 'GRANTED';
+  };
+  const askLocation = () =>
+    navigator.geolocation?.getCurrentPosition(
+      () => paintLocation('GRANTED'),
+      (e) => paintLocation(e.code === 1 ? 'DENIED' : 'NO FIX'),
+      { timeout: 10_000 },
+    );
+  paintLocation(navigator.geolocation ? 'ASK' : 'NONE');
+  navigator.permissions
+    ?.query({ name: 'geolocation' })
+    .then((p) => {
+      const paint = () =>
+        paintLocation(p.state === 'prompt' ? 'ASK' : p.state.toUpperCase());
+      paint();
+      p.onchange = paint;
+    })
+    .catch(() => {});
+
+  // The compass: only a row where the device has one (iOS asks first).
+  const hasMotion = typeof window !== 'undefined' && 'DeviceOrientationEvent' in window;
+  const needsAsk = typeof window.DeviceOrientationEvent?.requestPermission === 'function';
+  const motionState = h('b', {}, needsAsk ? 'ASK' : 'ON');
+  const motionAllow = h(
+    'button.ct-btn.ct-setup__act',
+    {
+      type: 'button',
+      hidden: !needsAsk,
+      onclick: async () => {
+        try {
+          const r = String(await window.DeviceOrientationEvent.requestPermission());
+          motionState.textContent = r === 'granted' ? 'ON' : 'DENIED';
+          motionAllow.hidden = r === 'granted';
+        } catch {
+          motionState.textContent = 'DENIED';
+        }
+      },
+    },
+    'ALLOW',
+  );
+  const motionRow = h(
+    'div.ct-setup__check',
+    {},
+    h('span', {}, 'COMPASS'),
+    motionState,
+    motionAllow,
   );
 
-  // KEYS: the list comes from the proxy; values never come back.
-  const keyList = h('div');
+  const status = section(
+    'STATUS',
+    row('CONNECTION', proxyBase ? 'LIVE' : 'DEMO DATA', proxyBase ? 'ok' : 'bad'),
+    feeds.length
+      ? row('FEEDS READY', `${ready}/${feeds.length}`, ready ? 'ok' : '')
+      : null,
+    h('div.ct-setup__check', {}, h('span', {}, 'LOCATION'), locState, locAllow),
+    hasMotion && matchMedia?.('(pointer: coarse)').matches ? motionRow : null,
+    row('GPU', soft ? 'SOFTWARE (SLOW)' : 'HARDWARE', soft ? 'bad' : 'ok'),
+  );
+
+  // ------------------------------------------------------------------ KEYS
+  // The list comes from the proxy; values never come back.
+  const keyList = h('div.ct-setup__keys');
   const keyNote = h('div.ct-section__note', {}, 'Loading...');
+  const keyMeta = h('span', {}, '');
   async function loadKeys() {
     keyList.innerHTML = '';
     if (!proxyBase) {
-      keyNote.textContent =
-        'No proxy: keys are set on the machine running it (argus web).';
+      keyNote.textContent = 'Keys are set on the machine running Argus.';
+      keyMeta.textContent = '';
       return;
     }
     let data;
@@ -113,72 +169,88 @@ export function createSetupTab({
       data = null;
     }
     if (!data) {
-      keyNote.textContent = 'This proxy does not offer key setup (update it).';
+      keyNote.textContent = 'Key setup is not offered here.';
+      keyMeta.textContent = '';
       return;
     }
+    const set = data.keys.filter((k) => k.set).length;
+    keyMeta.textContent = `${set}/${data.keys.length} SET`;
     keyNote.textContent = data.writable
-      ? `Saved to ${data.file ?? 'the keys file'} on this machine (mode 600), never in the browser.`
-      : 'Read only here: open SETUP on the machine running the proxy to set keys, or edit ~/.config/argus/.env there.';
+      ? 'All optional. Saved on this device, never in the page.'
+      : 'Read only here: set keys on the machine running Argus.';
+    keyNote.title = data.file ? `Saved to ${data.file}` : '';
     for (const k of data.keys) keyList.appendChild(keyRow(k, data.writable));
     transfer.hidden = !(data.writable && data.transfer);
   }
 
+  // One line per key (NAME ...... SET); tapping it opens its field.
   function keyRow(k, writable) {
     const state = h(
       'span.ct-setup__state',
       { dataset: { on: String(k.set) } },
       k.set ? 'SET' : 'NOT SET',
     );
-    const row = h(
-      'div.ct-setup__row',
-      {},
-      h('span.ct-setup__name', {}, k.name),
-      state,
+    const name = h('span.ct-setup__name', {}, k.name);
+    if (!writable) return h('div.ct-setup__row', {}, name, state);
+    const input = h('input', {
+      type: k.kind === 'url' ? 'url' : 'password',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      placeholder: k.set
+        ? 'Replace...'
+        : k.kind === 'url'
+          ? 'http://192.168.1.20:8080'
+          : 'Paste key',
+      'aria-label': k.name,
+    });
+    const save = h(
+      'button.ct-btn',
+      {
+        type: 'button',
+        onclick: async () => {
+          const value = input.value.trim();
+          input.value = '';
+          if (await saveKey(k.name, value)) loadKeys();
+        },
+      },
+      'SAVE',
+    );
+    const clear = k.set
+      ? h(
+          'button.ct-btn',
+          {
+            type: 'button',
+            title: 'Remove this key',
+            onclick: async () => (await saveKey(k.name, '')) && loadKeys(),
+          },
+          'X',
+        )
+      : null;
+    const edit = h(
+      'div.ct-setup__edit',
+      { hidden: true },
+      h('div.ct-setup__input', {}, input, save, clear),
       h(
-        'span.ct-setup__for',
+        'div.ct-setup__for',
         {},
         `FOR ${k.feeds.join(', ').toUpperCase()}${k.restart ? ' (RESTART TO USE)' : ''}`,
       ),
     );
-    if (writable) {
-      const input = h('input', {
-        type: k.kind === 'url' ? 'url' : 'password',
-        autocomplete: 'off',
-        spellcheck: 'false',
-        placeholder: k.set
-          ? 'Replace...'
-          : k.kind === 'url'
-            ? 'http://192.168.1.20:8080'
-            : 'Paste key',
-        'aria-label': k.name,
-      });
-      const save = h(
-        'button.ct-btn',
-        {
-          type: 'button',
-          onclick: async () => {
-            const value = input.value.trim();
-            input.value = '';
-            const ok = await saveKey(k.name, value);
-            if (ok) loadKeys();
-          },
+    const head = h(
+      'button.ct-setup__row.ct-setup__keyhead',
+      {
+        type: 'button',
+        'aria-expanded': 'false',
+        onclick: () => {
+          edit.hidden = !edit.hidden;
+          head.setAttribute('aria-expanded', String(!edit.hidden));
+          if (!edit.hidden) input.focus();
         },
-        k.set ? 'REPLACE' : 'SAVE',
-      );
-      const clear = k.set
-        ? h(
-            'button.ct-btn',
-            {
-              type: 'button',
-              title: 'Remove this key',
-              onclick: async () => (await saveKey(k.name, '')) && loadKeys(),
-            },
-            'X',
-          )
-        : null;
-      row.appendChild(h('div.ct-setup__input', {}, input, save, clear));
-    }
-    return row;
+      },
+      name,
+      state,
+    );
+    return h('div.ct-setup__key', {}, head, edit);
   }
 
   // Results of key actions show inline, beside the action, never as popups.
@@ -195,6 +267,7 @@ export function createSetupTab({
   const say = keyStatus.set;
   const transferStatus = statusLine();
   const sayT = transferStatus.set;
+  const restartWord = inApp ? 'Restart Argus' : 'Restart the proxy (argus web)';
 
   // POST to the proxy's setup API (same origin, the app's header, JSON).
   async function setupPost(route, payload) {
@@ -227,13 +300,23 @@ export function createSetupTab({
     say(
       `${name} ${value ? 'SAVED' : 'REMOVED'}. ${
         r.body.restartNeeded
-          ? 'Restart the proxy (argus web) for this one to take effect.'
+          ? `${restartWord} for this one to take effect.`
           : 'In use now: toggle its layer off and on to load it.'
       }`,
       'ok',
     );
+    restartBtn.hidden = !(
+      r.body.restartNeeded &&
+      inApp &&
+      typeof host.restart === 'function'
+    );
     return true;
   }
+  const restartBtn = h(
+    'button.ct-btn',
+    { type: 'button', hidden: true, onclick: () => host?.restart?.() },
+    'RESTART ARGUS',
+  );
 
   // EXPORT / IMPORT: all set keys as one passphrase-encrypted file
   // (proxy/lib/setup.js), for moving them to another machine's proxy, e.g.
@@ -299,7 +382,7 @@ export function createSetupTab({
     h(
       'div.ct-section__note',
       {},
-      'Encrypted (scrypt + AES-256-GCM). Keep the file and the passphrase apart: anyone with both has your keys.',
+      'Keep the file and the passphrase apart: together they unlock your keys.',
     ),
   );
   async function doExport() {
@@ -374,9 +457,14 @@ export function createSetupTab({
       : '';
     sayT(
       `${keysWord(r.body.saved.length)} IMPORTED: ${r.body.saved.join(', ')}.${skipped}${
-        r.body.restartNeeded ? ' Restart the proxy for OAuth and stream keys.' : ''
+        r.body.restartNeeded ? ` ${restartWord} for OAuth and stream keys.` : ''
       }`,
       'ok',
+    );
+    restartBtn.hidden = !(
+      r.body.restartNeeded &&
+      inApp &&
+      typeof host.restart === 'function'
     );
     loadKeys();
   }
@@ -417,19 +505,94 @@ export function createSetupTab({
     { type: 'button', 'aria-pressed': 'false', onclick: () => showForm('import') },
     'IMPORT KEYS',
   );
-  const logsPanel = logs ? createLogsPanel(logs) : null;
-
   const transfer = h(
     'div.ct-setup__transfer',
     { hidden: true },
-    h('div.ct-field__label', {}, 'MOVE KEYS TO ANOTHER DEVICE'),
-    h('div.ct-seg', {}, transferBtns.export, transferBtns.import),
+    h(
+      'div.ct-seg.ct-seg--grid',
+      { style: { '--cols': '2' } },
+      transferBtns.export,
+      transferBtns.import,
+    ),
     transferStatus.el,
     exportForm,
     importForm,
   );
 
-  // PROXY override, for a phone browser using a proxy on another machine.
+  const keys = collapsible(
+    section('KEYS', keyNote, keyStatus.el, restartBtn, keyList, transfer),
+    { id: 'setup.keys', meta: keyMeta },
+  );
+
+  // --------------------------------------------------------------- INSTALL
+  // In a browser only: the Android app (and an installed page) needs neither.
+  let deferred = null;
+  const installBtn = h(
+    'button.ct-btn',
+    {
+      type: 'button',
+      hidden: true,
+      onclick: async () => {
+        if (!deferred) return;
+        deferred.prompt();
+        await deferred.userChoice.catch(() => null);
+        deferred = null;
+        installBtn.hidden = true;
+      },
+    },
+    'INSTALL APP',
+  );
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    installBtn.hidden = false;
+  });
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches;
+  const install =
+    host || standalone
+      ? null
+      : section(
+          'INSTALL',
+          h(
+            'div.ct-seg',
+            {},
+            installBtn,
+            h(
+              'a.ct-btn',
+              {
+                href: RELEASES,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                title: 'The Argus app runs everything on the phone and in Android Auto',
+              },
+              'ANDROID APP ↗',
+            ),
+          ),
+        );
+
+  // ------------------------------------------------------------------ MORE
+  // DETAILS: what a bug report needs.
+  const gpu = capabilities?.webgl?.renderer || 'unknown';
+  let fontOk = false;
+  try {
+    fontOk = document.fonts?.check?.("12px 'JetBrains Mono'") ?? false;
+  } catch {
+    fontOk = false;
+  }
+  const details = section(
+    'DETAILS',
+    row('QUALITY TIER', String(tier).toUpperCase()),
+    row('RENDERER', String(gpu).slice(0, 60)),
+    row('FONT', fontOk ? 'JETBRAINS MONO' : 'FALLBACK MONO', fontOk ? 'ok' : ''),
+    row(
+      'SECURE CONTEXT',
+      window.isSecureContext ? 'YES' : 'NO (LOCATION OFF)',
+      window.isSecureContext ? 'ok' : 'bad',
+    ),
+    readout,
+  );
+
+  // PROXY: point a phone browser at the proxy on another machine.
   let stored = '';
   try {
     stored = localStorage.getItem(PROXY_OVERRIDE_KEY) || '';
@@ -466,158 +629,60 @@ export function createSetupTab({
     }
     location.reload();
   };
-
-  // PERMISSIONS.
-  const locState = h('b', {}, '--');
-  const askLocation = () =>
-    navigator.geolocation?.getCurrentPosition(
-      () => (locState.textContent = 'GRANTED'),
-      (e) => (locState.textContent = e.code === 1 ? 'DENIED' : 'UNAVAILABLE'),
-      { timeout: 10_000 },
-    );
-  navigator.permissions
-    ?.query({ name: 'geolocation' })
-    .then((p) => {
-      locState.textContent = p.state.toUpperCase();
-      p.onchange = () => (locState.textContent = p.state.toUpperCase());
-    })
-    .catch(() => {});
-  const motionState = h(
-    'b',
-    {},
-    'DeviceOrientationEvent' in window ? 'AVAILABLE' : 'NONE',
-  );
-  const askMotion = async () => {
-    const req = window.DeviceOrientationEvent?.requestPermission;
-    if (typeof req !== 'function') {
-      motionState.textContent = 'NO PROMPT NEEDED';
-      return;
-    }
-    try {
-      motionState.textContent = String(await req()).toUpperCase();
-    } catch {
-      motionState.textContent = 'DENIED';
-    }
-  };
-
-  // INSTALL as an app (PWA), when the browser offers it.
-  let deferred = null;
-  const installBtn = h(
-    'button.ct-btn',
-    {
-      type: 'button',
-      disabled: true,
-      onclick: async () => {
-        if (!deferred) return;
-        deferred.prompt();
-        await deferred.userChoice.catch(() => null);
-        deferred = null;
-        installBtn.disabled = true;
-      },
-    },
-    'INSTALL APP',
-  );
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferred = e;
-    installBtn.disabled = false;
-  });
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches;
-
-  const el = h(
-    'div',
-    {},
-    // The settings dialog, first: on a phone this is its only way in (the
-    // desktop bar also has SET, and the comma key).
+  const proxy = section(
+    'PROXY',
+    row('IN USE', proxyBase ? proxyBase.replace(/^https?:\/\//, '') : 'NONE'),
     h(
-      'div.ct-seg',
-      { style: { marginBottom: '10px' } },
+      'div.ct-setup__input',
+      {},
+      proxyInput,
       h(
         'button.ct-btn',
-        { type: 'button', style: { flex: '1' }, onclick: () => openSettings() },
-        'SETTINGS  \u2699',
+        { type: 'button', onclick: () => applyProxy(proxyInput.value) },
+        'USE',
       ),
+      h('button.ct-btn', { type: 'button', onclick: () => applyProxy('') }, 'RESET'),
     ),
-    section('STATUS', checks),
-    section(
-      'KEYS',
-      keyNote,
-      // Export / import first: the list of every key is long.
-      transfer,
-      keyStatus.el,
-      keyList,
-      h(
-        'div.ct-section__note',
-        {},
-        'Every key is optional: without one, its layer is simply not offered.',
-      ),
+  );
+
+  const more = disclosure(
+    'MORE',
+    { id: 'setup.more' },
+    details,
+    host ? null : proxy,
+    keyboard
+      ? section(
+          'KEYBOARD',
+          h('button.ct-btn', { type: 'button', onclick: () => openKeys() }, 'SHORTCUTS'),
+        )
+      : null,
+  );
+
+  const logsPanel = logs ? createLogsPanel(logs) : null;
+
+  const el = h(
+    'div.ct-setup',
+    {},
+    // The settings dialog first: on a phone this is its only way in (the
+    // desktop bar also has SET, and the comma key). In the Android app, its
+    // own settings screen (keys file, LAN sharing, full screen) sits beside.
+    h(
+      'div.ct-seg.ct-setup__top',
+      {},
+      h('button.ct-btn', { type: 'button', onclick: () => openSettings() }, 'SETTINGS'),
+      inApp
+        ? h(
+            'button.ct-btn',
+            { type: 'button', onclick: () => host.openSettings() },
+            'APP SETTINGS',
+          )
+        : null,
     ),
-    section(
-      'PROXY',
-      h(
-        'div.ct-section__note',
-        {},
-        proxyBase ? `Using ${proxyBase}.` : 'No proxy found: the app runs on demo data.',
-      ),
-      h(
-        'div.ct-setup__input',
-        {},
-        proxyInput,
-        h(
-          'button.ct-btn',
-          { type: 'button', onclick: () => applyProxy(proxyInput.value) },
-          'USE',
-        ),
-        h('button.ct-btn', { type: 'button', onclick: () => applyProxy('') }, 'RESET'),
-      ),
-      h(
-        'div.ct-section__note',
-        {},
-        'From a phone browser, point at the proxy on your own machine over HTTPS (npm run start:https prints its LAN address).',
-      ),
-    ),
-    section(
-      'PERMISSIONS',
-      h('div.ct-setup__check', {}, h('span', {}, 'LOCATION'), locState),
-      h('button.ct-btn', { type: 'button', onclick: askLocation }, 'ALLOW LOCATION'),
-      h('div.ct-setup__check', {}, h('span', {}, 'MOTION / COMPASS'), motionState),
-      h('button.ct-btn', { type: 'button', onclick: askMotion }, 'ALLOW MOTION'),
-    ),
-    section(
-      'INSTALL',
-      h(
-        'div.ct-section__note',
-        {},
-        standalone
-          ? 'Running as an installed app.'
-          : 'Install this page as an app (needs HTTPS or localhost).',
-      ),
-      installBtn,
-      h(
-        'div.ct-section__note',
-        {},
-        'Android: the Argus app runs the whole stack on the phone, no laptop, and works as an Android Auto map. Download the APK from the releases page on the phone.',
-      ),
-      h(
-        'a.ct-btn',
-        { href: RELEASES, target: '_blank', rel: 'noopener noreferrer' },
-        'ANDROID APP ↗',
-      ),
-    ),
-    section(
-      'START',
-      h(
-        'div.ct-section__note',
-        {},
-        'Pick a preset (NEAR, SKY, HAZ, ENV, WATCH, NET), tap a contact to open its card, FOLLOW to ride its camera, COCKPIT to ride along. Search with / or the SEARCH cell.',
-      ),
-      h(
-        'div.ct-seg',
-        {},
-        h('button.ct-btn', { type: 'button', onclick: () => openKeys() }, 'KEYBOARD'),
-      ),
-    ),
-    // Last and collapsed: feed failures, for when something looks wrong.
+    status,
+    keys,
+    install,
+    more,
+    // Feed failures, for when something looks wrong.
     logsPanel?.el ?? null,
   );
   loadKeys();

@@ -4,20 +4,22 @@ import { createChoice, createSwitch } from './controls.js';
 import { createSelfIconPicker } from './selfIcons.js';
 import { createIconSettings } from './iconSettings.js';
 
-// SETTINGS: a ctOS dialog over the globe with five pages (PERFORMANCE,
-// INTERFACE, ICONS, DATA, ABOUT), each control writing straight to the settings
+// SETTINGS: a ctOS dialog over the globe with four pages (GENERAL, QUALITY,
+// ICONS, DATA with ABOUT), each control writing straight to the settings
 // store (core/settings/store.js), which remembers it on this device. What can
 // apply live applies live; a quality-tier change offers a reload, since the
 // tier shapes how the globe is built. Opens from the bar's SET cell, from
-// SETUP, or with the comma key.
+// SETUP, or with the comma key. Labels only: a control's details are in its
+// tooltip, never a paragraph under it.
 
 const PAGES = [
-  { id: 'perf', label: 'PERF' },
-  { id: 'ui', label: 'INTERFACE' },
+  { id: 'general', label: 'GENERAL' },
+  { id: 'quality', label: 'QUALITY' },
   { id: 'icons', label: 'ICONS' },
   { id: 'data', label: 'DATA' },
-  { id: 'about', label: 'ABOUT' },
 ];
+// Earlier page names, for callers that still open them.
+const PAGE_ALIAS = { perf: 'quality', ui: 'general', about: 'data' };
 
 const opt = (id, label = String(id).toUpperCase()) => ({ id, label });
 
@@ -27,10 +29,11 @@ const opt = (id, label = String(id).toUpperCase()) => ({ id, label });
  *   layers: the registered map layers (names and order for ICONS).
  */
 export function createSettingsPanel({ settings, tier, notify, layers }) {
-  const choice = (key, label, options) =>
+  const choice = (key, label, options, columns = options.length) =>
     createChoice({
       caption: label,
       options,
+      columns,
       current: settings.get(key),
       onSelect: (id) => settings.set(key, id),
     });
@@ -52,55 +55,7 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
   const icons = createIconSettings({ settings, layers });
 
   const pages = {
-    perf: h(
-      'div.ct-settings__page',
-      {},
-      keep(
-        'tier',
-        choice('tier', 'Quality', [
-          opt('auto', 'Auto'),
-          opt('minimal', 'Min'),
-          opt('balanced', 'Bal'),
-          opt('full', 'Full'),
-        ]),
-      ),
-      note(`Detected tier: ${String(tier).toUpperCase()}. A change reloads the globe.`),
-      keep(
-        'fps',
-        choice('fps', 'Frame rate', [opt('auto', 'Auto'), opt(20), opt(30), opt(60)]),
-      ),
-      keep(
-        'resolution',
-        choice('resolution', 'Resolution', [
-          opt('auto', 'Auto'),
-          opt(1, '1x'),
-          opt(1.5, '1.5x'),
-          opt(2, '2x'),
-          opt(2.5, '2.5x'),
-          opt('native', 'Max'),
-        ]),
-      ),
-      keep(
-        'detail',
-        choice('detail', 'Globe detail', [
-          opt('low', 'Low'),
-          opt('standard', 'Std'),
-          opt('high', 'High'),
-        ]),
-      ),
-      keep(
-        'dataSaver',
-        toggle(
-          'dataSaver',
-          'Data saver',
-          'Fewer tiles and slower refreshes; heavy layers pause on a metered link',
-        ),
-      ),
-      note(
-        "Resolution is rendered pixels per screen point (Max: the panel's own). Lower frame rate and resolution keep a phone cool; detail trades tiles for sharpness.",
-      ),
-    ),
-    ui: h(
+    general: h(
       'div.ct-settings__page',
       {},
       keep(
@@ -121,6 +76,21 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
         ]),
       ),
       keep(
+        'startView',
+        choice('startView', 'Start in', [
+          opt('last', 'Last view'),
+          { id: 'default', label: 'Default', title: 'The default view and layers' },
+          opt('aroundme', 'Around me'),
+        ]),
+      ),
+      keep(
+        'selfIcon',
+        createSelfIconPicker({
+          current: settings.get('selfIcon'),
+          onSelect: (id) => settings.set('selfIcon', id),
+        }),
+      ),
+      keep(
         'uiScale',
         choice('uiScale', 'Interface size', [
           opt(90, '90%'),
@@ -133,42 +103,101 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
         'reducedMotion',
         toggle('reducedMotion', 'Reduce motion', 'Stop decorative animation'),
       ),
+    ),
+    quality: h(
+      'div.ct-settings__page',
+      {},
       keep(
-        'startView',
-        choice('startView', 'Start in', [
-          opt('last', 'Where I left'),
-          opt('default', 'Default view'),
-          opt('aroundme', 'Around me'),
+        'tier',
+        createChoice({
+          caption: `Quality (auto: ${String(tier).toUpperCase()})`,
+          label: 'Quality',
+          columns: 4,
+          options: [
+            opt('auto', 'Auto'),
+            opt('minimal', 'Min'),
+            opt('balanced', 'Bal'),
+            opt('full', 'Full'),
+          ].map((o) => ({ ...o, title: `${o.label}: a change reloads the globe` })),
+          current: settings.get('tier'),
+          onSelect: (id) => settings.set('tier', id),
+        }),
+      ),
+      keep(
+        'fps',
+        choice('fps', 'Frame rate', [opt('auto', 'Auto'), opt(20), opt(30), opt(60)]),
+      ),
+      keep(
+        'resolution',
+        choice(
+          'resolution',
+          'Resolution',
+          [
+            opt('auto', 'Auto'),
+            opt(1, '1x'),
+            opt(1.5, '1.5x'),
+            opt(2, '2x'),
+            opt(2.5, '2.5x'),
+            opt('native', 'Max'),
+          ].map((o) => ({
+            ...o,
+            title: 'Rendered pixels per screen point; lower keeps a phone cool',
+          })),
+          3,
+        ),
+      ),
+      keep(
+        'detail',
+        choice('detail', 'Globe detail', [
+          opt('low', 'Low'),
+          opt('standard', 'Std'),
+          opt('high', 'High'),
         ]),
       ),
       keep(
-        'selfIcon',
-        createSelfIconPicker({
-          current: settings.get('selfIcon'),
-          onSelect: (id) => settings.set('selfIcon', id),
-        }),
-      ),
-      note(
-        'Your own marker on the map and in the car. GEO centres on you, again to follow.',
+        'dataSaver',
+        toggle(
+          'dataSaver',
+          'Data saver',
+          'Fewer tiles and slower refreshes; heavy layers pause on a metered link',
+        ),
       ),
     ),
     icons: h('div.ct-settings__page', {}, icons.el),
     data: h(
       'div.ct-settings__page',
       {},
-      note(
-        'Settings, saved places and scenes live in this browser only. Nothing is uploaded.',
-      ),
+      note('Settings, places and scenes are saved on this device only.'),
       h(
-        'div.ct-seg',
-        {},
-        h('button.ct-btn', { type: 'button', onclick: () => exportSettings() }, 'EXPORT'),
+        'div.ct-seg.ct-seg--grid',
+        { style: { '--cols': '3' } },
         h(
           'button.ct-btn',
-          { type: 'button', onclick: () => fileInput.click() },
+          {
+            type: 'button',
+            title: 'Save the settings as a file',
+            onclick: () => exportSettings(),
+          },
+          'EXPORT',
+        ),
+        h(
+          'button.ct-btn',
+          {
+            type: 'button',
+            title: 'Load settings from a file',
+            onclick: () => fileInput.click(),
+          },
           'IMPORT',
         ),
-        h('button.ct-btn', { type: 'button', onclick: () => reset() }, 'RESET'),
+        h(
+          'button.ct-btn',
+          {
+            type: 'button',
+            title: 'Every setting back to its default',
+            onclick: () => reset(),
+          },
+          'RESET',
+        ),
       ),
       h(
         'button.ct-btn',
@@ -179,16 +208,10 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
         },
         'FORGET THIS DEVICE',
       ),
-    ),
-    about: h(
-      'div.ct-settings__page',
-      {},
+      h('div.ct-field__label.ct-settings__sub', {}, 'ABOUT'),
       h('div.ct-settings__about', {}, 'ARGUS'),
-      note(
-        'A live globe of public data: flights, ships, satellites, weather, cameras and internet telemetry. Read-only: it maps what is already public and never acts on a target.',
-      ),
-      note('Data credits: TOOLS > DATA CREDITS. Keys and feed status: SETUP.'),
-      note('Based on gods-eye-view (MIT, code only); data keeps its own terms.'),
+      note('Public data on a live globe. Read-only: it never acts on a target.'),
+      note('Based on gods-eye-view (MIT, code only). Data credits: SETUP.'),
     ),
   };
 
@@ -244,7 +267,7 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
   }
 
   // Tabs inside the dialog, the kitty idiom.
-  let page = 'perf';
+  let page = 'general';
   const tabs = h(
     'div.ct-settings__tabs',
     { role: 'tablist' },
@@ -292,7 +315,8 @@ export function createSettingsPanel({ settings, tier, notify, layers }) {
     }
   };
   function open(which) {
-    if (which && pages[which]) show(which);
+    const id = PAGE_ALIAS[which] ?? which;
+    if (id && pages[id]) show(id);
     repaint();
     el.hidden = false;
     document.addEventListener('keydown', onKey, true);

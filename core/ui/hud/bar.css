@@ -76,8 +76,9 @@
   transform: translateY(3px);
 }
 
-/* Segments: a slot 6px wider than its CornerFrame, frame 31px tall. */
-.ct-seg {
+/* Segments: a slot 6px wider than its CornerFrame, frame 31px tall. Spans
+   only: div.ct-seg is a menu's row of buttons (theme.css). */
+span.ct-seg {
   display: flex;
   align-items: center;
   padding: 0 3px;

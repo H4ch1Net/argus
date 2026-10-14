@@ -164,22 +164,13 @@ export function createPoiTool({
     },
     'SCAN VIEW',
   );
-  const el = section(
-    'LANDMARKS',
-    summary,
-    h('div.ct-seg', {}, scanBtn),
-    list,
-    h(
-      'div.ct-section__note',
-      {},
-      'Named landmarks from OpenStreetMap around the middle of the view, Wikipedia-linked first. Each area is fetched once.',
-    ),
-  );
-  // Scan when the section comes into sight (its tab opened, scrolled to).
+  const el = section('LANDMARKS', summary, h('div.ct-seg', {}, scanBtn), list);
+  // Scan when the list comes into sight (its tab or section opened, scrolled
+  // to): the body, so a folded section does not scan.
   if (typeof IntersectionObserver === 'function') {
     new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) maybeScan();
-    }).observe(el);
+    }).observe(el.querySelector('.ct-section__body') ?? el);
   }
   summary.textContent = 'OPEN TO SCAN THE VIEW';
   return { el, scan, maybeScan };

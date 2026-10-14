@@ -78,6 +78,18 @@
   display: none;
 }
 
+/* Switch rows line up with the captions above the choices. */
+.ct-settings__page > .ct-switch {
+  margin: 0 calc(-1 * var(--row-pad-x));
+  width: calc(100% + 2 * var(--row-pad-x));
+}
+
+.ct-settings__sub {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--backgroundBright);
+}
+
 .ct-settings__about {
   color: var(--textPrimary);
   font-size: 18px;
@@ -138,10 +150,66 @@
 
 .ct-setup__check {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  min-height: 24px;
+  padding: 3px 0;
   font-size: 11px;
+}
+
+.ct-setup__check > span:first-child {
+  flex: 1;
+  color: var(--textPrimaryDim);
+}
+
+/* ALLOW beside a missing permission. */
+.ct-setup__act {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.ct-setup__act[hidden] {
+  display: none;
+}
+
+/* SETTINGS (and APP SETTINGS in the Android app) above everything. */
+.ct-setup__top {
+  padding: 8px var(--panel-padding) 2px;
+}
+
+.ct-setup__top > .ct-btn {
+  flex: 1 1 0;
+}
+
+/* KEYS: one line per key; tapping it opens its field. */
+.ct-setup__keyhead {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--backgroundBright);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.ct-setup__keyhead:hover .ct-setup__name,
+.ct-setup__keyhead[aria-expanded='true'] .ct-setup__name {
+  color: var(--textPrimary);
+}
+
+.ct-setup__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid var(--backgroundBright);
+}
+
+.ct-setup__edit[hidden] {
+  display: none;
 }
 
 .ct-setup__check b {
@@ -383,14 +451,9 @@
   gap: 8px;
 }
 
-.ct-icons__bar {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.ct-icons__bar .ct-switch {
-  flex: 1 1 auto;
+.ct-icons__fold {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .ct-icons__list {

@@ -13,12 +13,13 @@ import './shell.css';
 
 // Mobile shell (S25-tuned), ctOS layout: a compact bar at the top (lockup,
 // search, feed state), the view stack at the right edge in thumb reach, and a
-// bottom sheet with kitty tabs: LAYERS / TARGET / VIEW / TOOLS. Selecting a
-// contact opens the sheet to half on TARGET, so the card is visible with the
-// map still in view. Sensors are shell inputs: this shell reads GPS and the
-// compass and calls core's camera; core never imports sensor code. The own
-// position (main sets api.selfPosition, core/geo/selfPosition.js) drives GEO,
-// Around Me and the pass observer; the compass turns its marker when still.
+// bottom sheet with kitty tabs: LAYERS / TARGET / VIEW / TOOLS / SETUP.
+// Selecting a contact opens the sheet to half on TARGET, so the card is
+// visible with the map still in view. Sensors are shell inputs: this shell
+// reads GPS and the compass and calls core's camera; core never imports
+// sensor code. The own position (main sets api.selfPosition,
+// core/geo/selfPosition.js) drives GEO (centre and follow, heading up), Around
+// Me and the pass observer; the compass turns its marker when still.
 
 /**
  * @param {HTMLElement} root
@@ -116,7 +117,12 @@ export async function mountShell(root, bootOpts = {}) {
         if (sheet.state() === 'peek') sheet.open();
       }
     },
-    showTab: (id) => tabs.select(id),
+    /** Show a tab (the sheet opens to half if it was down). */
+    showTab: (id) => {
+      tabs.select(id);
+      if (!sheet.isOpen()) sheet.open();
+      sheet.content.scrollTop = 0;
+    },
     /** Lower the sheet to its peek (navigation starting: the map comes first). */
     collapseSheet: () => sheet.collapse(),
     /** Clean view: hide the interface, leaving the globe and the overlay. */
@@ -135,18 +141,21 @@ export async function mountShell(root, bootOpts = {}) {
       const fix = await api.selfPosition?.locate({ timeoutMs: 8000 });
       return fix ? { latitude: fix.lat, longitude: fix.lon } : null;
     },
-    // GEO: centre on the user (street level), a second tap follows. The
-    // compass feeds the marker's heading while the position is in use.
+    // GEO: centre on the user and follow, a second tap heading up, a third
+    // frees the map. The compass feeds the marker's heading while the
+    // position is in use.
     geo: (camera, opts = {}) => {
       if (!api.selfPosition) return null;
       attachSelfCompass(api.selfPosition);
       return createGeoControl({ selfPosition: api.selfPosition, camera, ...opts });
     },
     // Point-at-sky mode: DeviceOrientation drives the camera. main provides the
-    // camera controls plus how to identify and lock the aimed contact.
-    enableCompass: (deps) => {
+    // camera controls, how to identify and lock the aimed contact, and where
+    // its switch row goes (VIEW > SCREEN; else the top of VIEW).
+    enableCompass: ({ mountRow, ...deps }) => {
       const compass = createCompass(deps);
-      panes.view.prepend(h('div.argus-compass-row', {}, compass.button));
+      if (mountRow) mountRow(compass.button);
+      else panes.view.prepend(h('div.argus-compass-row', {}, compass.button));
       root.appendChild(compass.reticle);
       return compass;
     },

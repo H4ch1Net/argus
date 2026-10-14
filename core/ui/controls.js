@@ -1,7 +1,8 @@
 import { h } from './dom.js';
 
-// Small ctOS controls the menus are built from: a titled section, a segmented
-// single choice, and a switch row. Core builds them; main.js composes menus.
+// Small ctOS controls the menus are built from: a titled section, a section
+// that folds (collapsible / disclosure), a segmented single choice, and a
+// switch row. Core builds them; main.js composes menus.
 
 /** A section: a ct-head title followed by its content. */
 export function section(title, ...children) {
@@ -13,15 +14,91 @@ export function section(title, ...children) {
   );
 }
 
+// Which folded sections were left open, on this device (a convenience only).
+const OPEN_KEY = 'argus.ui.open';
+function readOpen() {
+  try {
+    const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '[]');
+    return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeOpen(id, open) {
+  try {
+    const s = readOpen();
+    if (open) s.add(id);
+    else s.delete(id);
+    localStorage.setItem(OPEN_KEY, JSON.stringify([...s].slice(-64)));
+  } catch {
+    // storage blocked: the section just starts folded next time
+  }
+}
+
+/**
+ * Fold a section (from section(), or any module's ct-section): its title
+ * becomes a header button, TITLE ........ [+], and its body shows only while
+ * open. `id` remembers the state on this device. A section without the usual
+ * head and body is returned as it is.
+ * @param {HTMLElement} el
+ * @param {{ id?: string, open?: boolean, meta?: HTMLElement|string }} [opts]
+ *   meta: a small value shown before the caret (a count, SET 3/30)
+ * @returns {HTMLElement & { setOpen?: (open: boolean) => void }}
+ */
+export function collapsible(el, { id, open = false, meta } = {}) {
+  const head = el?.querySelector?.(':scope > .ct-head');
+  const body = el?.querySelector?.(':scope > .ct-section__body');
+  if (!head || !body || head.tagName === 'BUTTON') return el;
+  let isOpen = id && readOpen().has(id) ? true : Boolean(open);
+  const caret = h('span.ct-fold__caret');
+  const metaEl =
+    meta == null
+      ? null
+      : typeof meta === 'string'
+        ? h('span.ct-fold__meta', {}, meta)
+        : meta;
+  metaEl?.classList.add('ct-fold__meta');
+  const button = h(
+    'button.ct-head.ct-fold__head',
+    { type: 'button', onclick: () => setOpen(!isOpen) },
+    h('span.ct-fold__title', {}, ...head.childNodes),
+    metaEl,
+    caret,
+  );
+  head.replaceWith(button);
+  el.classList.add('ct-fold');
+  function setOpen(next, remember = true) {
+    isOpen = Boolean(next);
+    body.hidden = !isOpen;
+    button.setAttribute('aria-expanded', String(isOpen));
+    caret.textContent = isOpen ? '[-]' : '[+]';
+    el.classList.toggle('is-open', isOpen);
+    if (id && remember) writeOpen(id, isOpen);
+  }
+  setOpen(isOpen, false);
+  el.setOpen = setOpen;
+  return el;
+}
+
+/** A folded section from scratch: disclosure('MORE', { id }, ...children). */
+export function disclosure(title, opts, ...children) {
+  return collapsible(section(title, ...children), opts);
+}
+
 /**
  * A segmented single choice. onSelect may return (or resolve to) the id that
  * actually took effect, so a choice that falls back (photoreal without a key)
  * shows the truth instead of what was pressed.
  * @param {{ options: { id: string, label: string, title?: string }[], current?: string,
- *   onSelect: (id: string) => any, label?: string, caption?: string }} opts
+ *   onSelect: (id: string) => any, label?: string, caption?: string,
+ *   columns?: number }} opts  columns: an even grid of this many columns
  */
-export function createChoice({ options, current, onSelect, label, caption }) {
+export function createChoice({ options, current, onSelect, label, caption, columns }) {
   const seg = h('div.ct-seg', { role: 'group', 'aria-label': label || caption || '' });
+  if (columns) {
+    seg.classList.add('ct-seg--grid');
+    seg.style.setProperty('--cols', String(columns));
+  }
   // caption: a visible label above the buttons, for rows that need naming.
   const el = caption
     ? h('div.ct-field', {}, h('div.ct-field__label', {}, caption), seg)
