@@ -54,10 +54,12 @@ private fun problemText(error: String?, avoidHighways: Boolean): Int = when (err
 }
 
 /**
- * WHERE TO: a search bar over the map. Before typing it lists the last five
- * destinations; typing (or voice, when the car allows no keyboard) searches
- * after a short pause, near the vehicle, through the car page's navigator.
- * Each row: the place, its distance, and where it is. A tap previews routes.
+ * WHERE TO: a search bar over the map. Before typing it lists HOME, WORK and
+ * the saved places (the phone's list: the page answers CarNav.SAVED_QUERY
+ * through the same search channel), then the recent destinations; typing
+ * (or voice, when the car allows no keyboard) searches after a short pause,
+ * near the vehicle, through the car page's navigator. Each row: the place,
+ * its distance, and where it is. A tap previews routes.
  */
 class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(carContext) {
     private val main = Handler(Looper.getMainLooper())
@@ -68,13 +70,56 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
     private var asked = 0 // the latest search; older answers are dropped
     private val runSearch = Runnable { search() }
 
+    // HOME, WORK, SAVED and the page's recent destinations, asked each time
+    // the screen shows (a place saved on the phone meanwhile is there).
+    private var saved: List<CarPlace> = emptyList()
+    private var savedAsked = 0
+    private var savedRetried = false
+    private val askSaved = Runnable { loadSaved() }
+
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                savedRetried = false
+                loadSaved()
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                main.removeCallbacks(askSaved)
+                savedAsked += 1
+            }
+
             override fun onDestroy(owner: LifecycleOwner) {
                 main.removeCallbacks(runSearch)
+                main.removeCallbacks(askSaved)
                 asked += 1
+                savedAsked += 1
             }
         })
+    }
+
+    private fun loadSaved() {
+        savedAsked += 1
+        val mine = savedAsked
+        nav.search(CarNav.SAVED_QUERY) { r ->
+            if (mine != savedAsked) return@search
+            if (r.error != null && r.places.isEmpty()) {
+                // The page is still starting: ask once more in a moment.
+                if (!savedRetried) {
+                    savedRetried = true
+                    main.postDelayed(askSaved, SAVED_RETRY_MS)
+                }
+                return@search
+            }
+            saved = r.places
+            if (query.length < MIN_CHARS) invalidate()
+        }
+    }
+
+    /** Before typing: the page's list, then this app's own recents it lacks. */
+    private fun beforeTyping(): List<CarPlace> {
+        val mine = nav.recents().filterNot { r -> saved.any { it.sameAs(r) } }
+        return saved + mine
     }
 
     private val callback = object : SearchTemplate.SearchCallback {
@@ -116,7 +161,7 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
 
     override fun onGetTemplate(): Template {
         val typed = query.length >= MIN_CHARS
-        val places = if (typed) results else nav.recents()
+        val places = if (typed) results else beforeTyping()
         val b = SearchTemplate.Builder(callback)
             .setHeaderAction(Action.BACK)
             .setSearchHint(carContext.getString(R.string.car_search_hint))
@@ -128,9 +173,12 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
         val limit = carContext.listLimit(ConstraintManager.CONTENT_LIMIT_TYPE_LIST, FALLBACK_ROWS, MAX_ROWS)
         val list = ItemList.Builder()
         for (p in places.take(limit)) {
+            // A place of the user's own (HOME, WORK, SAVED) or a search result:
+            // the place mark; a recent destination: the recent mark.
+            val own = typed || p.kind in OWN_KINDS
             val row = Row.Builder()
                 .setTitle(p.name)
-                .setImage(carContext.icon(if (typed) R.drawable.ic_car_place else R.drawable.ic_car_recent))
+                .setImage(carContext.icon(if (own) R.drawable.ic_car_place else R.drawable.ic_car_recent))
                 .setOnClickListener { screenManager.push(RoutePreviewScreen(carContext, nav, p)) }
             detailLine(p.distance, p.detail)?.let { row.addText(it) }
             list.addItem(row.build())
@@ -153,6 +201,8 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
         const val TYPING_PAUSE_MS = 450L
         const val FALLBACK_ROWS = 6
         const val MAX_ROWS = 8
+        const val SAVED_RETRY_MS = 2_500L
+        val OWN_KINDS = setOf("home", "work", "saved")
     }
 }
 
