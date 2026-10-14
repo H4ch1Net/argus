@@ -33,17 +33,16 @@ export function createBar({ lockup = true, className = '' } = {}) {
   };
 }
 
-/** The Argus lockup in the ctOS shape. */
+/**
+ * The Argus wordmark, the same in the bar (phone and desktop) and on the boot
+ * splash: the ctOS diamond on a ctosGray tile, then ARGUS in one size.
+ */
 export function createLockup({ size = 'bar' } = {}) {
   return h(
     `div.ct-lockup.ct-lockup--${size}`,
-    { 'aria-label': 'Argus' },
-    h(
-      'span.ct-lockup__bar',
-      { html: DIAMOND_SVG(size === 'bar' ? 18 : 26, '#0e0e0e') },
-      h('b', {}, 'AR'),
-    ),
-    h('span.ct-lockup__os', {}, 'GUS'),
+    { role: 'img', 'aria-label': 'Argus' },
+    h('span.ct-lockup__mark', { html: DIAMOND_SVG(size === 'bar' ? 17 : 30, '#0e0e0e') }),
+    h('span.ct-lockup__word', {}, 'ARGUS'),
   );
 }
 
