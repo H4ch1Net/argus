@@ -62,42 +62,42 @@ permission granted, the page shows a live position at launch without a tap.
 
 From the before screenshots (`before/`):
 
-| # | Where | Clutter | Change |
-|---|---|---|---|
-| 1 | Bar (all) | Lockup: diamond + small "AR" in a gray box, then a large "GUS" | One wordmark: diamond on a square ctosGray tile, ARGUS in one size; same on desktop and the splash |
-| 2 | LAYERS | 38 rows saying OFF | Off rows say nothing; a count only when on (LOAD / ERR / STALE / N/A kept) |
-| 3 | LAYERS | Presets in two ragged rows of uneven widths | Even 3x2 grid |
-| 4 | LAYERS | DATA LAYERS 04/42, ALL OFF far down at the end | LAYERS header with `04 ON` and a small ALL OFF beside it (only when something is on) |
-| 5 | VIEW | Webcam categories (16 bright chips), traffic cam kinds, surveillance scope, Starlink dense, Shodan, weather history: a wall, shown even with their layer off | Each is its layer's options: a square beside the row opens them under it, only while the layer is on |
-| 6 | VIEW | A lone SKY button at the top with no label | POINT AT SKY switch row in VIEW > SCREEN |
-| 7 | VIEW | 14 sections in no order (BASEMAP, LABELS, TRACKING, CONTACTS, 3D MODELS, EARTH, SATELLITES, WEBCAMS, TRAFFIC CAMS, SURVEILLANCE, CAMERA PREVIEWS, WEATHER HISTORY, SENSOR, DISPLAY, SYSTEM) | MAP, TERRAIN, LOOK, ON THE MAP, SCREEN, then one folded MORE (MAP, EARTH, CAMERAS, LOOK, ROAD SPEED) |
-| 8 | VIEW > EARTH and SETTINGS > PERF | Globe detail in both | Only SETTINGS > QUALITY |
-| 9 | VIEW > SYSTEM | Capability readout (RESOLUTIONSCALE, TARGETFRAMERATE, RENDERMODE...) | SETUP > MORE > DETAILS |
-| 10 | VIEW | Notes under MERGE NEARBY, 3D MODELS, SURVEILLANCE, CAMERA PREVIEWS, WEATHER HISTORY, ROAD FLOW, SHODAN | Removed; the detail is in each control's tooltip |
-| 11 | VIEW | RELOAD OSM (duplicates each OSM layer's own RELOAD square) | Removed; the row RELOAD does the same per layer |
-| 12 | VIEW | TERRAIN heading then a TERRAIN caption | One heading |
-| 13 | VIEW | Basemap S2 / BLUE / NIGHT cryptic, uneven | 4x2 grid: DARK SATELLITE STREETS TOPO / RELIEF SENTINEL MARBLE NIGHT (full names in tooltips) |
-| 14 | VIEW | TRACKING boxes OFF/LOW/MED/HIGH with no caption | Caption TRACKING BOXES, in SCREEN |
-| 15 | TOOLS | 14 always-open sections, 8 of them with a paragraph (imagery, share, scenes, watch, tour, landmarks, radio, console) | Every tool folds to one line (ROUTE open), everyday ones first (ROUTE, MY PLACES, LANDMARKS, DRAW + MEASURE, SHARE, TIMELINE), the rest under one MORE; paragraphs removed |
-| 16 | TOOLS | DATA CREDITS, a 3-screen wall, in a tools tab | SETUP > DATA CREDITS, folded |
-| 17 | TOOLS > RADIO | "Turn on the Radio layer to tune its stations." | A TURN ON RADIO STATIONS button |
-| 18 | TOOLS > CONSOLE | Note about the backtick | Section TERMINAL, one button (backtick in its tooltip) |
-| 19 | SETUP > KEYS | 30 keys, each a name, a FOR line of feed ids and an input with SAVE: 5 screens | KEYS folded with `n/30 SET`; one line per key, tap to open its field (FOR line inside); EXPORT / IMPORT at the end |
-| 20 | SETUP | KEYS note naming /root/.config/argus/.env (mode 600) | "All optional. Saved on this device, never in the page." (path in the tooltip) |
-| 21 | SETUP > PERMISSIONS | Two full-width ALLOW buttons with states above | In STATUS: LOCATION / COMPASS rows with a small ALLOW only when needed; COMPASS only on touch devices |
-| 22 | SETUP > STATUS | PROXY, QUALITY TIER, GPU string, FONT, SECURE CONTEXT | STATUS: CONNECTION, FEEDS, LOCATION, COMPASS, GPU; the rest under MORE > DETAILS |
-| 23 | SETUP > PROXY | Paragraph about npm run start:https | MORE > PROXY, one row and the field; hidden in the Android app (its proxy is built in) |
-| 24 | SETUP > INSTALL | Disabled INSTALL APP, two paragraphs, shown even inside the Android app | Hidden in the app and when installed; INSTALL APP only when the browser offers it |
-| 25 | SETUP > START | Help paragraph and a KEYBOARD button on a phone | Removed; SHORTCUTS under MORE only where there is a keyboard |
-| 26 | SETUP > LOGS | Note under the list | Removed (tooltip on the header) |
-| 27 | SETUP | No way to the Android app's own settings | APP SETTINGS beside SETTINGS in the app; RESTART ARGUS after a key that needs it |
-| 28 | Bar | -LIVE- opened VIEW | Opens SETUP (connection and feeds); on the phone the sheet opens too |
-| 29 | SETTINGS | Five tabs, INTERFACE clipped on the phone | GENERAL / QUALITY / ICONS / DATA (ABOUT at the bottom of DATA) |
-| 30 | SETTINGS | Notes: detected tier, resolution, my icon, data | Removed; tier in the caption QUALITY (AUTO: BALANCED), details in tooltips |
-| 31 | SETTINGS | Switch rows indented 10 px from the captions | Aligned |
-| 32 | SETTINGS > ICONS | Long note, PER-LAYER switch squeezed beside RESET ICONS | No note; PER LAYER folds like the menus; RESET ICONS at the bottom |
-| 33 | All menus | The bar's `.ct-seg` rule (padding 0 3px, centring) leaked into every menu button row, so choices sat 3 px inside the headings | Scoped to `span.ct-seg` (bar.css); menu rows line up |
-| 34 | All menus | Uneven segmented choices | Even grids (`createChoice({ columns })`); `h()` now sets CSS custom properties |
+| #   | Where                            | Clutter                                                                                                                                                                                     | Change                                                                                                                                                                     |
+| --- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Bar (all)                        | Lockup: diamond + small "AR" in a gray box, then a large "GUS"                                                                                                                              | One wordmark: diamond on a square ctosGray tile, ARGUS in one size; same on desktop and the splash                                                                         |
+| 2   | LAYERS                           | 38 rows saying OFF                                                                                                                                                                          | Off rows say nothing; a count only when on (LOAD / ERR / STALE / N/A kept)                                                                                                 |
+| 3   | LAYERS                           | Presets in two ragged rows of uneven widths                                                                                                                                                 | Even 3x2 grid                                                                                                                                                              |
+| 4   | LAYERS                           | DATA LAYERS 04/42, ALL OFF far down at the end                                                                                                                                              | LAYERS header with `04 ON` and a small ALL OFF beside it (only when something is on)                                                                                       |
+| 5   | VIEW                             | Webcam categories (16 bright chips), traffic cam kinds, surveillance scope, Starlink dense, Shodan, weather history: a wall, shown even with their layer off                                | Each is its layer's options: a square beside the row opens them under it, only while the layer is on                                                                       |
+| 6   | VIEW                             | A lone SKY button at the top with no label                                                                                                                                                  | POINT AT SKY switch row in VIEW > SCREEN                                                                                                                                   |
+| 7   | VIEW                             | 14 sections in no order (BASEMAP, LABELS, TRACKING, CONTACTS, 3D MODELS, EARTH, SATELLITES, WEBCAMS, TRAFFIC CAMS, SURVEILLANCE, CAMERA PREVIEWS, WEATHER HISTORY, SENSOR, DISPLAY, SYSTEM) | MAP, TERRAIN, LOOK, ON THE MAP, SCREEN, then one folded MORE (MAP, EARTH, CAMERAS, LOOK, ROAD SPEED)                                                                       |
+| 8   | VIEW > EARTH and SETTINGS > PERF | Globe detail in both                                                                                                                                                                        | Only SETTINGS > QUALITY                                                                                                                                                    |
+| 9   | VIEW > SYSTEM                    | Capability readout (RESOLUTIONSCALE, TARGETFRAMERATE, RENDERMODE...)                                                                                                                        | SETUP > MORE > DETAILS                                                                                                                                                     |
+| 10  | VIEW                             | Notes under MERGE NEARBY, 3D MODELS, SURVEILLANCE, CAMERA PREVIEWS, WEATHER HISTORY, ROAD FLOW, SHODAN                                                                                      | Removed; the detail is in each control's tooltip                                                                                                                           |
+| 11  | VIEW                             | RELOAD OSM (duplicates each OSM layer's own RELOAD square)                                                                                                                                  | Removed; the row RELOAD does the same per layer                                                                                                                            |
+| 12  | VIEW                             | TERRAIN heading then a TERRAIN caption                                                                                                                                                      | One heading                                                                                                                                                                |
+| 13  | VIEW                             | Basemap S2 / BLUE / NIGHT cryptic, uneven                                                                                                                                                   | 4x2 grid: DARK SATELLITE STREETS TOPO / RELIEF SENTINEL MARBLE NIGHT (full names in tooltips)                                                                              |
+| 14  | VIEW                             | TRACKING boxes OFF/LOW/MED/HIGH with no caption                                                                                                                                             | Caption TRACKING BOXES, in SCREEN                                                                                                                                          |
+| 15  | TOOLS                            | 14 always-open sections, 8 of them with a paragraph (imagery, share, scenes, watch, tour, landmarks, radio, console)                                                                        | Every tool folds to one line (ROUTE open), everyday ones first (ROUTE, MY PLACES, LANDMARKS, DRAW + MEASURE, SHARE, TIMELINE), the rest under one MORE; paragraphs removed |
+| 16  | TOOLS                            | DATA CREDITS, a 3-screen wall, in a tools tab                                                                                                                                               | SETUP > DATA CREDITS, folded                                                                                                                                               |
+| 17  | TOOLS > RADIO                    | "Turn on the Radio layer to tune its stations."                                                                                                                                             | A TURN ON RADIO STATIONS button                                                                                                                                            |
+| 18  | TOOLS > CONSOLE                  | Note about the backtick                                                                                                                                                                     | Section TERMINAL, one button (backtick in its tooltip)                                                                                                                     |
+| 19  | SETUP > KEYS                     | 30 keys, each a name, a FOR line of feed ids and an input with SAVE: 5 screens                                                                                                              | KEYS folded with `n/30 SET`; one line per key, tap to open its field (FOR line inside); EXPORT / IMPORT at the end                                                         |
+| 20  | SETUP                            | KEYS note naming /root/.config/argus/.env (mode 600)                                                                                                                                        | "All optional. Saved on this device, never in the page." (path in the tooltip)                                                                                             |
+| 21  | SETUP > PERMISSIONS              | Two full-width ALLOW buttons with states above                                                                                                                                              | In STATUS: LOCATION / COMPASS rows with a small ALLOW only when needed; COMPASS only on touch devices                                                                      |
+| 22  | SETUP > STATUS                   | PROXY, QUALITY TIER, GPU string, FONT, SECURE CONTEXT                                                                                                                                       | STATUS: CONNECTION, FEEDS, LOCATION, COMPASS, GPU; the rest under MORE > DETAILS                                                                                           |
+| 23  | SETUP > PROXY                    | Paragraph about npm run start:https                                                                                                                                                         | MORE > PROXY, one row and the field; hidden in the Android app (its proxy is built in)                                                                                     |
+| 24  | SETUP > INSTALL                  | Disabled INSTALL APP, two paragraphs, shown even inside the Android app                                                                                                                     | Hidden in the app and when installed; INSTALL APP only when the browser offers it                                                                                          |
+| 25  | SETUP > START                    | Help paragraph and a KEYBOARD button on a phone                                                                                                                                             | Removed; SHORTCUTS under MORE only where there is a keyboard                                                                                                               |
+| 26  | SETUP > LOGS                     | Note under the list                                                                                                                                                                         | Removed (tooltip on the header)                                                                                                                                            |
+| 27  | SETUP                            | No way to the Android app's own settings                                                                                                                                                    | APP SETTINGS beside SETTINGS in the app; RESTART ARGUS after a key that needs it                                                                                           |
+| 28  | Bar                              | -LIVE- opened VIEW                                                                                                                                                                          | Opens SETUP (connection and feeds); on the phone the sheet opens too                                                                                                       |
+| 29  | SETTINGS                         | Five tabs, INTERFACE clipped on the phone                                                                                                                                                   | GENERAL / QUALITY / ICONS / DATA (ABOUT at the bottom of DATA)                                                                                                             |
+| 30  | SETTINGS                         | Notes: detected tier, resolution, my icon, data                                                                                                                                             | Removed; tier in the caption QUALITY (AUTO: BALANCED), details in tooltips                                                                                                 |
+| 31  | SETTINGS                         | Switch rows indented 10 px from the captions                                                                                                                                                | Aligned                                                                                                                                                                    |
+| 32  | SETTINGS > ICONS                 | Long note, PER-LAYER switch squeezed beside RESET ICONS                                                                                                                                     | No note; PER LAYER folds like the menus; RESET ICONS at the bottom                                                                                                         |
+| 33  | All menus                        | The bar's `.ct-seg` rule (padding 0 3px, centring) leaked into every menu button row, so choices sat 3 px inside the headings                                                               | Scoped to `span.ct-seg` (bar.css); menu rows line up                                                                                                                       |
+| 34  | All menus                        | Uneven segmented choices                                                                                                                                                                    | Even grids (`createChoice({ columns })`); `h()` now sets CSS custom properties                                                                                             |
 
 Not changed (others own them or they are data): the ROUTE note in TOOLS and
 WHERE TO / long-press (W2), the TARGET tab hint, the search launcher, layer
@@ -120,6 +120,7 @@ names (see below), the splash boot log (ctOS flavour).
 ## 4. Shared files: exact blocks
 
 `main.js` (hunks against 5cbaea5, by current line):
+
 - ~98-110: selfPosition creation (`stayLive`, `startIfAllowed('app')`).
 - ~259, ~291, ~331: one-line comments (menu paths).
 - ~1415: the controls import (`disclosure`, `collapsible`).
@@ -129,19 +130,19 @@ names (see below), the splash boot log (ctOS flavour).
   and `readout` / `keyboard` passed to `createSetupTab`.
 - ~2897-2910: TOOLS > TERMINAL section (was CONSOLE).
 - ~2983-3032: TOOLS assembly by section title (replaces `for (const el of
-  intel) app.mount`), credits mounted in SETUP.
+intel) app.mount`), credits mounted in SETUP.
 - ~3035-3070: the GEO / zoom controls block (`setFollowGuard`,
   `app.followingSelf`, `intercept`).
 - ~3166: `mountRow` passed to `app.enableCompass`.
-The `intel.push(...)` call sites are untouched: TOOLS orders and folds by
-section title, so a new tool section lands after the everyday ones.
+  The `intel.push(...)` call sites are untouched: TOOLS orders and folds by
+  section title, so a new tool section lands after the everyday ones.
 
 `core/settings/store.js`: two comment blocks only (lines ~68-70, ~88-89).
 
 ## 5. For the coordinator
 
 - **W1 (Kotlin):** please add `@JavascriptInterface fun hasLocationPermission():
-  Boolean = hasLocationPermission()` to `MainActivity.AndroidBridge`. JS already
+Boolean = hasLocationPermission()` to `MainActivity.AndroidBridge`. JS already
   uses it when present; without it the app opens the GPS at launch only if this
   device has given a fix before (a revoked permission then prompts once, from
   `startNativeLocation(askPermission = true)`).

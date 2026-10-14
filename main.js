@@ -830,7 +830,7 @@ async function setupScene(app, splash) {
     {
       key: 'clouds',
       group: 'Earth & weather',
-      label: 'IR clouds',
+      label: 'Clouds (world)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.cloudsDefinition),
       // NOAA nowCOAST imagery via the proxy, timed: the source follows the
@@ -866,7 +866,7 @@ async function setupScene(app, splash) {
     {
       key: 'goes',
       group: 'Earth & weather',
-      label: 'IR clouds (GOES)',
+      label: 'Clouds (Americas, sharper)',
       loadDef: () =>
         import('./core/layers/weather/definition.js').then((m) => m.goesDefinition),
       proxy: timedWeather('goes'),

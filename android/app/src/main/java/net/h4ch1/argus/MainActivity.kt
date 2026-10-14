@@ -493,6 +493,13 @@ class MainActivity : Activity() {
             startNativeLocation(askPermission = true)
         }
 
+        /**
+         * Whether location is already allowed, without asking: the page shows
+         * the position at launch only then (core/geo/selfPosition.js).
+         */
+        @JavascriptInterface
+        fun hasLocationPermission(): Boolean = this@MainActivity.hasLocationPermission()
+
         /** The page no longer needs a position: the GPS goes off (battery). */
         @JavascriptInterface
         fun stopLocation() = runOnUiThread {
