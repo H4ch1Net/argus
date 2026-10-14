@@ -303,15 +303,21 @@ async function setupScene(app, splash) {
       : Promise.resolve(null);
 
   // The user's saved places (core/places/saved.js), on this device only: a
-  // map layer, TOOLS > MY PLACES, and search.
-  const { createPlacesStore, placeToNormalized } = await import('./core/places/saved.js');
+  // map layer, TOOLS > MY PLACES, WHERE TO (HOME, WORK, SAVED; the car's
+  // too), WHAT'S HERE > SAVE and search. The phone and car pages share the
+  // storage: a change in one is read again by the other (storage events).
+  // Recent destinations (core/places/recents.js) beside them.
+  const [{ createPlacesStore, placeToNormalized }, { createRecents }] = await Promise.all(
+    [import('./core/places/saved.js'), import('./core/places/recents.js')],
+  );
   let placesStorage = null;
   try {
     placesStorage = window.localStorage;
   } catch {
     placesStorage = null;
   }
-  const placesStore = createPlacesStore(placesStorage);
+  const placesStore = createPlacesStore(placesStorage, { events: window });
+  const recentPlaces = createRecents(placesStorage);
   const placesSource = async () => placesStore.list().map(placeToNormalized);
 
   // Keyed sources inside a layer (Windy, NPS, WSDOT, 511 states): offered only
@@ -2526,6 +2532,8 @@ async function setupScene(app, splash) {
   app.nav = createNavigator({
     proxyClient: proxyClient ?? navMock?.createNavMockProxy() ?? null,
     hasFeed: (id) => Boolean(proxyClient && feedConfigured(health, id)),
+    places: placesStore,
+    recents: recentPlaces,
     log: (e) => {
       console.warn(`[argus] nav: ${e.title}${e.body ? `: ${e.body}` : ''}`);
       app.logs?.add?.(e);
@@ -2562,7 +2570,10 @@ async function setupScene(app, splash) {
     return p ? { ...p, name: tracking.labelFor(t) ?? 'TARGET' } : null;
   };
   if (app.shell === 'desktop' || app.shell === 'mobile') {
-    const { createNavPanel } = await import('./core/ui/navPanel.js');
+    const [{ createNavPanel }, { encodeShareHash }] = await Promise.all([
+      import('./core/ui/navPanel.js'),
+      import('./core/share/state.js'),
+    ]);
     const cv = app.viewer.scene.canvas;
     navUi = createNavPanel({
       nav: app.nav,
@@ -2580,6 +2591,23 @@ async function setupScene(app, splash) {
       demo: !proxyClient,
       // On the phone the sheet makes way for the preview and the drive.
       onActive: () => app.collapseSheet?.(),
+      // WHAT'S HERE and WHERE TO: saved places, recents, the pressed point.
+      places: placesStore,
+      recents: recentPlaces,
+      sketch,
+      // A link to a point: this app's own view there, unless it is served on
+      // loopback (the Android app, a desk at localhost), where an
+      // OpenStreetMap link is the one another device can open.
+      shareLink: (p) =>
+        /^(127\.|localhost$|\[?::1\]?$)/.test(location.hostname)
+          ? null
+          : `${location.origin}${location.pathname}${encodeShareHash({
+              camera: { lat: p.lat, lon: p.lon, alt: 1200, heading: 0, pitch: -90 },
+            })}`,
+      // A saved place shows on the map.
+      onSaved: () => {
+        if (!manager.isEnabled('myplaces')) manager.enable('myplaces');
+      },
     });
     app.mount('navTop', navUi.top);
     app.mount('navBottom', navUi.bottom);

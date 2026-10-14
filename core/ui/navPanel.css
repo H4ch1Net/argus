@@ -76,6 +76,107 @@
   font-size: 11px;
   letter-spacing: 0.06em;
 }
+/* A row with its own small controls on the right (save toggle, edit). */
+.ct-nav__item {
+  display: flex;
+  align-items: stretch;
+}
+.ct-nav__item > .ct-row {
+  flex: 1;
+  min-width: 0;
+}
+.ct-nav__item--edit {
+  align-items: center;
+  gap: 10px;
+  padding: 4px var(--row-pad-x);
+}
+/* Section lines: SAVED ........ EDIT */
+.ct-nav__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--row-pad-x) 3px;
+  color: var(--textSecondary);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.ct-nav__head::after {
+  content: '';
+  order: 1;
+  flex: 1;
+  height: 1px;
+  background: var(--backgroundBright);
+}
+.ct-nav__headbtn {
+  order: 2;
+  border: 0;
+  background: transparent;
+  color: var(--textPrimaryDim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 2px 0 2px 6px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-nav__headbtn:hover {
+  color: var(--textPrimary);
+}
+/* Save toggle: a hollow diamond, filled once saved (the My places mark). */
+.ct-nav__save {
+  flex: none;
+  width: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid var(--backgroundBright);
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-nav__savemark {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--textSecondary);
+  transform: rotate(45deg);
+}
+.ct-nav__save:hover .ct-nav__savemark {
+  border-color: var(--textPrimary);
+}
+.ct-nav__save[aria-pressed='true'] .ct-nav__savemark {
+  background: var(--textPrimary);
+  border-color: var(--textPrimary);
+}
+.ct-nav__cardsave .ct-nav__save {
+  height: 24px;
+  border-left: 0;
+}
+.ct-nav__edits {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px 0 2px;
+}
+.ct-btn.ct-nav__ed {
+  min-height: 26px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+.ct-nav__rename {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--textSecondary);
+  outline: 0;
+  background: transparent;
+  color: var(--textPrimary);
+  padding: 5px 0;
+  font-size: 13px;
+  text-transform: none;
+}
+.ct-nav__rename:focus {
+  border-bottom-color: var(--textPrimary);
+}
 
 /* ---------- preview card ---------- */
 .ct-nav__card {
@@ -336,20 +437,93 @@
   white-space: nowrap;
 }
 
-/* ---------- map menu (long press / right click) ---------- */
+/* ---------- WHAT'S HERE (long press / right click on the map) ---------- */
 .ct-nav__ctx {
   position: fixed;
   z-index: 50;
-  width: 190px;
-  padding: 4px 0;
+  width: 260px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ct-nav__ctx[hidden] {
+  display: none;
 }
 .ct-nav__ctxhead {
-  padding: 4px var(--row-pad-x) 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ct-nav__ctxwrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ct-nav__ctxtitle {
+  color: var(--textPrimary);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__ctxsub {
+  color: var(--textPrimaryDim);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ct-nav__ctxsub:empty {
+  display: none;
+}
+.ct-nav__ctxll {
   color: var(--textSecondary);
   font-size: 10.5px;
-  letter-spacing: 0.06em;
-  border-bottom: 1px solid var(--backgroundBright);
-  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+/* A saved place's name: the title, editable (a hairline says so). */
+.ct-nav__rename.ct-nav__ctxname {
+  padding: 1px 0 2px;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ct-nav__ctxgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.ct-btn.ct-nav__act {
+  min-height: 32px;
+  justify-content: flex-start;
+  padding: 0 8px;
+}
+.ct-btn.ct-nav__act::before {
+  content: '';
+  flex: none;
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.ct-btn.ct-nav__act--save::before {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+  border: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 1;
+}
+.ct-btn.ct-nav__act--save[aria-pressed='true']::before {
+  background: currentColor;
 }
 
 /* ---------- phone ---------- */
@@ -373,9 +547,28 @@
 .ct-nav[data-shell='mobile'] .ct-nav__bdist {
   font-size: 24px;
 }
+.ct-nav[data-shell='mobile'] .ct-nav__save {
+  width: 44px;
+}
+.ct-nav[data-shell='mobile'] .ct-nav__ed {
+  min-height: 34px;
+}
+.ct-nav__ctx[data-shell='mobile'] .ct-nav__act {
+  min-height: 38px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ct-nav * {
     transition: none !important;
   }
+}
+
+/* TOOLS > MY PLACES rows (core/ui/placesTool.js): the place, then HOME,
+   WORK, REN and delete, the same controls as WHERE TO's edit mode. */
+.ct-places__row.ct-places__row--roles {
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+}
+.ct-places__row--roles .ct-btn.ct-nav__ed {
+  min-height: 28px;
 }
