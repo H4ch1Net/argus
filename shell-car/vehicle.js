@@ -1,11 +1,11 @@
-// The VEHICLE panel's numbers: pure (no DOM), tested in vehicle.test.js. The
+// The VEHICLE widget's numbers: pure (no DOM), tested in vehicle.test.js. The
 // Android app reads the car through the Car App Library's CarInfo (make,
 // model, year, energy profile, fuel and battery level, range, odometer,
 // speed; see android/.../car/CarStats.kt) and sends it with
-// argusCar.setCarInfo(json). This turns that into what the panel shows: a
-// body variant for the silhouette, readouts in the driver's units, the
+// argusCar.setCarInfo(json). This turns that into what the widget shows:
+// readouts in the driver's units (fuel or battery, range, odometer), the
 // average consumption since the last fill-up, and whether the vehicle is
-// parked (the panel shows only then).
+// parked (the widget shows only then).
 
 import { clamp, formatDistance } from './model.js';
 
@@ -16,10 +16,11 @@ const US_GALLON_L = 3.785411784;
 const IMP_GALLON_L = 4.54609;
 
 /**
- * The silhouette to draw: 'ev' for a car that only takes electricity, 'suv'
- * for the fuels that mostly mean a truck or SUV (diesel, gas), else 'sedan'.
- * The car does not report its body style; this is a guess from its fuels
- * (the phone's Settings can name it instead: setCarInfo's `body`).
+ * The kind of car: 'ev' for a car that only takes electricity (its battery
+ * leads the widget, no fuel or consumption rows), 'suv' for the fuels that
+ * mostly mean a truck or SUV (diesel, gas), else 'sedan'. The car does not
+ * report its body style; this is a guess from its fuels (setCarInfo's `body`
+ * can name it instead).
  */
 export function vehicleVariant({ fuelTypes } = {}) {
   const fuels = (fuelTypes || []).map(String);
@@ -69,7 +70,7 @@ function odometer(m, units) {
 }
 
 /**
- * Everything the VEHICLE panel draws, from a setCarInfo payload.
+ * Everything the VEHICLE widget can show, from a setCarInfo payload.
  * @param {object} info  { model?: { make, name, year }, energy?: { fuelTypes }, body?,
  *   fuelPct?, batteryPct?, rangeM?, lowFuel?, odometerM?, speedMps?,
  *   economy?: { fuelPctStart, odometerStartM }, tankL? }
@@ -133,6 +134,45 @@ export function vehicleView(info, { units = 'metric', imperialGallon = false } =
     title: name || 'VEHICLE',
     rows,
     lowFuel: i.lowFuel === true,
+  };
+}
+
+const SHORT = { fuel: 'FUEL', battery: 'BATT', range: 'RNG', odo: 'ODO' };
+
+/**
+ * The compact widget, from vehicleView: one line with the energy that moves
+ * the car (fuel, or the battery of an electric car) and its range; tapped
+ * open, the car's name and the rest (a hybrid's battery, odometer, average
+ * consumption), only those the car reports.
+ * @param {ReturnType<typeof vehicleView>} view
+ * @returns {{ level: { key: string, label: string, value: string, meter: number|null },
+ *   range: { label: string, value: string }, low: boolean, title: string,
+ *   details: { key: string, label: string, value: string }[] }}
+ */
+export function vehicleChip(view) {
+  const rows = view?.rows ?? [];
+  const row = (k) => rows.find((r) => r.key === k);
+  const known = (r) => r && r.value !== '--';
+  const fuel = row('fuel');
+  const battery = row('battery');
+  // The fuel gauge leads; a battery only when it is all the car has, or the
+  // only one of the two it reports.
+  const lead = known(fuel) || !battery ? fuel : battery;
+  const level = lead ?? { key: 'fuel', label: 'FUEL', value: '--', meter: null };
+  const details = rows
+    .filter((r) => r !== lead && r.key !== 'range' && known(r))
+    .map((r) => ({ key: r.key, label: SHORT[r.key] ?? r.label, value: r.value }));
+  return {
+    level: {
+      key: level.key,
+      label: SHORT[level.key] ?? level.label,
+      value: level.value,
+      meter: Number.isFinite(level.meter) ? clamp(level.meter, 0, 100) : null,
+    },
+    range: { label: SHORT.range, value: row('range')?.value ?? '--' },
+    low: view?.lowFuel === true,
+    title: view?.title && view.title !== 'VEHICLE' ? view.title : '',
+    details,
   };
 }
 

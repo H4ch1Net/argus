@@ -3131,8 +3131,8 @@ async function setupScene(app, splash) {
   // record on this device (core/share/session.js). Saved on every change
   // (debounced) and at once when the page is hidden or closed, since the
   // Android WebView can be killed in the background without an unload. The
-  // car shares this origin and storage but keeps its own state: it never
-  // reads or writes the record.
+  // car shares this origin and storage: it never resumes this view, but it
+  // shows these layers and changes them (shared layers, below).
   const sessionMod = await import('./core/share/session.js');
   const viewState = await import('./core/ui/viewState.js');
   const [{ webcamFilter }, { trafficCamKindFilter }] = await Promise.all([
@@ -3287,6 +3287,17 @@ async function setupScene(app, splash) {
     // The state this launch settled into is itself worth keeping.
     sessionSaver.schedule();
     if (dev && window.__argus) window.__argus.session = sessionSaver;
+    // Shared layers (W1): the car (Android Auto) shows these layers and its
+    // LAYERS list changes them in this same record (core/share/session.js).
+    // A change it makes while this page runs (usually in the background) is
+    // followed here, so the phone shows it and does not save it away again.
+    sessionMod.createSharedLayers({
+      storage: sessionStore,
+      apply: ({ on, off }) => {
+        for (const k of off) manager.disable(k);
+        for (const k of on) manager.enable(k);
+      },
+    });
   }
 
   if (dev && window.__argus)

@@ -7,10 +7,16 @@
     <!-- Around Me, the GEO button, and the car map's own position. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- The car map's location while the phone is locked: on the car display
+         the app does not count as in front, so CarLocationService (type
+         location) keeps the fixes coming while the map runs. No background
+         location permission is asked for. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Android Auto: a navigation app that draws its own map. -->
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
-    <!-- Android Auto: the car's own data for the car screen's VEHICLE panel
+    <!-- Android Auto: the car's own data for the car screen's VEHICLE strip
          (Car App Library CarInfo): make, model and year; fuel and energy
          level, range and energy profile; odometer; speed. The three Google
          ones are asked for once, in the car; all are optional. -->
@@ -23,6 +29,7 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
+        android:name=".ArgusApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
@@ -74,5 +81,11 @@
                 <category android:name="androidx.car.app.category.NAVIGATION" />
             </intent-filter>
         </service>
+
+        <!-- Bound by the car session while the map runs; same process. -->
+        <service
+            android:name=".car.CarLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>

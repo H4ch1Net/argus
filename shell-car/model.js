@@ -142,6 +142,22 @@ export function carResolutionScale(cssWidth, cssHeight, dpr = 1, budget = 1_100_
   return perCss / (dpr > 0 ? dpr : 1);
 }
 
+/** Free look ends on its own after this long without a touch while driving. */
+export const RESUME_IDLE_MS = 10_000;
+/** Above this speed (about 11 km/h) the vehicle counts as driving off. */
+export const RESUME_SPEED_MPS = 3;
+
+/**
+ * Whether the map should go back to following the vehicle by itself, as a GPS
+ * app does: the driver dragged it away (free look), has not touched it for
+ * RESUME_IDLE_MS, and is driving. Never while routes are being previewed
+ * (`busy`): that view frames the routes on purpose.
+ */
+export function shouldResumeFollow({ following, speed, idleMs, busy = false }) {
+  if (following || busy) return false;
+  return Number.isFinite(speed) && speed > RESUME_SPEED_MPS && idleMs >= RESUME_IDLE_MS;
+}
+
 /**
  * Milliseconds between follow-view updates: 20 a second on the move or in a
  * turn, 12 when creeping, where the view hardly changes.
@@ -160,6 +176,10 @@ export function followFrameMs(speed, turningDeg = 0) {
 export function isParkedJitter(prev, next) {
   if (!prev || !next) return false;
   if (Number.isFinite(next.speed) && next.speed >= 1) return false;
+  // A fix without a speed (the network provider's) just after driving: the
+  // vehicle is still moving, so it is not held back to the last position.
+  if (!Number.isFinite(next.speed) && Number.isFinite(prev.speed) && prev.speed >= 2)
+    return false;
   const tolerance = clamp(Number.isFinite(next.accuracy) ? next.accuracy : 10, 8, 25);
   return distanceM(prev.lat, prev.lon, next.lat, next.lon) < tolerance;
 }
@@ -288,6 +308,26 @@ export function nearestContacts(contacts, here, max = 3, { heading = null } = {}
 }
 
 // ----------------------------------------------------------------- layers
+/**
+ * The car-safe layers: what the car's LAYERS list offers, in its order
+ * (android/.../car/MapScreen.kt CarLayers.ALL, kept equal by model.test.js).
+ * The car shows the phone's layers within this set, and its toggles change
+ * only these in the shared record (core/share/session.js).
+ */
+export const CAR_LAYER_KEYS = Object.freeze([
+  'incidents',
+  'chp',
+  'waze',
+  'simtraffic',
+  'trafficcams',
+  'surveillance',
+  'signals',
+  'flights',
+  'military',
+  'radar',
+  'quakes',
+]);
+
 /**
  * Which layer rows to press so the enabled set matches `want`. A row that is
  * still loading counts as on (pressing it again would switch it off), and only
