@@ -1,4 +1,5 @@
 .ct-viewstack {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 37px;
@@ -36,8 +37,9 @@
   color: var(--error);
   --c: var(--error);
 }
-/* GEO: green corners once centred on the user, solid green while following,
-   and a short note beside the cell (accuracy, LOCATING, DENIED). */
+/* GEO: solid green while following (HDG heading up), green corners while
+   centred or paused, and a short note beside the cell (accuracy, LOCATING,
+   HEADING UP, DENIED). */
 .ct-viewstack__cell.is-live {
   --c: var(--success);
   color: var(--textPrimary);
@@ -75,11 +77,39 @@
   border-color: var(--error);
   color: var(--error);
 }
+/* RECENTER: beside GEO while a drag has paused following. */
+.ct-viewstack__recenter {
+  position: absolute;
+  right: calc(100% + 8px);
+  bottom: 3px;
+  height: 31px;
+  padding: 0 10px;
+  border: 1px solid var(--success);
+  background: var(--panel-translucent);
+  color: var(--textPrimary);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ct-viewstack__recenter[hidden] {
+  display: none;
+}
+.ct-viewstack__recenter:hover,
+.ct-viewstack__recenter:focus-visible {
+  background: var(--success);
+  color: var(--background);
+  outline: none;
+}
 @media (pointer: coarse) {
   .ct-viewstack {
     width: 42px;
   }
   .ct-viewstack__cell {
+    height: 36px;
+  }
+  .ct-viewstack__recenter {
     height: 36px;
   }
 }

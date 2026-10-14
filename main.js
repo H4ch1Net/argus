@@ -98,7 +98,13 @@ async function main() {
       fps: app.profile?.animationFps,
       onIcon: app.setSelfIcon,
       log: (entry) => app.logs?.add?.(entry),
+      // A map app: once location is allowed the position stays live (the
+      // sensors still close while the page is hidden).
+      stayLive: shellName !== 'car',
     });
+    // Show where you are from launch when location is already allowed (never
+    // a prompt here: GEO and Around Me ask). The car feeds its own fixes.
+    if (shellName !== 'car') app.selfPosition.startIfAllowed('app');
     if (import.meta.env.DEV) {
       // Expose for console poking during development only; never in a build.
       window.__argus = { shell: shellName, ...app };
@@ -2973,13 +2979,32 @@ async function setupScene(app, splash) {
 
   // ------------------------------------------------------------ view stack
   const { createZoomControls } = await import('./core/ui/zoomControls.js');
+  // GEO (core/geo/geoControl.js): centre on me and follow, again heading up,
+  // again free; a drag pauses following (RECENTER). Navigation drives the
+  // camera itself while it follows the route (core/nav/view.js): self-follow
+  // waits meanwhile, and GEO during a drive recentres the route view.
+  const navDriving = () => {
+    const s = app.nav?.state?.status;
+    return s === 'navigating' || s === 'rerouting';
+  };
+  app.selfPosition?.setFollowGuard?.(
+    () => Boolean(app.navView?.following) || Boolean(tracking?.cockpit?.isActive?.()),
+  );
+  app.followingSelf = () => Boolean(app.selfPosition?.following);
   app.mount(
     'stack',
     createZoomControls({
       camera,
-      // GEO: centre on me, again to follow (core/geo/geoControl.js).
       geo: app.geo?.(camera, {
-        beforeFollow: () => tracker?.unfollow?.(),
+        beforeFollow: () => {
+          tracker?.unfollow?.();
+          orbit.stop();
+        },
+        intercept: () => {
+          if (!navDriving() || !app.navView) return false;
+          app.navView.recenter();
+          return true;
+        },
         log: (entry) => app.logs?.add?.(entry),
         units: () => app.settings?.get('units'),
       }),

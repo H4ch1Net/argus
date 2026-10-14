@@ -7,7 +7,7 @@ import { selfIconImage, selfPulseImage, SELF_ICONS } from '../ui/selfIcons.js';
 // The user's own marker on the globe (core/geo/selfPosition.js feeds it): the
 // chosen ctOS icon turned to the heading and drawn over everything, a subtle
 // accuracy ring on the ground, the ctOS bracket pulse while locating, and
-// follow-me (the camera rides with the marker).
+// follow-me (the camera rides with the marker, north up or heading up).
 //
 // Smooth without waste: between fixes the marker is carried forward along
 // its course (dead reckoning, at most 2.2 s) and eased onto each new fix, so
@@ -28,8 +28,11 @@ const STILL_MPS = 0.6;
 const RING_MAX_MPS = 3;
 const RING_SEGMENTS = 64;
 const RING_MAX_M = 250_000;
-const FOLLOW_MIN_RANGE_M = 250;
-const FOLLOW_MAX_RANGE_M = 60_000;
+const FOLLOW_MIN_RANGE_M = 60;
+const FOLLOW_MAX_RANGE_M = 3_000_000;
+const HEADING_UP_PITCH = -50; // degrees: the tilt heading-up takes on entry
+const HEADING_UP_S = 0.5; // heading-up turn ease
+const DRAG_PX = 12; // a press that moves this far is a drag, not a tap
 const SCALE = new Cesium.NearFarScalar(2e5, 1, 2e7, 0.65);
 
 const R = 6371008.8;
@@ -84,11 +87,16 @@ function northAt(lonDeg, latDeg, result) {
 
 /**
  * @param {import('cesium').Viewer} viewer
- * @param {{ icon?: string, fps?: number, onFollow?: (on: boolean) => void }} [opts]
+ * @param {{ icon?: string, fps?: number, onDrag?: () => void, onTouch?: () => void,
+ *   onTwist?: () => void, onYield?: () => void, isBusy?: () => boolean }} [opts]
+ *   onDrag: the map was dragged (or a flight took the view) while following;
+ *   onTouch: any press on the map; onTwist: the map was turned heading-up;
+ *   onYield: something else took the camera; isBusy: true while something
+ *   else drives the camera (navigation, the cockpit).
  */
 export function createSelfMarker(
   viewer,
-  { icon = SELF_ICONS[0].id, fps = 30, onFollow } = {},
+  { icon = SELF_ICONS[0].id, fps = 30, onDrag, onTouch, onTwist, onYield, isBusy } = {},
 ) {
   const scene = viewer.scene;
   const camera = viewer.camera;
@@ -207,8 +215,8 @@ export function createSelfMarker(
     mark.color = live ? WHITE : STALE;
   }
 
-  // Advance the display one step (idempotent within a frame: Cesium may ask
-  // through the follow stand-in before preRender asks again).
+  // Advance the display one step (idempotent within a frame: the follow
+  // camera asks again after the marker's own preRender step).
   function advance() {
     const t = performance.now();
     if (t - lastStep < 1) return;
@@ -287,66 +295,211 @@ export function createSelfMarker(
   });
 
   // ------------------------------------------------------------ follow
-  let standIn = null;
-  const followPosition = new Cesium.CallbackProperty((time, result) => {
-    advance();
+  // Follow-me (core/geo/follow.js decides the mode; selfPosition passes it
+  // in). Once per frame, after the gestures have moved the camera, the camera
+  // is set to look at the marker from where it is now: the user's distance,
+  // tilt and turn are kept, so a pinch changes how close it follows and a
+  // twist turns the map; heading-up turns the map to the way you travel and
+  // tilts it once to see ahead, with the marker low on the screen. A
+  // one-finger (or left-button) drag pauses following (GEO offers RECENTER),
+  // and so does a flight the app starts elsewhere (search, a place); one that
+  // ends over the marker (north up, tilt) does not. FOLLOW on a contact or
+  // the cockpit takes the camera: following ends.
+  let fmode = 'off';
+  let fpaused = false;
+  let removeFollowFrame = null;
+  let lastTarget = null; // what the camera looked at after the last frame
+  let lastHeading = null; // the heading it was left with (radians)
+  let pitchGoal = null; // heading-up tilts once, on entry
+  let flightSeen = false;
+  let followT = 0;
+  const target = new Cesium.Cartesian3();
+  const hpr = new Cesium.HeadingPitchRange(0, -Math.PI / 2, 1000);
+  const look = new Cesium.Cartesian3();
+
+  const busy = () => {
+    try {
+      return Boolean(isBusy?.());
+    } catch {
+      return false;
+    }
+  };
+  const inFlight = () => Boolean(camera._currentFlight);
+
+  /** Where the follow camera aims: the marker, or ahead of it heading-up. */
+  function aimPoint(range, pitch, result) {
+    let lat = disp.lat;
+    let lon = disp.lon;
+    if (fmode === 'heading') {
+      // Look past the marker, so it sits in the lower part of the screen.
+      const ahead = range * Math.cos(pitch) * 0.3;
+      if (ahead > 1) [lat, lon] = destination(lat, lon, disp.heading, ahead);
+    }
     return Cesium.Cartesian3.fromDegrees(
-      disp.lon,
-      disp.lat,
+      lon,
+      lat,
       groundH,
       Cesium.Ellipsoid.WGS84,
       result,
     );
-  }, false);
-
-  function dropStandIn() {
-    if (!standIn) return;
-    const s = standIn;
-    standIn = null;
-    viewer.entities.remove(s);
-    onFollow?.(false);
   }
+
+  /**
+   * How far the view's middle is from where following would aim (left in
+   * `target`), as a share of the distance to it.
+   */
+  function offCentre() {
+    Cesium.Cartesian3.fromDegrees(
+      disp.lon,
+      disp.lat,
+      groundH,
+      Cesium.Ellipsoid.WGS84,
+      target,
+    );
+    aimPoint(Cesium.Cartesian3.distance(camera.positionWC, target), camera.pitch, target);
+    const d = Cesium.Cartesian3.distance(camera.positionWC, target);
+    if (!(d > 0)) return 0;
+    Cesium.Cartesian3.multiplyByScalar(camera.directionWC, d, look);
+    Cesium.Cartesian3.add(camera.positionWC, look, look);
+    return Cesium.Cartesian3.distance(look, target) / d;
+  }
+
+  const clampRange = (r) =>
+    Math.min(FOLLOW_MAX_RANGE_M, Math.max(FOLLOW_MIN_RANGE_M, Number(r) || 1000));
+
+  function followFrame() {
+    if (destroyed || fmode === 'off' || fpaused || !fix || !disp.has) return;
+    if (busy()) {
+      lastTarget = null; // navigation or the cockpit drives the camera
+      return;
+    }
+    if (inFlight()) {
+      flightSeen = true;
+      return;
+    }
+    if (flightSeen) {
+      // A flight ended: one that landed away from the marker took the view.
+      flightSeen = false;
+      lastTarget = null;
+      if (offCentre() > 0.2) {
+        onDrag?.();
+        return;
+      }
+    }
+    advance();
+    const t = performance.now();
+    const dt = followT ? Math.min(0.25, (t - followT) / 1000) : 1 / 60;
+    followT = t;
+    const from = lastTarget ?? aimPoint(0, 0, target);
+    const range = clampRange(Cesium.Cartesian3.distance(camera.positionWC, from));
+    let heading = camera.heading;
+    let pitch = camera.pitch;
+    if (fmode === 'heading') {
+      if (
+        lastHeading !== null &&
+        Math.abs(angleDelta(deg(lastHeading), deg(heading))) > 2
+      ) {
+        // The user turned the map: keep following, their way up.
+        onTwist?.();
+      } else {
+        const off = angleDelta(deg(heading), disp.heading);
+        heading = rad(disp.heading - off * Math.exp(-dt / HEADING_UP_S));
+      }
+    }
+    if (pitchGoal !== null) {
+      pitch += (pitchGoal - pitch) * (1 - Math.exp(-dt / 0.35));
+      if (Math.abs(pitchGoal - pitch) < rad(0.5)) pitchGoal = null;
+    }
+    hpr.heading = heading;
+    hpr.pitch = Math.min(rad(-3), Math.max(rad(-89.9), pitch));
+    hpr.range = range;
+    aimPoint(range, hpr.pitch, target);
+    camera.lookAt(target, hpr);
+    camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+    lastTarget = Cesium.Cartesian3.clone(target, lastTarget ?? new Cesium.Cartesian3());
+    lastHeading = camera.heading;
+  }
+
+  // Back onto the marker after a pause: a short glide, keeping the zoom.
+  function glideBack() {
+    if (!fix || !disp.has || offCentre() < 0.05) return;
+    const range = clampRange(Cesium.Cartesian3.distance(camera.positionWC, target));
+    camera.flyToBoundingSphere(
+      new Cesium.BoundingSphere(Cesium.Cartesian3.clone(target), 0),
+      {
+        offset: new Cesium.HeadingPitchRange(camera.heading, camera.pitch, range),
+        duration: 0.7,
+      },
+    );
+    scene.requestRender();
+  }
+
+  // Added on demand, so it runs after the gestures' own preRender step.
+  function startFrames() {
+    removeFollowFrame ??= scene.preRender.addEventListener(followFrame);
+  }
+  function stopFrames() {
+    removeFollowFrame?.();
+    removeFollowFrame = null;
+  }
+
+  // A drag on the map pauses following; a pinch or a twist does not.
+  const presses = new Map(); // pointerId -> { x, y, dragged }
+  const onPress = (e) => {
+    presses.set(e.pointerId, { x: e.clientX, y: e.clientY, dragged: false });
+    if (fmode !== 'off') onTouch?.();
+  };
+  const onPointerMove = (e) => {
+    const p = presses.get(e.pointerId);
+    if (!p || p.dragged || presses.size !== 1 || fmode === 'off' || fpaused) return;
+    // Left-button drag pans; the right (zoom), middle and modified (tilt) do not.
+    if (
+      e.pointerType === 'mouse' &&
+      ((e.buttons & 1) === 0 || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey)
+    )
+      return;
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_PX) return;
+    p.dragged = true;
+    onDrag?.();
+  };
+  const onRelease = (e) => presses.delete(e.pointerId);
+  const canvas = scene.canvas;
+  canvas.addEventListener('pointerdown', onPress, { passive: true });
+  canvas.addEventListener('pointermove', onPointerMove, { passive: true });
+  canvas.addEventListener('pointerup', onRelease, { passive: true });
+  canvas.addEventListener('pointercancel', onRelease, { passive: true });
+
   // Something else took the camera (FOLLOW on a contact, the cockpit): yield.
   const removeTracked = viewer.trackedEntityChanged?.addEventListener((e) => {
-    if (standIn && e !== standIn) dropStandIn();
+    if (e && fmode !== 'off') onYield?.();
   });
 
-  function follow(on) {
-    if (!on) {
-      if (standIn && viewer.trackedEntity === standIn) viewer.trackedEntity = undefined;
-      dropStandIn();
-      return false;
+  /** The follow state (core/geo/follow.js): { mode, paused }. */
+  function setFollow(state) {
+    const mode = state?.mode ?? 'off';
+    const paused = Boolean(state?.paused);
+    const was = fmode !== 'off' && !fpaused;
+    const toHeading = mode === 'heading' && fmode !== 'heading';
+    fmode = mode;
+    fpaused = paused;
+    if (fmode === 'off' || fpaused) {
+      stopFrames();
+      lastTarget = null;
+      lastHeading = null;
+      pitchGoal = null;
+      return;
     }
-    if (standIn) return true;
-    if (!fix || !disp.has) return false;
-    // Keep the view: the camera's offset from the marker, in its east-north-up
-    // frame, clamped to a sensible range; straight down gets a slight tilt
-    // along the current heading so the follow reads.
-    const p = Cesium.Cartesian3.fromDegrees(disp.lon, disp.lat, groundH);
-    const enu = Cesium.Transforms.eastNorthUpToFixedFrame(p);
-    const inv = Cesium.Matrix4.inverseTransformation(enu, new Cesium.Matrix4());
-    const offset = Cesium.Matrix4.multiplyByPoint(
-      inv,
-      camera.positionWC,
-      new Cesium.Cartesian3(),
-    );
-    const range = Cesium.Cartesian3.magnitude(offset);
-    const clamped = Math.min(FOLLOW_MAX_RANGE_M, Math.max(FOLLOW_MIN_RANGE_M, range));
-    if (range > 0) Cesium.Cartesian3.multiplyByScalar(offset, clamped / range, offset);
-    if (offset.z > 0 && Math.hypot(offset.x, offset.y) < offset.z * 0.15) {
-      const h = camera.heading;
-      offset.x = -Math.sin(h) * offset.z * 0.6;
-      offset.y = -Math.cos(h) * offset.z * 0.6;
+    if (fmode !== 'heading') pitchGoal = null;
+    else if (toHeading && camera.pitch < rad(-60)) pitchGoal = rad(HEADING_UP_PITCH);
+    lastHeading = null; // our own turn is not a twist
+    followT = 0;
+    if (!was) {
+      lastTarget = null;
+      flightSeen = false;
+      glideBack();
     }
-    standIn = viewer.entities.add({
-      position: followPosition,
-      point: { pixelSize: 1, color: Cesium.Color.TRANSPARENT },
-      viewFrom: offset,
-    });
-    viewer.trackedEntity = standIn;
+    startFrames();
     scene.requestRender();
-    onFollow?.(true);
-    return true;
   }
 
   // ------------------------------------------------------------ public
@@ -404,19 +557,20 @@ export function createSelfMarker(
       scene.requestRender();
     },
 
-    /** Follow-me on or off; returns whether it is on. */
-    follow,
-    get following() {
-      return Boolean(standIn);
-    },
+    /** Follow-me: { mode: 'off'|'follow'|'heading', paused } (core/geo/follow.js). */
+    setFollow,
 
     destroy() {
-      follow(false);
+      setFollow(null);
       claim(false);
       destroyed = true;
       removePreRender();
       removeMoveEnd();
       removeTracked?.();
+      canvas.removeEventListener('pointerdown', onPress);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onRelease);
+      canvas.removeEventListener('pointercancel', onRelease);
       ringBatch.destroy();
       if (!coll.isDestroyed()) scene.primitives.remove(coll);
       scene.requestRender();

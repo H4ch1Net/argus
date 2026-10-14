@@ -2,6 +2,7 @@ import { afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FRESH_MS,
+  GRANTED_KEY,
   bearingDeg,
   createFixFilter,
   createSelfPosition,
@@ -440,4 +441,173 @@ test('icons and the selfIcon setting', () => {
   sp.setIcon('nope');
   assert.equal(sp.icon, 'chevron');
   assert.deepEqual(seen, ['car', 'beam', 'chevron']);
+});
+
+// ------------------------------------------------------- live and follow-me
+
+// A marker stand-in: records the follow state and exposes the user hooks.
+function fakeMarkerFactory() {
+  const box = { hooks: null, follows: [] };
+  box.create = (_viewer, hooks) => {
+    box.hooks = hooks;
+    return {
+      update() {},
+      setIcon() {},
+      setFollow: (f) => box.follows.push(f ? `${f.mode}${f.paused ? ':p' : ''}` : 'x'),
+      destroy() {},
+    };
+  };
+  return box;
+}
+
+// A model with a (fake) marker: a stand-in viewer object turns rendering on.
+function makeFollowModel(over = {}) {
+  const box = fakeMarkerFactory();
+  const m = makeModel({ createMarker: box.create, ...over });
+  const sp = createSelfPosition(
+    {},
+    {
+      geolocation: m.geo,
+      host: null,
+      storage: m.storage,
+      doc: m.doc,
+      now: () => m.clock.t,
+      createMarker: box.create,
+      ...over,
+    },
+  );
+  made.push(sp);
+  return { ...m, sp, box };
+}
+
+test('startIfAllowed: a browser opens only when permission is already granted', async () => {
+  const yes = makeModel({ permissions: { query: async () => ({ state: 'granted' }) } });
+  assert.equal(await yes.sp.startIfAllowed('app'), true);
+  assert.equal(yes.geo.watches.size, 1);
+  const ask = makeModel({ permissions: { query: async () => ({ state: 'prompt' }) } });
+  assert.equal(await ask.sp.startIfAllowed('app'), false);
+  assert.equal(ask.geo.watches.size, 0); // never a prompt at launch
+  const none = makeModel({ permissions: null });
+  assert.equal(await none.sp.startIfAllowed('app'), false);
+});
+
+test('startIfAllowed in the Android app: its own answer, else an earlier real fix', async () => {
+  const had = 'window' in globalThis;
+  const prev = globalThis.window;
+  globalThis.window = {};
+  try {
+    const calls = [];
+    const host = {
+      startLocation: () => calls.push('start'),
+      stopLocation: () => calls.push('stop'),
+    };
+    // No permission answer from this app build, nothing on this device yet.
+    const a = makeModel({ host });
+    assert.equal(await a.sp.startIfAllowed(), false);
+    assert.equal(calls.includes('start'), false);
+    // A real fix once: the next launch opens the GPS at once.
+    a.sp.start('geo');
+    globalThis.window.argusHost.location(33.72, -116.21, null, 0, 5, a.clock.t, 'gps');
+    assert.equal(a.storage.getItem(GRANTED_KEY), '1');
+    calls.length = 0;
+    const b = makeModel({ host, storage: a.storage });
+    assert.equal(await b.sp.startIfAllowed(), true);
+    assert.ok(calls.includes('start'));
+    // Refused later: forgotten.
+    globalThis.window.argusHost.locationStatus('denied');
+    assert.equal(b.storage.getItem(GRANTED_KEY), null);
+    // An app that can say so is believed.
+    const c = makeModel({
+      host: { ...host, hasLocationPermission: () => false },
+      storage: fakeStorage({ [GRANTED_KEY]: '1' }),
+    });
+    assert.equal(await c.sp.startIfAllowed(), false);
+  } finally {
+    if (had) globalThis.window = prev;
+    else delete globalThis.window;
+  }
+});
+
+test('stayLive: the first real fix keeps the sensors open after GEO lets go', () => {
+  const { sp, geo, clock } = makeModel({ stayLive: true });
+  sp.start('geo');
+  geo.emit(33.72, -116.21, 8, clock.t);
+  sp.stop('geo');
+  assert.equal(geo.watches.size, 1); // still live: the app holds them
+  const quiet = makeModel();
+  quiet.sp.start('geo');
+  quiet.geo.emit(33.72, -116.21, 8, quiet.clock.t);
+  quiet.sp.stop('geo');
+  assert.equal(quiet.geo.watches.size, 0);
+});
+
+test('follow-me: needs the marker and a position, holds the sensors, reaches the marker', () => {
+  assert.equal(makeModel().sp.follow('follow'), 'off'); // no viewer: no marker
+  const { sp, box, geo, clock } = makeFollowModel();
+  assert.equal(sp.follow('follow'), 'off'); // no position yet
+  sp.push({ lat: 33.72, lon: -116.21, accuracy: 6, t: clock.t, source: 'test' });
+  assert.equal(sp.follow(true), 'follow');
+  assert.equal(sp.following, true);
+  assert.equal(geo.watches.size, 1); // following holds the sensors
+  assert.equal(sp.follow('heading'), 'heading');
+  box.hooks.onDrag(); // the user dragged the map
+  assert.deepEqual(sp.followState(), { mode: 'heading', paused: true, active: false });
+  assert.equal(sp.following, false);
+  sp.recenter();
+  assert.equal(sp.following, true);
+  box.hooks.onTwist(); // turned the map while heading-up
+  assert.equal(sp.followState().mode, 'follow');
+  box.hooks.onYield(); // FOLLOW on a contact took the camera
+  assert.equal(sp.followState().mode, 'off');
+  assert.equal(geo.watches.size, 0);
+  assert.deepEqual(box.follows, [
+    'off',
+    'follow',
+    'heading',
+    'heading:p',
+    'heading',
+    'follow',
+    'off',
+  ]);
+});
+
+test('follow-me: paused, it resumes on its own when driving with the map untouched', () => {
+  const { sp, box, clock } = makeFollowModel();
+  let [lat, lon] = [33.72, -116.21];
+  sp.push({ lat, lon, accuracy: 5, t: clock.t, source: 'test', speed: 0 });
+  sp.follow('follow');
+  box.hooks.onDrag();
+  // Driving north at 20 m/s, a fix a second: back on after 10 s untouched.
+  let resumedAt = null;
+  for (let i = 1; i <= 15; i += 1) {
+    clock.t += 1000;
+    [lat, lon] = north(lat, lon, 20);
+    sp.push({ lat, lon, accuracy: 5, t: clock.t, source: 'test', speed: 20, heading: 0 });
+    if (resumedAt === null && sp.following) resumedAt = i;
+  }
+  assert.equal(resumedAt, 10);
+});
+
+test('driving: every fix moves the shown position, walking pace to highway', () => {
+  for (const [speed, reported] of [
+    [1.6, true],
+    [14, true],
+    [33, true],
+    [14, false],
+  ]) {
+    const f = createFixFilter();
+    let [lat, lon] = [33.72, -116.21];
+    let t = T0;
+    let shown = null;
+    let moves = 0;
+    for (let i = 0; i < 30; i += 1) {
+      const r = f.push(fix(lat, lon, 6, t, reported ? { speed, heading: 90 } : {}));
+      assert.equal(r.accepted, true, `fix ${i} at ${speed} m/s`);
+      if (shown && (r.fix.lat !== shown.lat || r.fix.lon !== shown.lon)) moves += 1;
+      shown = r.fix;
+      [lat, lon] = east(lat, lon, speed);
+      t += 1000;
+    }
+    assert.ok(moves >= 28, `${speed} m/s moved ${moves} times`);
+  }
 });
