@@ -1,4 +1,5 @@
 import { DEFAULT_SELF_ICON, SELF_ICONS, isSelfIcon } from '../ui/selfIcons.js';
+import { createFollowState } from './follow.js';
 
 // The user's own position: one model every shell feeds and draws from.
 //
@@ -17,8 +18,15 @@ import { DEFAULT_SELF_ICON, SELF_ICONS, isSelfIcon } from '../ui/selfIcons.js';
 // time, a worse fix never overrides a better recent one, a still receiver
 // settles instead of creeping) and the last fix is kept on this device so GEO
 // can fly at once on the next launch. Drawing (the marker, the accuracy ring,
-// the locating pulse, follow-me) lives in selfMarker.js, loaded on demand so
-// this module stays free of Cesium and testable.
+// the locating pulse, the follow camera) lives in selfMarker.js, loaded on
+// demand so this module stays free of Cesium and testable.
+//
+// Like a map app, the position stays live once the user has allowed it:
+// startIfAllowed() opens the sensors at launch when permission is already
+// there (never prompting), and with stayLive the first real fix keeps them
+// open for the session (closed while the page is hidden, as always).
+// Follow-me (./follow.js): off, follow, heading-up; a drag pauses it, and
+// driving with the map untouched resumes it.
 
 export const FRESH_MS = 30_000; // a fix younger than this is "live"
 const GET_MAX_AGE_MS = 5 * 60_000; // get() never hands out an older fix
@@ -29,6 +37,10 @@ const MAX_SPEED_MPS = 90; // faster than any car: a jump beyond this is a glitch
 const STILL_MPS = 0.6; // below this the receiver is treated as stationary
 const COURSE_MPS = 1.2; // above this the course is trusted for the heading
 const DEFAULT_ACCURACY_M = 50;
+// Set once this device has given a real fix (permission was granted then);
+// cleared when location is refused. Lets the Android app, whose WebView has
+// no permission query, open its GPS at launch without a prompt.
+export const GRANTED_KEY = 'argus.geo.ok';
 const JUMP_CONSENSUS = 3; // agreeing fixes that overrule an implausible jump
 const COMPASS_FRESH_MS = 3000;
 
@@ -314,7 +326,10 @@ function nativeSource(host) {
  * @param {{ settings?: object, render?: boolean, geolocation?: object|null,
  *   host?: object|null, storage?: Storage|null, now?: () => number,
  *   log?: (entry: object) => void, fps?: number, onIcon?: (id: string) => void,
- *   doc?: Document|null }} [opts]
+ *   doc?: Document|null, stayLive?: boolean, permissions?: object|null,
+ *   createMarker?: Function }} [opts]
+ *   stayLive: the first real fix keeps the sensors open for the session.
+ *   createMarker: the marker factory (tests); default ./selfMarker.js.
  */
 export function createSelfPosition(viewer, opts = {}) {
   const {
@@ -328,6 +343,9 @@ export function createSelfPosition(viewer, opts = {}) {
     fps = 30,
     onIcon = null,
     doc = typeof document !== 'undefined' ? document : null,
+    stayLive = false,
+    permissions = typeof navigator !== 'undefined' ? navigator.permissions : null,
+    createMarker = null,
   } = opts;
 
   const filter = createFixFilter();
@@ -345,11 +363,13 @@ export function createSelfPosition(viewer, opts = {}) {
   let staleTimer = null;
   let pending = null; // { promise, resolve, timer }
   let marker = null;
-  let following = false;
+  const followState = createFollowState({ now });
+  let followGuard = () => false;
   let icon = isSelfIcon(settings?.get?.('selfIcon'))
     ? settings.get('selfIcon')
     : DEFAULT_SELF_ICON;
   const logged = new Set();
+  let granted = false; // a real fix arrived this session
 
   const note = (level, title, body) => {
     // One entry per kind of trouble a session, not one per failed read.
@@ -374,6 +394,7 @@ export function createSelfPosition(viewer, opts = {}) {
   function sourceError(kind, msg) {
     if (kind === 'denied') {
       setStatus('denied');
+      writeFlag(false);
       closeSources();
       note('warn', 'LOCATION DENIED', 'This page may not read the device position.');
       settle(null);
@@ -479,7 +500,32 @@ export function createSelfPosition(viewer, opts = {}) {
   }
 
   function stateNow() {
-    return { status, sensing, following, locating: Boolean(pending) };
+    const f = followState.state();
+    return {
+      status,
+      sensing,
+      following: f.active,
+      follow: f.mode,
+      paused: f.paused,
+      locating: Boolean(pending),
+    };
+  }
+
+  function writeFlag(on) {
+    try {
+      if (on) storage?.setItem(GRANTED_KEY, '1');
+      else storage?.removeItem?.(GRANTED_KEY);
+    } catch {
+      // storage blocked: the flag is only a convenience
+    }
+  }
+
+  function readFlag() {
+    try {
+      return storage?.getItem(GRANTED_KEY) === '1';
+    } catch {
+      return false;
+    }
   }
 
   function emitState() {
@@ -526,21 +572,45 @@ export function createSelfPosition(viewer, opts = {}) {
     });
   }
 
+  // The marker reports what the user does to the map while it follows.
+  const markerHooks = {
+    onDrag: () => followState.drag(),
+    onTouch: () => followState.touch(),
+    onTwist: () => followState.twist(),
+    // Something else took the camera (FOLLOW on a contact, the cockpit).
+    onYield: () => followState.set('off'),
+    isBusy: () => {
+      try {
+        return Boolean(followGuard());
+      } catch {
+        return false;
+      }
+    },
+  };
+  const madeMarker = (m) => {
+    marker = m;
+    marker.setFollow?.(followState.state());
+    paintMarker();
+  };
   if (viewer && render) {
-    import('./selfMarker.js')
-      .then(({ createSelfMarker }) => {
-        marker = createSelfMarker(viewer, {
-          icon,
-          fps,
-          onFollow: (on) => {
-            following = on;
-            emitState();
-          },
-        });
-        paintMarker();
-      })
-      .catch((e) => console.warn('[argus] own-position marker unavailable', e));
+    if (createMarker) {
+      madeMarker(createMarker(viewer, { icon, fps, ...markerHooks }));
+    } else {
+      import('./selfMarker.js')
+        .then(({ createSelfMarker }) =>
+          madeMarker(createSelfMarker(viewer, { icon, fps, ...markerHooks })),
+        )
+        .catch((e) => console.warn('[argus] own-position marker unavailable', e));
+    }
   }
+
+  // Following holds the sensors for as long as it lasts.
+  followState.subscribe((f) => {
+    marker?.setFollow?.(f);
+    if (f.mode !== 'off') api.start('follow');
+    else api.stop('follow');
+    emitState();
+  });
 
   // -------------------------------------------------------------- settings
   const applyIcon = (id) => {
@@ -575,7 +645,7 @@ export function createSelfPosition(viewer, opts = {}) {
       return () => fixListeners.delete(fn);
     },
 
-    /** fn({ status, sensing, following, locating }) on every state change. */
+    /** fn({ status, sensing, following, follow, paused, locating }) on every state change. */
     watch(fn) {
       stateListeners.add(fn);
       fn(stateNow());
@@ -583,8 +653,40 @@ export function createSelfPosition(viewer, opts = {}) {
     },
 
     status: () => status,
+    /** Follow-me is on and not paused: the camera rides with the marker. */
     get following() {
-      return following;
+      return followState.active;
+    },
+    /** { mode: 'off'|'follow'|'heading', paused, active } */
+    followState: () => followState.state(),
+
+    /**
+     * Open the sensors for an owner when location is already allowed, never
+     * prompting: the Android app's own answer (hasLocationPermission) or,
+     * without it, whether this device has given a fix before; in a browser,
+     * the Permissions API. Resolves whether it started.
+     */
+    async startIfAllowed(owner = 'app') {
+      let ok = false;
+      if (native.available && !native.failed) {
+        try {
+          ok =
+            typeof host.hasLocationPermission === 'function'
+              ? Boolean(host.hasLocationPermission())
+              : readFlag();
+        } catch {
+          ok = readFlag();
+        }
+      } else if (browser.available) {
+        try {
+          const p = await permissions?.query?.({ name: 'geolocation' });
+          ok = p?.state === 'granted';
+        } catch {
+          ok = false;
+        }
+      }
+      if (ok) api.start(owner);
+      return ok;
     },
 
     /** Keep the sensors open for an owner ('default' when none is given). */
@@ -643,6 +745,13 @@ export function createSelfPosition(viewer, opts = {}) {
       current = res.fix;
       if (res.fix.heading !== null) courseHeading = res.fix.heading;
       if (status === 'denied' || status === 'unavailable') status = 'idle';
+      if (fix.source !== 'cache' && !granted) {
+        // A real fix: location is allowed here. A map app keeps it live.
+        granted = true;
+        writeFlag(true);
+        if (stayLive) api.start('app');
+      }
+      followState.fix(current.speed);
       const t = now();
       if (t - cachedAt > CACHE_EVERY_MS) {
         cachedAt = t;
@@ -680,15 +789,24 @@ export function createSelfPosition(viewer, opts = {}) {
       paintMarker();
     },
 
-    /** Follow-me: the camera rides with the marker. Returns whether it is on. */
-    follow(on = true) {
-      if (!marker) return false;
-      const ok = marker.follow(Boolean(on) && Boolean(current ?? last));
-      if (ok !== following) {
-        following = ok;
-        emitState();
-      }
-      return ok;
+    /**
+     * Follow-me: 'follow' (true), 'heading' (heading-up) or off (false).
+     * Needs the marker and a position; returns the mode now in force.
+     */
+    follow(mode = 'follow') {
+      const want = mode === true ? 'follow' : mode === false ? 'off' : mode;
+      if (want !== 'off' && (!marker || !(current ?? last))) return followState.mode;
+      return followState.set(want);
+    },
+
+    /** RECENTER: a paused follow-me takes the camera back. */
+    recenter() {
+      followState.resume();
+    },
+
+    /** fn() -> true while something else drives the camera (navigation, cockpit). */
+    setFollowGuard(fn) {
+      followGuard = typeof fn === 'function' ? fn : () => false;
     },
 
     setIcon(id) {
@@ -701,6 +819,7 @@ export function createSelfPosition(viewer, opts = {}) {
     },
 
     destroy() {
+      followState.set('off');
       holders.clear();
       closeSources();
       clearTimeout(staleTimer);

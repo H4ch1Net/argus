@@ -46,12 +46,6 @@
   left: 8px;
   right: 8px;
 }
-.argus-shell-mobile .ct-lockup__bar {
-  width: 70px;
-}
-.argus-shell-mobile .ct-lockup__os {
-  font-size: 26px;
-}
 
 .argus-shell-mobile .argus-stack {
   position: absolute;

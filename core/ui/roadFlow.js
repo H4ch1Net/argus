@@ -10,7 +10,7 @@ import { CONGESTION_COLORS } from '../layers/simtraffic/format.js';
 // The FLOW readout: TomTom's live speed on the road at the middle of the view
 // (current / free-flow, and the ratio), from the same pinned, budgeted
 // 'tomtom-flowseg' feed the simulated traffic samples. Off by default (VIEW >
-// ROAD FLOW): it spends a TomTom request when the view settles somewhere new
+// MORE > ROAD SPEED): it spends a TomTom request when the view settles somewhere new
 // below 25 km, at most one every 15 s, and reuses an answer for five minutes
 // within about 30 m. On the desktop it sits in the bottom strip, on the phone
 // in the intel pane (the shells' 'strip' slot).
@@ -142,19 +142,14 @@ export function mountRoadFlow({ viewer, proxyClient, settings, mount, ui, getVie
   return ui.section(
     'ROAD FLOW',
     ui.createSwitch({
-      label: 'Flow at view centre',
+      label: 'Road speed at centre',
       on,
       title:
-        'TomTom current and free-flow speed on the road under the middle of the view',
+        'TomTom current and free-flow speed on the road under the middle of the view (one request when the view settles somewhere new)',
       onToggle: (v) => {
         settings?.set('flowReadout', v);
         flow.setEnabled(v);
       },
     }).el,
-    ui.h(
-      'div.ct-section__note',
-      {},
-      'Live speeds © TomTom. One request when the view settles somewhere new (budgeted with the simulated traffic).',
-    ),
   );
 }

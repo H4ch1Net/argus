@@ -113,11 +113,6 @@ export function createTourTool({
 
   const el = section(
     'SITUATION TOUR',
-    h(
-      'div.ct-section__note',
-      {},
-      'Flies round the hotspots of the layers that are on (big quakes, hot fires, storms, launches, live traffic), circling each. For a wall screen or a quiet watch.',
-    ),
     createChoice({
       caption: 'Hold',
       options: HOLDS,

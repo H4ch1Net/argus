@@ -41,10 +41,11 @@ export function createRadioTuner({ manager, select, proxyClient, notify }) {
       h('button.ct-btn', { type: 'button', onclick: () => step(1) }, '▶'),
     ),
   );
+  // No stations yet: one press turns the layer on.
   const hint = h(
-    'div.ct-section__note',
-    {},
-    'Turn on the Radio layer to tune its stations.',
+    'button.ct-btn',
+    { type: 'button', onclick: () => manager.enable('radio') },
+    'TURN ON RADIO STATIONS',
   );
   const el = section('RADIO', hint, body);
   body.hidden = true;

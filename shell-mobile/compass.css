@@ -1,9 +1,8 @@
-/* Point-at-sky: the button sits with the controls; the reticle is a ctOS
+/* Point-at-sky: a switch row in VIEW > SCREEN; the reticle is a ctOS
    crosshair in corner brackets with a LOCK chip for the aimed contact. */
-.argus-compass-btn.is-on {
-  background: var(--ctosGray);
-  border-color: var(--ctosGray);
-  color: var(--background);
+.argus-compass-btn .ct-switch__state {
+  width: auto;
+  min-width: 3ch;
 }
 .argus-reticle {
   position: fixed;

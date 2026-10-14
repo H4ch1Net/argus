@@ -1,6 +1,12 @@
 import { afterEach, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { altitudeFor, createGeoControl as create, flyToSelf } from './geoControl.js';
+import {
+  altitudeFor,
+  createGeoControl as create,
+  flyToSelf,
+  followCellState,
+} from './geoControl.js';
+import { createFollowState } from './follow.js';
 
 // Controls made by a test are torn down after it (their hold timers would
 // keep the process alive).
@@ -49,14 +55,16 @@ function fakeCamera({ instant = true } = {}) {
   return cam;
 }
 
-// The selfPosition surface GEO uses, with a controllable locate().
+// The selfPosition surface GEO uses, with a controllable locate() and the
+// real follow state machine (core/geo/follow.js).
 function fakeSelf({ fix = null, last = null, status = 'idle' } = {}) {
+  const fs = createFollowState({ now: () => T0 });
   const sp = {
     current: fix,
     last,
     st: status,
     holds: new Map(),
-    following: false,
+    fs,
     pendingLocate: null,
     watchers: new Set(),
     subs: new Set(),
@@ -69,11 +77,14 @@ function fakeSelf({ fix = null, last = null, status = 'idle' } = {}) {
       new Promise((resolve) => {
         sp.pendingLocate = resolve;
       }),
-    follow(on) {
-      sp.following = Boolean(on);
-      for (const fn of sp.watchers) fn({ following: sp.following });
-      return sp.following;
+    get following() {
+      return fs.active;
     },
+    followState: () => fs.state(),
+    follow(mode) {
+      return fs.set(mode === true ? 'follow' : mode === false ? 'off' : mode);
+    },
+    recenter: () => fs.resume(),
     watch(fn) {
       sp.watchers.add(fn);
       return () => sp.watchers.delete(fn);
@@ -87,6 +98,9 @@ function fakeSelf({ fix = null, last = null, status = 'idle' } = {}) {
       for (const fn of sp.subs) fn(f);
     },
   };
+  fs.subscribe((f) => {
+    for (const fn of sp.watchers) fn({ follow: f.mode, paused: f.paused });
+  });
   return sp;
 }
 
@@ -107,7 +121,7 @@ test('altitudeFor: street level for a good fix, higher for a coarse one, bounded
   assert.equal(altitudeFor({}), 12_000);
 });
 
-test('a recent fix: one short flight at once, then follow-me, then off', async () => {
+test('tap 1 centres and follows, tap 2 turns heading-up, tap 3 frees the map', async () => {
   const now = T0;
   const sp = fakeSelf({ fix: at(48.2, 16.37, 6, now - 5000) });
   const cam = fakeCamera();
@@ -125,30 +139,67 @@ test('a recent fix: one short flight at once, then follow-me, then off', async (
   assert.ok(cam.flights[0].o.duration <= 0.8);
   assert.equal(cam.flights[0].o.range, 1800);
   assert.equal(cam.flights[0].o.latitude, 48.2);
-  assert.equal(geo.state, 'centered');
-  assert.equal(sp.holds.get('geo'), 1);
-  // Second tap while still centred: follow.
-  await geo.press();
   assert.equal(geo.state, 'following');
-  assert.equal(sp.following, true);
+  assert.equal(sp.fs.mode, 'follow');
   assert.equal(unfollowed, 1);
-  // Third: off again, no flight.
+  assert.equal(sp.holds.get('geo'), 1);
   await geo.press();
-  assert.equal(geo.state, 'centered');
-  assert.equal(sp.following, false);
-  assert.equal(cam.flights.length, 1);
-  assert.deepEqual(states.slice(0, 4), ['idle', 'centered', 'following', 'centered']);
+  assert.equal(geo.state, 'heading');
+  assert.equal(sp.fs.mode, 'heading');
+  await geo.press();
+  assert.equal(geo.state, 'idle');
+  assert.equal(sp.fs.mode, 'off');
+  assert.equal(cam.flights.length, 1); // taps 2 and 3 never fly
+  assert.deepEqual(states, ['idle', 'centered', 'following', 'heading', 'idle']);
 });
 
-test('the user moved after GEO: the next tap centres again instead of following', async () => {
+test('a drag pauses following: the cell shows it, a tap or RECENTER resumes without a flight', async () => {
   const sp = fakeSelf({ fix: at(1, 2, 5, T0) });
   const cam = fakeCamera();
   const geo = createGeoControl({ selfPosition: sp, camera: cam, now: () => T0 });
   await geo.press();
-  cam.view = { ...cam.view, longitude: cam.view.longitude + 0.5 };
+  sp.fs.drag();
+  assert.equal(geo.state, 'paused');
   await geo.press();
-  assert.equal(sp.following, false);
-  assert.equal(cam.flights.length, 2);
+  assert.equal(geo.state, 'following');
+  assert.equal(sp.fs.active, true);
+  sp.fs.set('heading');
+  sp.fs.drag();
+  geo.recenter();
+  assert.equal(geo.state, 'heading');
+  assert.equal(cam.flights.length, 1);
+});
+
+test('follow-me ended elsewhere (FOLLOW on a contact): the cell goes free', async () => {
+  const sp = fakeSelf({ fix: at(1, 2, 5, T0) });
+  const geo = createGeoControl({ selfPosition: sp, camera: fakeCamera(), now: () => T0 });
+  await geo.press();
+  sp.fs.set('off');
+  assert.equal(geo.state, 'idle');
+});
+
+test('a tap the app intercepts (navigation recentres) does nothing else', async () => {
+  const sp = fakeSelf({ fix: at(1, 2, 5, T0) });
+  const cam = fakeCamera();
+  let n = 0;
+  const geo = createGeoControl({
+    selfPosition: sp,
+    camera: cam,
+    now: () => T0,
+    intercept: () => (n += 1) > 0,
+  });
+  await geo.press();
+  assert.equal(n, 1);
+  assert.equal(cam.flights.length, 0);
+  assert.equal(sp.fs.mode, 'off');
+});
+
+test('followCellState maps follow-me to the cell', () => {
+  assert.equal(followCellState({ mode: 'off' }), null);
+  assert.equal(followCellState({ mode: 'follow', paused: false }), 'following');
+  assert.equal(followCellState({ mode: 'heading', paused: false }), 'heading');
+  assert.equal(followCellState({ mode: 'heading', paused: true }), 'paused');
+  assert.equal(followCellState(null), null);
 });
 
 test('no recent fix: the last known place at once, LOCATING, then a hop onto the fresh fix', async () => {
@@ -164,7 +215,7 @@ test('no recent fix: the last known place at once, LOCATING, then a hop onto the
   assert.ok(cam.flights[0].o.range >= 4000); // coarse: some context around it
   sp.pendingLocate(at(40.401, -3.7, 6, T0));
   await done;
-  assert.equal(geo.state, 'centered');
+  assert.equal(geo.state, 'following');
   assert.equal(cam.flights.length, 2);
   assert.ok(cam.flights[1].o.duration <= 0.6); // near: a short hop
   assert.ok(notes.includes('locating:LOCATING'));
@@ -198,7 +249,7 @@ test('no fix at all: LOCATING with the view left alone until the first fix', asy
   sp.pendingLocate(at(10, 10, 30, T0));
   await done;
   assert.equal(cam.flights.length, 1);
-  assert.equal(geo.state, 'centered');
+  assert.equal(geo.state, 'following');
 });
 
 test('the user took the view while it searched: no yank back', async () => {
@@ -257,17 +308,9 @@ test('the sensors are held while GEO is in use and released three minutes after'
     assert.ok(sp.holds.has('geo'));
     mock.timers.tick(3 * 60_000 + 1);
     assert.equal(sp.holds.has('geo'), false);
-    // Following (a second tap, the view untouched) holds them while it lasts.
+    // Each tap holds them again (following holds its own: selfPosition).
     await geo.press();
-    assert.equal(geo.state, 'following');
     assert.ok(sp.holds.has('geo'));
-    mock.timers.tick(10 * 60_000);
-    assert.ok(sp.holds.has('geo'));
-    // Something else took the camera: follow ends, the hold runs out later.
-    sp.follow(false);
-    assert.equal(geo.state, 'idle');
-    mock.timers.tick(3 * 60_000 + 1);
-    assert.equal(sp.holds.has('geo'), false);
   } finally {
     mock.timers.reset();
   }
@@ -318,5 +361,5 @@ test('no fix and no memory: an old fix from a sensor is shown while it keeps loo
   sp.pendingLocate(at(-33.861, 151.2, 5, T0));
   await done;
   assert.equal(cam.flights.length, 2);
-  assert.equal(geo.state, 'centered');
+  assert.equal(geo.state, 'following');
 });

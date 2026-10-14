@@ -65,8 +65,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
   navMode: { def: 'drive', values: ['drive', 'walk', 'bike'] },
   navAvoidHighways: { def: false, values: [true, false] },
   navTraffic: { def: true, values: [true, false] },
-  // Shodan snapshot and host sample (VIEW > SHODAN; ids as in
-  // core/layers/shodan/snapshots.js), and the TomTom flow readout (VIEW > ROAD FLOW).
+  // Shodan snapshot and host sample (the Shodan layer's options in LAYERS; ids
+  // as in core/layers/shodan/snapshots.js), and the TomTom flow readout (VIEW >
+  // MORE > ROAD SPEED).
   shodanSnapshot: {
     def: 'web',
     values: [
@@ -84,8 +85,8 @@ export const SETTINGS_SCHEMA = Object.freeze({
   },
   shodanSample: { def: false, values: [true, false] },
   flowReadout: { def: false, values: [true, false] },
-  // Map: merge nearby contacts into one marker until zoomed in (VIEW > MERGE
-  // NEARBY; the Layer SDK's clustering).
+  // Map: merge nearby contacts into one marker until zoomed in (VIEW > ON THE
+  // MAP > MERGE NEARBY; the Layer SDK's clustering).
   merge: { def: true, values: [true, false] },
   // Map icons (SETTINGS > ICONS, core/ui/iconPrefs.js): iconScaling ('zoom' or
   // 'fixed'), iconSize (global %), and per icon layer iconSize.<layer> (%)

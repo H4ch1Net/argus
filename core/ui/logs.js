@@ -205,7 +205,13 @@ export function createLogsPanel(store, { open: startOpen = false } = {}) {
   const caret = h('span.ct-logs__caret', {}, '[+]');
   const head = h(
     'button.ct-head.ct-logs__head',
-    { type: 'button', 'aria-expanded': 'false', onclick: () => setOpen(!open) },
+    {
+      type: 'button',
+      'aria-expanded': 'false',
+      title:
+        'Feeds that fail or answer late, kept in memory on this device (the last 300)',
+      onclick: () => setOpen(!open),
+    },
     h('span', {}, 'LOGS'),
     badge,
     caret,
@@ -264,11 +270,6 @@ export function createLogsPanel(store, { open: startOpen = false } = {}) {
     list,
     h('div.ct-seg', {}, clearBtn, copyBtn),
     status,
-    h(
-      'div.ct-section__note',
-      {},
-      'Feeds that fail or answer late land here instead of popups. Kept in memory on this device only (the last 300).',
-    ),
   );
   const el = h('section.ct-section.ct-logs', {}, head, body);
 

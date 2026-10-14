@@ -1,18 +1,22 @@
 import { formatDistance } from '../settings/store.js';
 import { FRESH_MS, distanceM } from './selfPosition.js';
 
-// GEO: the view stack's "centre on me" cell, the same on phone and desktop.
+// GEO: the view stack's "centre on me" cell, the same on phone and desktop,
+// working as a map app's location button.
 //
-//   tap 1  a fix younger than 30 s: a short flight there at once. Otherwise
-//          the last known position (this device remembers it) at once while
-//          the cell shows LOCATING, then a short hop onto the first fresh fix.
-//          A coarse first fix is refined: for 20 s, a better fix that lands
-//          off-centre re-centres, unless the user has moved the view.
-//   tap 2  (the view still where GEO left it) follow-me: the camera rides with
-//          the marker. tap 3 ends it.
+//   tap 1  centre on me and follow: a fix younger than 30 s, a short flight
+//          there at once; otherwise the last known position (this device
+//          remembers it) at once while the cell shows LOCATING, then a short
+//          hop onto the first fresh fix. Once there the camera follows the
+//          marker (core/geo/follow.js). A coarse first fix is refined: for
+//          20 s, a better fix that lands off-centre re-centres.
+//   tap 2  heading-up: the map turns with the way you travel.
+//   tap 3  free: the camera stays where it is.
+// A drag on the map pauses following (state 'paused': the cell offers
+// RECENTER, and a tap recentres); driving with the map untouched resumes it.
 // Failures are a state on the cell plus one log entry, never a popup. The
-// sensors stay open while GEO is in use and for three minutes after, then
-// close (follow-me holds them for as long as it lasts).
+// sensors stay open while GEO is in use and three minutes after (the app
+// usually keeps them open anyway once location is allowed: selfPosition).
 
 const HOLD_MS = 3 * 60_000;
 const REFINE_MS = 20_000;
@@ -31,11 +35,20 @@ const sameView = (a, b) =>
   Math.abs(a.height - b.height) < Math.max(1, a.height * 1e-4) &&
   Math.abs(((a.heading - b.heading + 540) % 360) - 180) < 0.2;
 
+/** The cell's state for a follow state: following | heading | paused, or null when off. */
+export function followCellState(f) {
+  if (!f || f.mode === 'off' || !f.mode) return null;
+  if (f.paused) return 'paused';
+  return f.mode === 'heading' ? 'heading' : 'following';
+}
+
 /**
  * @param {{ selfPosition: object, camera: { flyAround: Function, getView: Function },
  *   timeoutMs?: number, holdMs?: number, minAltitude?: number,
- *   beforeFollow?: () => void, log?: (entry: object) => void, now?: () => number,
- *   units?: () => string }} deps  units: the settings' unit system, for the notes
+ *   beforeFollow?: () => void, intercept?: () => boolean,
+ *   log?: (entry: object) => void, now?: () => number,
+ *   units?: () => string }} deps  units: the settings' unit system, for the notes;
+ *   intercept: called first on a tap, true when it handled it (navigation recentres)
  */
 export function createGeoControl({
   selfPosition,
@@ -44,12 +57,14 @@ export function createGeoControl({
   holdMs = HOLD_MS,
   minAltitude = 1800,
   beforeFollow,
+  intercept,
   log,
   now = () => Date.now(),
   units = () => 'metric',
 }) {
   const listeners = new Set();
-  let state = 'idle'; // idle | locating | centered | following | error
+  // idle | locating | following | heading | paused | centered | error
+  let state = 'idle';
   let note = '';
   let landed = null; // the view our last flight ended on
   let flight = 0; // id of the newest flight we started
@@ -71,17 +86,20 @@ export function createGeoControl({
   function hold() {
     selfPosition.start('geo');
     clearTimeout(holdTimer);
-    holdTimer = setTimeout(() => {
-      if (state !== 'following') selfPosition.stop('geo');
-    }, holdMs);
+    holdTimer = setTimeout(() => selfPosition.stop('geo'), holdMs);
   }
 
-  // Follow-me ends elsewhere (FOLLOW on a contact, cockpit, a drag in some
-  // builds): the cell drops back, and the hold runs out from here.
+  const followNow = () => selfPosition.followState?.() ?? { mode: 'off' };
+
+  // The cell mirrors follow-me, whoever changes it (a drag pauses it, FOLLOW
+  // on a contact ends it, driving resumes it).
   selfPosition.watch?.((s) => {
-    if (state === 'following' && !s.following) {
-      set('idle');
-      hold();
+    if (state === 'locating' || state === 'error') return;
+    const cell = followCellState({ mode: s.follow ?? 'off', paused: s.paused });
+    if (cell) {
+      if (cell !== state) set(cell, cell === 'heading' ? 'HEADING UP' : '');
+    } else if (state === 'following' || state === 'heading' || state === 'paused') {
+      set('idle', 'FREE');
     }
   });
 
@@ -112,44 +130,52 @@ export function createGeoControl({
 
   const userMoved = () => !sameView(camera.getView(), landed);
 
-  // A better fix after a coarse one: hop onto it while the view is untouched.
+  // A better fix after a coarse one: hop onto it while it is still being refined.
   function watchRefine() {
     unsubFix?.();
     refineUntil = now() + REFINE_MS;
     unsubFix = selfPosition.subscribe((fix) => {
-      if (now() > refineUntil || state !== 'centered') {
+      const following = state === 'following' || state === 'heading';
+      if (now() > refineUntil || !(following || state === 'centered')) {
         unsubFix?.();
         unsubFix = null;
         return;
       }
-      if (!landed || userMoved()) return;
+      if (!landed || (!following && userMoved())) return;
       const off = distanceM(
         { lat: landed.latitude, lon: landed.longitude },
         { lat: fix.lat, lon: fix.lon },
       );
       if (off > Math.max(30, altitudeFor(fix, { min: minAltitude }) * 0.12)) {
+        landed = { ...landed, latitude: fix.lat, longitude: fix.lon };
         fly(fix, 0.7);
-        set('centered', accuracyNote(fix));
+        if (!following) set('centered', accuracyNote(fix));
       }
     });
   }
 
+  // Centred on the user: hand the camera to follow-me.
+  function follow(text) {
+    beforeFollow?.();
+    // The cell first, so the watch below finds it already following.
+    set('following', text);
+    const mode = selfPosition.follow?.('follow');
+    if (mode !== 'follow' && mode !== true) set('centered', text);
+  }
+
   async function press() {
     if (state === 'locating') return;
-    if (state === 'following') {
-      set('centered', '');
-      selfPosition.follow(false);
-      hold();
-      return;
+    try {
+      if (intercept?.()) return;
+    } catch {
+      // the hook is best effort
     }
-    if (state === 'centered' && landed && !userMoved()) {
-      beforeFollow?.();
-      if (selfPosition.follow(true)) {
-        clearTimeout(holdTimer);
-        selfPosition.start('geo');
-        set('following', 'FOLLOW');
-        return;
-      }
+    const f = followNow();
+    if (f.mode && f.mode !== 'off') {
+      hold();
+      if (f.paused) selfPosition.recenter?.();
+      else selfPosition.follow(f.mode === 'follow' ? 'heading' : false);
+      return;
     }
     hold();
     landed = null;
@@ -157,7 +183,9 @@ export function createGeoControl({
     const fix = selfPosition.get();
     if (fix && now() - fix.t < FRESH_MS) {
       set('centered', accuracyNote(fix));
-      await fly(fix, 0.8);
+      const ok = await fly(fix, 0.8);
+      if (ok && state === 'centered') follow(note);
+      else if (!ok && state === 'centered') set('idle', note);
       watchRefine();
       return;
     }
@@ -170,11 +198,11 @@ export function createGeoControl({
     const startView = camera.getView();
     const unsubPreview = previewed
       ? null
-      : selfPosition.subscribe((f) => {
-          if (previewed || state !== 'locating' || now() - f.t < FRESH_MS) return;
+      : selfPosition.subscribe((f2) => {
+          if (previewed || state !== 'locating' || now() - f2.t < FRESH_MS) return;
           if (!sameView(camera.getView(), startView)) return; // the user is looking elsewhere
           previewed = true;
-          fly(f, 1.2, { coarse: true });
+          fly(f2, 1.2, { coarse: true });
         });
     const found = await selfPosition.locate({ timeoutMs });
     unsubPreview?.();
@@ -202,21 +230,27 @@ export function createGeoControl({
       (landed !== null && userMoved()) ||
       (!previewed && !sameView(camera.getView(), startView));
     const fresh = now() - found.t < FRESH_MS;
+    const text = fresh ? accuracyNote(found) : 'LAST KNOWN';
     if (moved) {
-      set('idle', fresh ? accuracyNote(found) : 'LAST KNOWN');
+      set('idle', text);
       return;
     }
-    set('centered', fresh ? accuracyNote(found) : 'LAST KNOWN');
+    set('centered', text);
     const near =
       landed &&
       distanceM({ lat: landed.latitude, lon: landed.longitude }, found) <
         altitudeFor(found, { min: minAltitude }) * 4;
-    await fly(found, near ? 0.6 : 1.2);
+    const ok = await fly(found, near ? 0.6 : 1.2);
+    if (ok && state === 'centered') follow(text);
     watchRefine();
   }
 
   return {
     press,
+    /** RECENTER (the chip beside the cell): a paused follow-me takes the camera back. */
+    recenter() {
+      if (followNow().paused) selfPosition.recenter?.();
+    },
     get state() {
       return state;
     },

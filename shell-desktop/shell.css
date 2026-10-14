@@ -71,6 +71,11 @@
   padding-bottom: 8px;
   box-sizing: border-box;
 }
+/* The 300 px menu: even grids of choices take a slightly smaller label. */
+.argus-left .ct-seg--grid > .ct-btn {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
 .argus-right {
   right: calc(var(--hud-gap) + 37px + var(--gaps-in));
   width: var(--target-w);
