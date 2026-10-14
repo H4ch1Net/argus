@@ -89,22 +89,38 @@ a car version built for a glance, and it navigates: search a place, pick a
 route (traffic and traffic lights counted, highways avoided if you like), and
 follow the turn-by-turn card. Parked, it shows your car's own readouts.
 
-### One-time setup (unknown sources)
+### One-time setup (Google Play internal testing)
 
-Android Auto hides apps that did not come from the Play Store until you allow
-them:
+Android Auto shows a navigation app in a real car only when it was installed
+from Google Play. Its **Unknown sources** developer setting does not cover apps
+built with the Android for Cars App Library, which every navigation app is
+(Google's "Test Android apps for cars" page). The APK from the releases page
+therefore runs on the phone but never appears in the car. Play's internal
+testing track is the way in: private (only the testers you list), and no app
+review for that track.
 
-1. On the phone, open Android Auto's settings: Settings, Connected devices,
-   Connection preferences, **Android Auto** (or search Settings for "Android
-   Auto"; on older phones it is the Android Auto app).
-2. Scroll to the bottom and tap **Version** (on some versions "Version and
-   permission info") about **10 times**, until "Allow development settings?"
-   appears. Tap OK.
-3. Open the three-dot menu at the top right, **Developer settings**.
-4. Turn on **Unknown sources**.
-5. Connect the phone to the car (cable or wireless). Argus appears in the
-   car's app launcher; if not, check Android Auto settings, **Customize
-   launcher**.
+1. Set up the signing secrets ([Signing](#signing-and-releases)): the build
+   then also makes `argus-android.aab`, the bundle Play takes, with your key as
+   its upload key.
+2. Create a Google Play Console developer account (a one-time fee) and, in it,
+   an app with the package name `net.h4ch1.argus`.
+3. **Advanced settings, Form factors**: add **Android Auto**.
+4. **Test and release, Testing, Internal testing**: add yourself as a tester,
+   create a release, drop in `argus-android.aab` (from the **android-latest**
+   release, or the workflow run's artifact), and roll it out.
+5. On the phone, open the tester link from that page, accept, and install
+   Argus from the Play Store. Play signs its copy with its own key, so
+   uninstall the copy from the releases page first (copy your keys out of
+   Settings before you do).
+6. Connect the phone to the car. Argus appears in the car's launcher (and in
+   Android Auto settings, **Customize launcher**).
+
+Each later update is a new internal testing release with the newer
+`argus-android.aab` (Play needs a higher version code each time; the build
+number provides it).
+
+To try the car screen without a car, Google's Desktop Head Unit runs it on a
+computer from the phone over USB.
 
 The first time Argus opens in the car without location permission, the car
 says to check the phone, and the phone asks for it (with the car information
@@ -255,7 +271,7 @@ page's own maneuver banner instead of Android Auto's card).
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Boot screen shows `ARGUS_BOOT : FAILED`                   | The reason and the proxy log are on that screen. **RESTART**; if it repeats, **SETTINGS** shows the full log (also `adb logcat -s ARGUS-NODE ArgusNode`). |
 | "App not installed" when updating                         | The APK's signature changed (debug key): uninstall Argus, then install. Copy your keys out of Settings first.                                             |
-| Argus missing in the car                                  | Android Auto developer settings, **Unknown sources** on; Customize launcher; disconnect and reconnect.                                                    |
+| Argus missing in the car                                  | Android Auto only lists navigation apps installed from Google Play: install it through internal testing ([Android Auto](#android-auto)), then reconnect.  |
 | Car shows `ARGUS_BOOT : OPEN ARGUS ON THE PHONE`          | The proxy did not start: open Argus on the phone to see why.                                                                                              |
 | Car map stays black or blank                              | Update **Android System WebView** (and Chrome) from the Play Store; reconnect. `adb logcat -s ArgusCar` shows the car page's messages.                    |
 | No position (NO FIX)                                      | Location permission for Argus, and the phone's location on. In the car the phone's GPS is used.                                                           |
@@ -299,12 +315,16 @@ renderer), `android/app/src/main/cpp/` (the JNI bridge to `node::Start`),
 `.github/workflows/android.yml` builds on every push to `main` (the rolling
 **android-latest** prerelease, `argus-android.apk`), on tags `v*` (that tag's
 release, `argus-<tag>.apk`), and on demand (Actions, android, Run workflow:
-the APK is then a workflow artifact).
+the APK is then a workflow artifact). With the signing secrets below it also
+builds the Google Play bundle beside each APK (`argus-android.aab`,
+`argus-<tag>.aab`), signed with your key as Play's upload key; without them
+there is no bundle, since Play refuses debug-signed uploads.
 
 Without signing secrets the APK is signed with a debug key. The workflow
 caches that key so consecutive builds install over each other, but the cache
 expires after about a week without builds; the next APK then has a new
-signature and needs an uninstall first. To sign with your own key once and for
+signature and needs an uninstall first. (Until Oct 2026 the cache never held
+the key, so every build had a new one.) To sign with your own key once and for
 all:
 
 ```bash

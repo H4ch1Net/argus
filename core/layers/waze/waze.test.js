@@ -267,7 +267,7 @@ test('a 403 from the live map: one log entry, then quiet for 30 min or until REL
   assert.equal(first.note, WAZE_REFUSED_NOTE);
   assert.equal(logs.length, 1);
   assert.equal(logs[0].title, 'WAZE REFUSED');
-  assert.match(logs[0].body, /LOCAL_WAZE_URL/);
+  assert.match(logs[0].body, /RELOAD/);
   // Polls meanwhile do not ask.
   t += WAZE_REFUSED_MS - 1;
   await src({ bbox });

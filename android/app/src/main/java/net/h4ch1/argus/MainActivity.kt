@@ -29,6 +29,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -57,6 +59,7 @@ class MainActivity : Activity() {
     private var phoneLocation: PhoneLocationFeed? = null
     private var wantLocation = false // the page asked for the native feed
     private var resumed = false
+    private var backCallback: Any? = null // OnBackInvokedCallback (Android 13+)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,6 +163,10 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                 openOutside(request.url)
 
+            override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                syncBack()
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(WAKE_LOCK_SHIM, null)
                 if (isOwnPage(Uri.parse(url))) splash.dismiss()
@@ -172,6 +179,7 @@ class MainActivity : Activity() {
                 root.removeView(view)
                 view.destroy()
                 if (webView === view) webView = null
+                syncBack()
                 val port = loadedPort
                 loadedPort = 0
                 if (port != 0) load(port)
@@ -335,6 +343,31 @@ class MainActivity : Activity() {
         }
     }
 
+    // Back steps through the page's history first. Android 13 and later use a
+    // callback, registered only while there is history, so otherwise the
+    // system's own back (with its predictive animation) leaves the app; from
+    // Android 16 at targetSdk 36 onBackPressed is no longer called at all.
+    private fun syncBack() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val want = webView?.canGoBack() == true
+        val current = backCallback as OnBackInvokedCallback?
+        if (want && current == null) {
+            val callback = OnBackInvokedCallback {
+                webView?.takeIf { it.canGoBack() }?.goBack()
+                syncBack()
+            }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback,
+            )
+            backCallback = callback
+        } else if (!want && current != null) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(current)
+            backCallback = null
+        }
+    }
+
+    // Android 12 and earlier.
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         val wv = webView

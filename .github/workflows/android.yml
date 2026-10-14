@@ -7,9 +7,11 @@
 #
 # Signing: with the repository secrets ANDROID_KEYSTORE_BASE64,
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD the
-# APK is signed with your key (updates install over each other). Without them
-# it is signed with a debug key (cached between runs, but replaced when the
-# cache expires: then the next update needs an uninstall first).
+# APK is signed with your key (updates install over each other), and an app
+# bundle for Google Play (argus-android.aab, your key as its upload key) is
+# built beside it. Without them the APK is signed with a debug key (cached
+# between runs, but replaced when the cache expires: then the next update
+# needs an uninstall first) and no bundle is built (Play refuses debug keys).
 
 name: android
 
@@ -34,6 +36,9 @@ env:
   NODEJS_MOBILE_SHA256: 'bd7321eaa1a7602fbe0bb87302df2d79d87835cf4363fbdd17c350dbb485c2af'
   NDK_VERSION: '27.2.12479018'
   CMAKE_VERSION: '3.22.1'
+  # Where the Android Gradle plugin keeps the fallback debug key: stated, so
+  # the cache below finds it (unset, it was written elsewhere and never kept).
+  ANDROID_USER_HOME: /home/runner/.android
 
 jobs:
   apk:
@@ -81,7 +86,7 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
-            "platforms;android-35" "build-tools;35.0.0" \
+            "platforms;android-36" "build-tools;35.0.0" \
             "ndk;${NDK_VERSION}" "cmake;${CMAKE_VERSION}"
 
       # Keeps the fallback debug signature stable between runs while the cache
@@ -89,8 +94,8 @@ jobs:
       - name: Cache the debug signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: argus-android-debug-keystore-v1
+          path: /home/runner/.android/debug.keystore
+          key: argus-android-debug-keystore-v2
 
       - name: Release signing key
         env:
@@ -110,7 +115,7 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "Signing with the release key."
           else
-            echo "::warning title=Debug-signed APK::No ANDROID_KEYSTORE_BASE64 secret: the APK is signed with a debug key (see docs/ANDROID.md, Signing)."
+            echo "::warning title=Debug-signed APK::No ANDROID_KEYSTORE_BASE64 secret: the APK is signed with a debug key and no Play bundle is built (see docs/ANDROID.md, Signing)."
           fi
 
       - name: Version
@@ -126,29 +131,40 @@ jobs:
           fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "bundle=${file%.apk}.aab" >> "$GITHUB_OUTPUT"
           echo "Version $name (code $GITHUB_RUN_NUMBER) -> $file"
 
       - name: Build the APK
         working-directory: android
         run: |
-          ./gradlew --no-daemon --stacktrace assembleRelease \
+          # The Play bundle only with your key: Play refuses a debug-signed one.
+          tasks="assembleRelease"
+          if [ -n "${ARGUS_KEYSTORE_FILE:-}" ]; then tasks="assembleRelease bundleRelease"; fi
+          ./gradlew --no-daemon --stacktrace $tasks \
             -PargusVersionCode="${GITHUB_RUN_NUMBER}" \
             -PargusVersionName="${{ steps.version.outputs.name }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/${{ steps.version.outputs.file }}"
+          if [ -n "${ARGUS_KEYSTORE_FILE:-}" ]; then
+            cp app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/apk/${{ steps.version.outputs.bundle }}"
+          fi
           ls -l "$RUNNER_TEMP/apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: argus-android
-          path: ${{ runner.temp }}/apk/*.apk
+          path: |
+            ${{ runner.temp }}/apk/*.apk
+            ${{ runner.temp }}/apk/*.aab
           if-no-files-found: error
 
       - name: Release (tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ runner.temp }}/apk/*.apk
+          files: |
+            ${{ runner.temp }}/apk/*.apk
+            ${{ runner.temp }}/apk/*.aab
           generate_release_notes: true
 
       - name: Move the android-latest tag to this commit
@@ -159,6 +175,7 @@ jobs:
           git tag -f android-latest "$GITHUB_SHA"
           git push -f origin refs/tags/android-latest
           gh release delete-asset android-latest argus-android.apk -y 2>/dev/null || true
+          gh release delete-asset android-latest argus-android.aab -y 2>/dev/null || true
 
       - name: Release (android-latest)
         if: github.ref == 'refs/heads/main'
@@ -168,8 +185,12 @@ jobs:
           name: Android (latest main)
           prerelease: true
           make_latest: false
-          files: ${{ runner.temp }}/apk/argus-android.apk
+          files: |
+            ${{ runner.temp }}/apk/argus-android.apk
+            ${{ runner.temp }}/apk/argus-android.aab
           body: |
             The newest Android build from main (commit ${{ github.sha }}).
             On the phone: download argus-android.apk below and open it.
+            For Google Play (internal testing, needed for Android Auto): upload
+            argus-android.aab in Play Console (built only when the signing secrets are set).
             Install, Android Auto and keys: docs/ANDROID.md.

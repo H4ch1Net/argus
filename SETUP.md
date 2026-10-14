@@ -149,8 +149,9 @@ repository's releases page (`android-latest` for the newest build of `main`,
 or a numbered release) and open it. The app runs the proxy on the phone and
 shows the globe full screen; keys go in its SETUP tab or in Settings (long-press
 the icon), stay in the app's private storage, and never reach the page. It
-also puts Argus in Android Auto as a map app (a sideloaded app needs Android
-Auto's developer setting "Unknown sources" once). Everything about it,
+also puts Argus in Android Auto as a map app, once it is installed from Google
+Play (a private internal testing track; Android Auto ignores sideloaded
+navigation apps). Everything about it,
 including Android Auto setup and building the APK yourself, is in
 **[docs/ANDROID.md](docs/ANDROID.md)**.
 
