@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  CAR_LAYER_KEYS,
   VIEW_MODES,
   angleDelta,
   bearingDeg,
@@ -21,6 +23,7 @@ import {
   nearestContacts,
   nextViewMode,
   planLayerClicks,
+  shouldResumeFollow,
   speedBetween,
   unitsForLocale,
 } from './model.js';
@@ -148,6 +151,38 @@ test('isParkedJitter holds the view still for GPS wander, not for driving', () =
   const poor = destination(51.5, -0.12, 30, 20);
   assert.equal(isParkedJitter(prev, { ...poor, speed: 0, accuracy: 60 }), true);
   assert.equal(isParkedJitter(null, { ...poor, speed: 0 }), false);
+  // Network fixes carry no speed: right after driving, 20 m on is the drive
+  // going on (no hold), while parked it is still wander.
+  const net = { ...poor, speed: null, accuracy: 30 };
+  assert.equal(isParkedJitter({ ...prev, speed: 15 }, net), false);
+  assert.equal(isParkedJitter({ ...prev, speed: 0 }, net), true);
+  assert.equal(isParkedJitter({ ...prev, speed: null }, net), true);
+});
+
+test('free look returns to following after 10 s untouched, only while driving', () => {
+  const base = { following: false, speed: 12, idleMs: 10_000 };
+  assert.equal(shouldResumeFollow(base), true);
+  assert.equal(shouldResumeFollow({ ...base, idleMs: 9_999 }), false);
+  // Standing or creeping: the driver may be looking round the map.
+  assert.equal(shouldResumeFollow({ ...base, speed: 2.5 }), false);
+  assert.equal(shouldResumeFollow({ ...base, speed: null }), false);
+  assert.equal(shouldResumeFollow({ ...base, speed: NaN }), false);
+  // Already following, or previewing routes: nothing to do.
+  assert.equal(shouldResumeFollow({ ...base, following: true }), false);
+  assert.equal(shouldResumeFollow({ ...base, busy: true }), false);
+});
+
+test('the car-safe layers match the car LAYERS list in MapScreen.kt', () => {
+  const kt = readFileSync(
+    new URL(
+      '../android/app/src/main/java/net/h4ch1/argus/car/MapScreen.kt',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const all = kt.slice(kt.indexOf('val ALL = listOf('), kt.indexOf('val PRESETS'));
+  const keys = [...all.matchAll(/Layer\("([a-z0-9]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(keys, [...CAR_LAYER_KEYS]);
 });
 
 test('courseFor trusts the fix heading only while moving', () => {

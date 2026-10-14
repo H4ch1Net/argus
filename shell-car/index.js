@@ -8,6 +8,7 @@ import {
   turnsWithHeading,
 } from '../core/ui/selfIcons.js';
 import {
+  CAR_LAYER_KEYS,
   VIEW_MODES,
   angleDelta,
   carResolutionScale,
@@ -25,6 +26,7 @@ import {
   metresPerPixel,
   nearestContacts,
   planLayerClicks,
+  shouldResumeFollow,
   speedBetween,
   unitsForLocale,
   wrap360,
@@ -41,21 +43,37 @@ import {
   routesPayload,
   searchPayload,
 } from './nav.js';
-import { createParkedTracker, usesImperialGallon, vehicleView } from './vehicle.js';
+import {
+  createParkedTracker,
+  usesImperialGallon,
+  vehicleChip,
+  vehicleView,
+} from './vehicle.js';
 import { createRouteView } from './routeView.js';
-import { createNavBanner, createVehiclePanel } from './panels.js';
+import { createNavBanner, createVehicleWidget } from './panels.js';
+import { createSharedLayers } from '../core/share/session.js';
+import { decodeShareHash } from '../core/share/state.js';
+
+/** The layer keys in a share hash ('#v=1&layers=...'), [] without any. */
+const hashLayers = (hash) => decodeShareHash(hash)?.layers ?? [];
 import '../core/ui/theme.css';
 import './shell.css';
 
 // Car shell (Android Auto). The Android app draws this page on the car display
 // (android/.../car/CarMapRenderer.kt) and drives it through window.argusCar:
 // gestures from the car's screen, the phone's location, and the car's LAYERS
-// and VIEW buttons. The view follows the vehicle: tilted 3D heading up, flat
-// 2D heading up, or 2D north up, 1.8 to 6.5 km up depending on speed.
+// and VIEW buttons. The view follows the vehicle as a GPS app does: tilted 3D
+// heading up, flat 2D heading up, or 2D north up, 1.8 to 6.5 km up depending
+// on speed; a drag looks round the map and, once the driver lets it be for
+// ten seconds on the move, it follows again (RECENTER at once).
 // Driver-distraction rules shape the UI: the map, a status strip (speed,
-// heading, view, mode), the nearest contacts ahead in large type and the
-// tracking boxes; no menus, no text entry, no video. Main still mounts its
-// components; the slots this shell has no place for are ignored.
+// heading, mode), the nearest contacts ahead in large type and the tracking
+// boxes; no menus, no text entry, no video. Main still mounts its components;
+// the slots this shell has no place for are ignored.
+//
+// The layers are the phone's (core/share/session.js): the car shows those of
+// its car-safe set (model.js CAR_LAYER_KEYS) that the phone left on, and the
+// car's LAYERS list changes the same shared set.
 //
 // It draws on the phone's GPU beside whatever the phone draws, so it renders
 // only what changed: the follow view updates 12 to 20 times a second while
@@ -66,8 +84,9 @@ import './shell.css';
 // the routing card) ask this page through the same bridge to search, plan and
 // follow a route with the navigator (core/nav/navigator.js, handed in by main
 // through setNavigator), and the page draws the route, looks ahead along it,
-// and reports progress back about once a second. Parked, a VEHICLE panel shows
-// the car's own data (setCarInfo); it hides as soon as the car moves.
+// and reports progress back about once a second. Parked, a small VEHICLE strip
+// shows the car's own data (setCarInfo; off with setVehicleInfo(false)); it
+// hides as soon as the car moves.
 //
 // Also runs in any browser at ?shell=car (navigator.geolocation then drives
 // it, and a drag on the globe leaves follow mode), which is how to try it
@@ -92,10 +111,38 @@ export async function mountShell(root, bootOpts = {}) {
   const hud = h('div.argus-hud');
   root.append(globeEl, hud);
 
+  // The phone's layers, within the car-safe set. They go into the share hash,
+  // which main reads once this shell is mounted, so the first frame already
+  // has them; with no phone session yet (a first run) the hash the app put
+  // there (the car's last choice) stays.
+  let ctl = null;
+  let sharedLayers = null;
+  try {
+    sharedLayers = createSharedLayers({
+      storage: window.localStorage,
+      scope: CAR_LAYER_KEYS,
+      apply: (changes) => ctl?.adoptLayers(changes),
+    });
+  } catch {
+    sharedLayers = null; // storage blocked: the app's hash decides
+  }
+  const phoneLayers = sharedLayers?.read() ?? null;
+  if (phoneLayers) {
+    history.replaceState(
+      null,
+      '',
+      `${location.pathname}${location.search}#v=1&layers=${phoneLayers.join(',')}`,
+    );
+  }
+  // What the car means to show: a switch in its LAYERS list starts from this,
+  // not from the menu, which lags while main is still switching layers on.
+  let intended = new Set(
+    phoneLayers ?? hashLayers(location.hash).filter((k) => CAR_LAYER_KEYS.includes(k)),
+  );
+
   // The API exists before the globe does: early calls are kept, latest wins.
   // A search or a plan that arrives first is answered at once with an error
   // (the host retries on the driver's next tap).
-  let ctl = null;
   let shellApp = null;
   const early = {};
   window.argusCar = {
@@ -105,6 +152,11 @@ export async function mountShell(root, bootOpts = {}) {
     recenter: () => ctl?.recenter(),
     setLocation: (...a) => (ctl ? ctl.setLocation(...a) : (early.location = a)),
     setLayers: (keys) => (ctl ? ctl.setLayers(keys) : (early.layers = keys)),
+    toggleLayer: (key, on) => {
+      if (ctl) return ctl.toggleLayer(key, on);
+      early.toggles = [...(early.toggles ?? []), [key, on]];
+    },
+    setVehicleInfo: (on) => (ctl ? ctl.setVehicleInfo(on) : (early.vehicleInfo = on)),
     setInsets: (...a) => (ctl ? ctl.setInsets(...a) : (early.insets = a)),
     setView: (mode) => (ctl ? ctl.setView(mode) : (early.view = mode)),
     search: (query, reqId) =>
@@ -178,11 +230,10 @@ export async function mountShell(root, bootOpts = {}) {
     };
   };
   // Speed and heading first and largest; the car's own bar already shows the
-  // time. VIEW echoes the VIEW button, MODE says whether the map follows.
+  // time and the VIEW button its view. MODE says whether the map follows.
   const cells = {
     speed: cell('SPD'),
     heading: cell('HDG'),
-    view: cell('VIEW'),
     mode: cell('MODE'),
   };
   cells.speed.el.classList.add('car-cell--lead');
@@ -205,13 +256,19 @@ export async function mountShell(root, bootOpts = {}) {
   };
   drawSelfIcon(DEFAULT_SELF_ICON);
   // Inside the app Android Auto draws the routing card; the page's own
-  // maneuver banner (with its ETA line) is for the browser only. VEHICLE sits
-  // on the right while parked.
+  // maneuver banner (with its ETA line) is for the browser only. The VEHICLE
+  // strip sits under the status strip while parked.
   const inApp = Boolean(window.ArgusCarHost);
   const banner = createNavBanner({ units });
-  const vehiclePanel = createVehiclePanel();
-  const topLeft = h('div.car-topleft', {}, inApp ? null : banner.el, status);
-  hud.append(topLeft, readout, vehiclePanel.el, notify, marker);
+  const vehicleWidget = createVehicleWidget();
+  const topLeft = h(
+    'div.car-topleft',
+    {},
+    inApp ? null : banner.el,
+    status,
+    vehicleWidget.el,
+  );
+  hud.append(topLeft, readout, notify, marker);
 
   // ---------------------------------------------------------------- state
   let fix = null; // { lat, lon, heading, speed, accuracy, t }
@@ -231,6 +288,8 @@ export async function mountShell(root, bootOpts = {}) {
   let drive = null; // { route, ix, dest, at, atT } while following a route
   let carInfo = null; // the car's own data (setCarInfo)
   let carInfoAt = 0;
+  let vehicleInfoOn = true; // the car's LAYERS list: VEHICLE INFO
+  let touchedAt = 0; // the driver's last drag, pinch or tap on the map
 
   // ------------------------------------------------------------ following
   const view = { lat: 0, lon: 0, heading: 0, pitch: VIEW_MODES['3d'].pitch, range: 0 };
@@ -405,6 +464,7 @@ export async function mountShell(root, bootOpts = {}) {
   let panRaf = 0;
   function pan(dx, dy, ms = 0) {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    touchedAt = performance.now() + Math.max(0, ms || 0);
     setFollowing(false);
     cancelAnimationFrame(panRaf);
     if (!(ms > 0)) return panBy(dx, dy);
@@ -424,6 +484,7 @@ export async function mountShell(root, bootOpts = {}) {
   const toward = new Cesium.Cartesian3();
   function zoom(factor, x, y) {
     if (!Number.isFinite(factor) || factor <= 0) return;
+    touchedAt = performance.now();
     if (following) {
       // Zooming while following changes the follow range, not the camera.
       rangeScale = clamp(rangeScale / factor, 0.15, 6);
@@ -447,11 +508,17 @@ export async function mountShell(root, bootOpts = {}) {
     scene.requestRender();
   }
 
-  // A tap on the car screen selects what is under it, through main's own
-  // picker (Pointer Events on the canvas). A synthetic pointer cannot be
-  // captured, so capture is skipped for just these two events.
+  // A tap on the car screen opens or folds the VEHICLE strip when it lands
+  // there, else selects what is under it, through main's own picker (Pointer
+  // Events on the canvas). A synthetic pointer cannot be captured, so capture
+  // is skipped for just these two events.
   function tap(x, y) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (vehicleWidget.hit(x, y)) {
+      vehicleWidget.toggle();
+      return;
+    }
+    touchedAt = performance.now();
     const canvas = scene.canvas;
     const init = {
       clientX: x,
@@ -476,8 +543,28 @@ export async function mountShell(root, bootOpts = {}) {
 
   // In a browser, a real press on the globe takes over from follow mode.
   scene.canvas.addEventListener('pointerdown', (e) => {
-    if (e.isTrusted) setFollowing(false);
+    if (!e.isTrusted) return;
+    touchedAt = performance.now();
+    setFollowing(false);
   });
+
+  // Free look on the move: back to following the vehicle once the driver has
+  // left the map alone for a while (model.js shouldResumeFollow). The zoom
+  // the driver chose for the follow view stays; RECENTER resets it.
+  function maybeResume(now) {
+    const fresh = fix && now - fix.t < FIX_STALE_MS;
+    if (
+      shouldResumeFollow({
+        following,
+        speed: fresh ? fix.speed : NaN,
+        idleMs: now - touchedAt,
+        busy: Boolean(preview),
+      })
+    ) {
+      viewSet = false;
+      setFollowing(true);
+    }
+  }
 
   // ------------------------------------------------------------- location
   function setLocation(lat, lon, heading, speed, accuracy, { app: pushed = true } = {}) {
@@ -532,7 +619,11 @@ export async function mountShell(root, bootOpts = {}) {
       }
     }
     refreshStatus();
+    maybeResume(performance.now());
     startFollow();
+    // In free look nothing renders while the map rests: the chevron is moved
+    // to the new fix on its own (placeMarker), not left where it was.
+    if (!following) placeMarker();
   }
 
   // Fallback when the app pushes nothing (a browser, or an older app build).
@@ -558,9 +649,13 @@ export async function mountShell(root, bootOpts = {}) {
     );
   }, GEO_FALLBACK_MS);
 
-  // The own-position chevron, kept on the vehicle as the view moves.
+  // The own-position chevron, kept on the vehicle: after every frame while
+  // the view moves, and in free look (where the map rests and nothing
+  // renders) on every fix and a few times a second while the vehicle moves,
+  // carried forward along its course between fixes. Only the projection is
+  // redone then: the map itself is not drawn again.
   const selfPos = new Cesium.Cartesian3();
-  scene.postRender.addEventListener(() => {
+  function placeMarker() {
     if (!fix) return;
     const p = predicted(performance.now());
     Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0, Cesium.Ellipsoid.WGS84, selfPos);
@@ -574,52 +669,114 @@ export async function mountShell(root, bootOpts = {}) {
       ? (fix.heading ?? 0) - Cesium.Math.toDegrees(cam.heading)
       : 0;
     marker.style.transform = `translate(${s.x}px, ${s.y}px) rotate(${turn}deg)`;
-  });
+  }
+  scene.postRender.addEventListener(placeMarker);
+  setInterval(() => {
+    if (following || !fix || !((fix.speed || 0) > 0.5)) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    placeMarker();
+  }, 200);
 
   // --------------------------------------------------------------- layers
+  // Main's layer menu is kept off screen: its rows are pressed to switch
+  // layers (as a person would) and read back for what is on.
+  const rowStates = () =>
+    menus
+      .flatMap((m) => [...m.querySelectorAll('[data-layer]')])
+      .map((row) => ({
+        row,
+        key: row.dataset.layer,
+        on: row.getAttribute('aria-pressed') === 'true',
+        loading: Boolean(row.querySelector('.is-load')),
+      }));
+  /** The layers on, or on their way. */
+  const layersOn = () =>
+    new Set(
+      rowStates()
+        .filter((s) => s.on || s.loading)
+        .map((s) => s.key),
+    );
+
   function reconcileLayers() {
     if (!wantLayers) return;
-    const rows = menus.flatMap((m) => [...m.querySelectorAll('[data-layer]')]);
-    const states = rows.map((row) => ({
-      row,
-      key: row.dataset.layer,
-      on: row.getAttribute('aria-pressed') === 'true',
-      loading: Boolean(row.querySelector('.is-load')),
-    }));
+    const states = rowStates();
     for (const key of planLayerClicks(states, wantLayers)) {
       states.find((s) => s.key === key)?.row.click();
     }
   }
 
-  // The car's LAYERS list offers only the layers this build can actually show
-  // (a keyed layer appears once the phone's proxy has its key): tell the app
-  // which, whenever that set changes.
+  // The car's LAYERS list offers the layers this build can show (a keyed
+  // layer appears once the phone's proxy has its key) and shows which are
+  // on: tell the app whenever either changes (rows change as layers load,
+  // switch and fail; what settles is reported).
   let reportedLayers = '';
+  let reportTimer = 0;
   function reportLayers() {
-    const keys = menus.flatMap((m) =>
-      [...m.querySelectorAll('[data-layer]')].map((r) => r.dataset.layer),
-    );
-    const json = JSON.stringify([...new Set(keys)].sort());
-    if (!keys.length || json === reportedLayers) return;
+    clearTimeout(reportTimer);
+    reportTimer = 0;
+    const states = rowStates();
+    if (!states.length) return;
+    const keysOf = (list) => [...new Set(list.map((s) => s.key))].sort();
+    const json = JSON.stringify({
+      available: keysOf(states),
+      on: keysOf(states.filter((s) => s.on || s.loading)),
+    });
+    if (json === reportedLayers) return;
     reportedLayers = json;
-    try {
-      window.ArgusCarHost?.layers?.(json);
-    } catch {
-      // not inside the app (a browser at ?shell=car)
-    }
+    toHost('layerState', json);
   }
+  const reportSoon = () => {
+    if (!reportTimer) reportTimer = setTimeout(reportLayers, 250);
+  };
+  const rowWatch =
+    typeof MutationObserver === 'function' ? new MutationObserver(reportSoon) : null;
 
-  function setLayers(keys) {
-    if (!Array.isArray(keys)) return;
-    wantLayers = new Set(keys.map(String));
+  /**
+   * The car's layers: these (within its car-safe set) on, the others off.
+   * `persist` writes the choice to the set the phone shares.
+   */
+  function chooseLayers(keys, { persist = true } = {}) {
+    wantLayers = new Set([...keys].map(String).filter((k) => CAR_LAYER_KEYS.includes(k)));
+    intended = new Set(wantLayers);
     reconcileLayers();
-    // Main switches the link's layers on one by one as the scene starts:
-    // settle once more after that.
+    if (persist) sharedLayers?.write([...wantLayers]);
+    // Main may still be switching the start layers on one by one: settle
+    // once more after that.
     clearTimeout(layerTimer);
     layerTimer = setTimeout(() => {
       reconcileLayers();
       reportLayers();
     }, 3000);
+    reportSoon();
+  }
+
+  /** A preset from the car's LAYERS list: these layers and no others. */
+  function setLayers(keys) {
+    if (Array.isArray(keys)) chooseLayers(keys);
+  }
+
+  /** One switch in the car's LAYERS list. */
+  function toggleLayer(key, on) {
+    const k = String(key);
+    if (!CAR_LAYER_KEYS.includes(k)) return;
+    const next = new Set(intended);
+    if (on) next.add(k);
+    else next.delete(k);
+    chooseLayers(next);
+  }
+
+  /** The phone changed the shared layers while the car runs: follow it. */
+  function adoptLayers({ on = [], off = [] } = {}) {
+    const next = new Set(intended);
+    for (const k of off) next.delete(k);
+    for (const k of on) next.add(k);
+    chooseLayers(next, { persist: false });
+  }
+
+  // VEHICLE INFO in the car's LAYERS list: the VEHICLE strip at all.
+  function setVehicleInfo(on) {
+    vehicleInfoOn = on !== false;
+    refreshVehicle();
   }
 
   // ----------------------------------------------------------------- view
@@ -650,7 +807,10 @@ export async function mountShell(root, bootOpts = {}) {
 
   function layoutOverlay() {
     if (!overlay) return;
-    const top = status.getBoundingClientRect().bottom - root.getBoundingClientRect().top;
+    // The tracking frame starts under the strips top left (the VEHICLE strip
+    // too while it shows).
+    const above = vehicleWidget.shown ? vehicleWidget.el : status;
+    const top = above.getBoundingClientRect().bottom - root.getBoundingClientRect().top;
     overlay.setInsets({
       top: Math.max(insets.top, top),
       right: insets.right,
@@ -673,16 +833,16 @@ export async function mountShell(root, bootOpts = {}) {
     const fresh = fix && performance.now() - fix.t < FIX_STALE_MS;
     put(cells.speed, formatSpeed(fresh ? fix.speed : NaN, units));
     put(cells.heading, formatHeading(fresh ? fix.heading : NaN));
-    put(cells.view, VIEW_MODES[viewMode].label);
     put(cells.mode, !fix ? 'NO FIX' : drive ? 'ROUTE' : following ? 'FOLLOW' : 'FREE');
     status.classList.toggle('is-stale', !fresh);
     refreshVehicle();
   }
 
   // ------------------------------------------------------------- vehicle
-  // The VEHICLE panel: shown once the car has stood still for three seconds
+  // The VEHICLE strip: shown once the car has stood still for three seconds
   // (its own speedometer when the app reads it, else the GPS), hidden the
-  // moment it moves, and never over an active route.
+  // moment it moves, never over an active route, and not at all when VEHICLE
+  // INFO is off in the car's LAYERS list.
   const parked = createParkedTracker();
   const imperialGallon = usesImperialGallon(navigator.language);
   function speedNow(now) {
@@ -694,9 +854,12 @@ export async function mountShell(root, bootOpts = {}) {
     const now = performance.now();
     const still = parked.update(speedNow(now), now);
     const routing = preview || (drive && navState?.status !== 'arrived');
-    const view = carInfo ? vehicleView(carInfo, { units, imperialGallon }) : null;
-    if (still && !routing && view?.known) vehiclePanel.show(view);
-    else vehiclePanel.hide();
+    const view =
+      carInfo && vehicleInfoOn ? vehicleView(carInfo, { units, imperialGallon }) : null;
+    const was = vehicleWidget.shown;
+    if (still && !routing && view?.known) vehicleWidget.show(vehicleChip(view));
+    else vehicleWidget.hide();
+    if (was !== vehicleWidget.shown) layoutOverlay();
   }
 
   function setCarInfo(json) {
@@ -714,7 +877,10 @@ export async function mountShell(root, bootOpts = {}) {
     refreshVehicle();
   }
 
-  setInterval(refreshStatus, 1000);
+  setInterval(() => {
+    refreshStatus();
+    maybeResume(performance.now());
+  }, 1000);
   refreshStatus();
 
   const pos = new Cesium.Cartesian3();
@@ -1070,6 +1236,9 @@ export async function mountShell(root, bootOpts = {}) {
     },
     setLocation,
     setLayers,
+    toggleLayer,
+    adoptLayers,
+    setVehicleInfo,
     setInsets,
     setView,
     search,
@@ -1084,11 +1253,14 @@ export async function mountShell(root, bootOpts = {}) {
       view: viewMode,
       fix: fix && { ...fix },
       layers: wantLayers ? [...wantLayers] : null,
+      layersOn: [...layersOn()].sort(),
       insets: { ...insets },
       nav: navState?.status ?? (nav ? 'idle' : 'offline'),
       route: drive ? drive.route.id : null,
       preview: preview ? preview.routes.map((r) => r.id) : null,
-      vehicle: vehiclePanel.shown,
+      vehicle: vehicleWidget.shown,
+      vehicleOpen: vehicleWidget.open,
+      vehicleInfo: vehicleInfoOn,
     }),
   };
 
@@ -1105,6 +1277,12 @@ export async function mountShell(root, bootOpts = {}) {
       if (slot === 'notify') notify.appendChild(el);
       else if (slot === 'layers') {
         menus.push(el);
+        rowWatch?.observe(el, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['aria-pressed', 'class'],
+        });
         reconcileLayers();
         reportLayers();
       }
@@ -1137,6 +1315,8 @@ export async function mountShell(root, bootOpts = {}) {
   if (early.view) setView(early.view);
   if (early.location) setLocation(...early.location);
   if (early.layers) setLayers(early.layers);
+  for (const [key, on] of early.toggles ?? []) toggleLayer(key, on);
+  if (early.vehicleInfo !== undefined) setVehicleInfo(early.vehicleInfo);
   if (early.carInfo) setCarInfo(early.carInfo);
   if (bootOpts.navigator) setNavigator(bootOpts.navigator);
   // Tell the app the page is listening, so it sends the current state.

@@ -5,13 +5,14 @@ import {
   createParkedTracker,
   mpg,
   usesImperialGallon,
+  vehicleChip,
   vehicleVariant,
   vehicleView,
 } from './vehicle.js';
 
 const near = (a, b, eps) => assert.ok(Math.abs(a - b) <= eps, `${a} vs ${b} (±${eps})`);
 
-test('the silhouette follows the fuels the car reports', () => {
+test('the kind of car follows the fuels it reports', () => {
   assert.equal(vehicleVariant({ fuelTypes: ['electric'] }), 'ev');
   assert.equal(vehicleVariant({ fuelTypes: ['unleaded', 'electric'] }), 'sedan');
   assert.equal(vehicleVariant({ fuelTypes: ['diesel_1'] }), 'suv');
@@ -109,6 +110,61 @@ test('an EV shows its battery, and unknowns read --', () => {
   assert.equal(none.title, 'VEHICLE');
   assert.ok(none.rows.every((r) => r.value === '--'));
   assert.equal(vehicleView({ lowFuel: true }).lowFuel, true);
+});
+
+test('the widget leads with the fuel (or an EV battery) and the range', () => {
+  const car = vehicleView(
+    {
+      model: { make: 'Toyota', name: 'Corolla', year: 2021 },
+      energy: { fuelTypes: ['unleaded'] },
+      fuelPct: 62.4,
+      rangeM: 412_000,
+      odometerM: 48_213_400,
+      economy: { fuelPctStart: 92.4, odometerStartM: 47_963_400 },
+      tankL: 50,
+    },
+    { units: 'imperial' },
+  );
+  const c = vehicleChip(car);
+  assert.deepEqual(c.level, { key: 'fuel', label: 'FUEL', value: '62%', meter: 62.4 });
+  assert.deepEqual(c.range, { label: 'RNG', value: '256 MI' });
+  assert.equal(c.title, 'TOYOTA COROLLA 2021');
+  assert.equal(c.low, false);
+  // Tapped open: what else the car reports, in short labels.
+  assert.deepEqual(
+    c.details.map((d) => [d.label, d.value]),
+    [
+      ['ODO', '29,958 MI'],
+      ['AVG MPG', '39.2'],
+    ],
+  );
+  // An EV: the battery leads.
+  const ev = vehicleChip(
+    vehicleView({ energy: { fuelTypes: ['electric'] }, batteryPct: 80, rangeM: 300_000 }),
+  );
+  assert.equal(ev.level.label, 'BATT');
+  assert.equal(ev.level.value, '80%');
+  assert.deepEqual(ev.details, []);
+  assert.equal(ev.title, '');
+  // A hybrid: fuel leads, the battery is a detail.
+  const hybrid = vehicleChip(
+    vehicleView({
+      energy: { fuelTypes: ['unleaded', 'electric'] },
+      fuelPct: 40,
+      batteryPct: 15,
+      lowFuel: true,
+    }),
+  );
+  assert.equal(hybrid.level.label, 'FUEL');
+  assert.deepEqual(hybrid.details[0], { key: 'battery', label: 'BATT', value: '15%' });
+  assert.equal(hybrid.low, true);
+  // Nothing reported: dashes, no meter, no details.
+  const none = vehicleChip(vehicleView({}));
+  assert.equal(none.level.value, '--');
+  assert.equal(none.level.meter, null);
+  assert.equal(none.range.value, '--');
+  assert.deepEqual(none.details, []);
+  assert.equal(vehicleChip(null).level.value, '--');
 });
 
 test('parked after three seconds under 1 m/s, driving at once', () => {
