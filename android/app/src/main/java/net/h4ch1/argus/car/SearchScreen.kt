@@ -295,9 +295,12 @@ class RoutePreviewScreen(
         }
         return b.setItemList(list.build())
             .setNavigateAction(
+                // The app's primary accent (CarAppTheme: ctOS green); the host
+                // keeps its own colour if this one fails its contrast check.
                 Action.Builder()
                     .setTitle(carContext.getString(R.string.car_navigate))
                     .setIcon(carContext.icon(R.drawable.ic_car_navigate))
+                    .setBackgroundColor(CarColor.PRIMARY)
                     .setOnClickListener { if (planning) startWhenReady = true else go() }
                     .build(),
             )

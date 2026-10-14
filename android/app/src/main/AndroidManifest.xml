@@ -49,6 +49,10 @@
         <meta-data
             android:name="androidx.car.app.minCarApiLevel"
             android:value="1" />
+        <!-- The ctOS accents for Android Auto's own screens (res/values/themes.xml). -->
+        <meta-data
+            android:name="androidx.car.app.theme"
+            android:resource="@style/CarAppTheme" />
 
         <activity
             android:name=".MainActivity"
