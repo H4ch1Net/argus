@@ -57,27 +57,27 @@
     <string name="car_location_title">ARGUS : CAR MAP</string>
     <string name="car_location_text">Using location for the Android Auto map</string>
 
-    <!-- Android Auto navigation (car/SearchScreen.kt, car/CarNav.kt) -->
+    <!-- Android Auto navigation (car/SearchScreen.kt, car/CarNav.kt): ctOS capitals -->
     <string name="car_where_to">WHERE TO</string>
-    <string name="car_search_hint">Search places</string>
+    <string name="car_search_hint">SEARCH PLACES</string>
     <string name="car_end">END</string>
     <string name="car_navigate">NAVIGATE</string>
     <string name="car_retry">RETRY</string>
     <string name="car_avoid_on">AVOID HWY: ON</string>
     <string name="car_avoid_off">AVOID HWY: OFF</string>
-    <string name="car_no_results">No places found</string>
-    <string name="car_no_recents">Search for a place to go</string>
-    <string name="car_searching">Searching</string>
-    <string name="car_nav_offline">The map is still starting. Try again in a moment.</string>
-    <string name="car_no_route">No route found</string>
-    <string name="car_no_route_hwy">No route found without highways</string>
-    <string name="car_no_position">Waiting for your position</string>
-    <string name="car_arrived">Arrived</string>
-    <string name="car_destination">Destination</string>
-    <string name="car_route_via">via %1$s</string>
-    <string name="car_route_traffic">+%1$d min traffic</string>
-    <string name="car_route_lights">%1$d lights</string>
-    <string name="car_route_no_hwy">no highways</string>
+    <string name="car_no_results">NO PLACES FOUND</string>
+    <string name="car_no_recents">SEARCH FOR A PLACE TO GO</string>
+    <string name="car_searching">SEARCHING</string>
+    <string name="car_nav_offline">MAP STARTING. TRY AGAIN IN A MOMENT.</string>
+    <string name="car_no_route">NO ROUTE FOUND</string>
+    <string name="car_no_route_hwy">NO ROUTE WITHOUT HIGHWAYS</string>
+    <string name="car_no_position">WAITING FOR YOUR POSITION</string>
+    <string name="car_arrived">ARRIVED</string>
+    <string name="car_destination">DESTINATION</string>
+    <string name="car_route_via">VIA %1$s</string>
+    <string name="car_route_traffic">+%1$d MIN TRAFFIC</string>
+    <string name="car_route_lights">%1$d LIGHTS</string>
+    <string name="car_route_no_hwy">NO HIGHWAYS</string>
 
     <!-- Settings: the car's VEHICLE strip (shell-car/vehicle.js) -->
     <string name="settings_vehicle">VEHICLE</string>

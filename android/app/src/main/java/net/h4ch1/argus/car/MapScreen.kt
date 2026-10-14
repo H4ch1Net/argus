@@ -165,7 +165,16 @@ class MapScreen(
         // WHERE TO opens search; on a route, END takes its place (a new
         // destination starts from the map again).
         if (nav.navigating) {
-            actions.addAction(action(R.string.car_end, R.drawable.ic_car_end) { nav.stop() })
+            // END in red (ctOS: red for stop), as the strip's one primary
+            // action; hosts before car API level 4 show it plain.
+            val end = Action.Builder()
+                .setTitle(carContext.getString(R.string.car_end))
+                .setIcon(carContext.icon(R.drawable.ic_car_end))
+                .setOnClickListener { nav.stop() }
+            if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_4) {
+                end.setFlags(Action.FLAG_PRIMARY).setBackgroundColor(CarColor.RED)
+            }
+            actions.addAction(end.build())
         } else {
             actions.addAction(
                 action(R.string.car_where_to, R.drawable.ic_car_search) {

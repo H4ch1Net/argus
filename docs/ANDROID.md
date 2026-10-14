@@ -192,11 +192,12 @@ reads `--`. The average needs your tank size: long-press the Argus icon,
   **Sky** (aircraft overhead); **VEHICLE INFO** is the last row. Before the
   phone app has ever run, the car starts with Drive.
 - **Android Auto draws** every button, list and card itself, in its own font
-  and shapes (Google's rule for every car app): Argus chooses the glyphs
-  (ctOS, white), the short caps titles, the routing card's colour and the two
-  accents (`CarAppTheme`: ctOS green for switches that are on and NAVIGATE,
-  grey second), and nothing else about them. Everything on the map is Argus's
-  own, in ctOS.
+  and shapes (Google's rule for every car app). Argus sets everything it is
+  allowed to, in ctOS: the glyphs (white), all text in capitals, the routing
+  card's colour, the two accents (`CarAppTheme`: ctOS green for switches that
+  are on, NAVIGATE and RETRY, grey second), END in red while navigating (car
+  API level 4 and up), and red for a heavy traffic delay. Everything on the
+  map is Argus's own, in ctOS.
 - **Aircraft** are drawn on their ground track, like a radar scope: the car's
   camera looks down from below cruise altitude, so aircraft drawn at altitude
   would never be in view. Their flight level stays on their labels.

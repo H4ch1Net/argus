@@ -26,6 +26,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import net.h4ch1.argus.Prefs
 import net.h4ch1.argus.R
+import java.util.Locale
 
 // A row's second line: the distance (formatted by the host, in the car's
 // units) then a detail, "1.2 km · Market St, San Francisco".
@@ -176,11 +177,12 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
             // A place of the user's own (HOME, WORK, SAVED) or a search result:
             // the place mark; a recent destination: the recent mark.
             val own = typed || p.kind in OWN_KINDS
+            // ctOS capitals, as on the phone.
             val row = Row.Builder()
-                .setTitle(p.name)
+                .setTitle(p.name.uppercase(Locale.ROOT))
                 .setImage(carContext.icon(if (own) R.drawable.ic_car_place else R.drawable.ic_car_recent))
                 .setOnClickListener { screenManager.push(RoutePreviewScreen(carContext, nav, p)) }
-            detailLine(p.distance, p.detail)?.let { row.addText(it) }
+            detailLine(p.distance, p.detail.uppercase(Locale.ROOT))?.let { row.addText(it) }
             list.addItem(row.build())
         }
         if (places.isEmpty()) {
@@ -280,7 +282,7 @@ class RoutePreviewScreen(
     override fun onGetTemplate(): Template {
         if (routes.isEmpty() && !planning && error != null) return problem()
         val b = RoutePreviewNavigationTemplate.Builder()
-            .setTitle(place.name)
+            .setTitle(place.name.uppercase(Locale.ROOT))
             .setHeaderAction(Action.BACK)
             .setActionStrip(ActionStrip.Builder().addAction(avoidAction()).build())
         if (routes.isEmpty()) return b.setLoading(true).build()
@@ -312,14 +314,15 @@ class RoutePreviewScreen(
         val title = SpannableString(" ")
         title.setSpan(DurationSpan.create(r.durationS), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
         val row = Row.Builder().setTitle(title)
-        val via = if (r.summary.isNotEmpty()) carContext.getString(R.string.car_route_via, r.summary) else ""
+        val via = if (r.summary.isNotEmpty()) carContext.getString(R.string.car_route_via, r.summary.uppercase(Locale.ROOT)) else ""
         detailLine(r.distance, via)?.let { row.addText(it) }
         val notes = SpannableStringBuilder()
         val trafficMin = (r.trafficDelayS / 60).toInt()
         if (trafficMin >= 1) {
             notes.append(carContext.getString(R.string.car_route_traffic, trafficMin))
             if (trafficMin >= HEAVY_TRAFFIC_MIN) {
-                notes.setSpan(ForegroundCarColorSpan.create(CarColor.YELLOW), 0, notes.length, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
+                // ctOS: red for what needs attention.
+                notes.setSpan(ForegroundCarColorSpan.create(CarColor.RED), 0, notes.length, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
             }
         }
         if (r.signals > 0) {
@@ -338,11 +341,13 @@ class RoutePreviewScreen(
     // switch when it is what stands in the way.
     private fun problem(): Template {
         val b = MessageTemplate.Builder(carContext.getString(problemText(error, prefs.carAvoidHighways)))
-            .setTitle(place.name)
+            .setTitle(place.name.uppercase(Locale.ROOT))
+            .setIcon(carContext.icon(R.drawable.ic_car_navigate))
             .setHeaderAction(Action.BACK)
             .addAction(
                 Action.Builder()
                     .setTitle(carContext.getString(R.string.car_retry))
+                    .setBackgroundColor(CarColor.PRIMARY)
                     .setOnClickListener {
                         plan()
                         invalidate()
