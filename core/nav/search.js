@@ -33,9 +33,9 @@ export const SAVED_QUERY = '@saved';
 /** An intersection that takes longer than this is left out of the answer. */
 export const INTERSECTION_TIMEOUT_MS = 9000;
 /** How long the town of a crossing may take (Photon reverse) before it is left out. */
-const TOWN_TIMEOUT_MS = 2500;
+const TOWN_TIMEOUT_MS = 1500;
 /** With a crossing in hand, how long the place search may still take. */
-const CROSSING_GRACE_MS = 1500;
+const CROSSING_GRACE_MS = 1200;
 
 export const TOMTOM_SEARCH_FEED = 'tomtom-search';
 export const SEARCH_QUERY_MAX = 100;

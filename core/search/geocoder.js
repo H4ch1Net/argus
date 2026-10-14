@@ -23,7 +23,7 @@ import { createRoadTileLoader } from './roadTiles.js';
 /** An intersection that takes longer than this is left out of the answer. */
 const CROSSING_TIMEOUT_MS = 9000;
 /** With a crossing in hand, how long the place search may still take. */
-const CROSSING_GRACE_MS = 1500;
+const CROSSING_GRACE_MS = 1200;
 
 /** A promise's list, or [] if it fails or takes longer than `ms`. */
 async function graceful(promise, ms) {

@@ -262,9 +262,7 @@ export function createNavPanel({
   /** WHERE TO before anything is typed: HOME, WORK, SAVED, RECENT, then the map. */
   function homeRows() {
     const near = origin2() ?? near0();
-    const list = nav.search
-      ? savedList({ near, savedMax: showAllSaved ? 500 : 6 })
-      : { saved: [], recent: [], more: 0 };
+    const list = savedList({ near, savedMax: showAllSaved ? 500 : 6 });
     const out = [];
     if (list.saved.length) {
       out.push({
@@ -280,9 +278,9 @@ export function createNavPanel({
         },
       });
       for (const p of list.saved) out.push({ ...placeRow(p), edit: editing });
-      if (list.more > 0 && !showAllSaved)
+      if (list.hidden > 0 && !showAllSaved)
         out.push({
-          label: `ALL SAVED (${list.more + list.saved.filter((p) => p.kind === 'saved').length})`,
+          label: `ALL SAVED (${list.total})`,
           meta: '',
           glyph: 'frame',
           run: () => {
@@ -311,17 +309,22 @@ export function createNavPanel({
     return out;
   }
 
-  /** The saved places (HOME, WORK first) and recent ones, as Places. */
+  /**
+   * The saved places (HOME, WORK first) and recent ones, as Places; `total`
+   * saved places besides HOME and WORK, `hidden` of them not listed.
+   */
   function savedList({ near, savedMax }) {
-    places?.refresh?.();
-    const all = places?.list?.() ?? [];
     const short = savedShortlist({ places, recents, near, savedMax, recentMax: 5 });
     const saved = short.filter((p) => p.kind !== 'recent');
-    const others = all.filter((p) => p.kind !== 'home' && p.kind !== 'work').length;
+    const total = (places?.list?.() ?? []).filter(
+      (p) => p.kind !== 'home' && p.kind !== 'work',
+    ).length;
+    const shown = saved.filter((p) => p.kind === 'saved').length;
     return {
       saved,
       recent: short.filter((p) => p.kind === 'recent'),
-      more: Math.max(0, others - saved.filter((p) => p.kind === 'saved').length),
+      total,
+      hidden: Math.max(0, total - shown),
     };
   }
 
@@ -405,8 +408,10 @@ export function createNavPanel({
       if (done) return;
       done = true;
       const v = field.value.trim();
-      if (keep && v && rec) places.update(rec.id, { name: v });
+      const open = !results.hidden; // a tap elsewhere closed the list: leave it closed
       renaming = null;
+      if (keep && v && rec && v !== rec.name) places.update(rec.id, { name: v });
+      if (!open) return;
       renderRows(homeRows());
       input.focus();
     };
@@ -1243,6 +1248,9 @@ export function createNavPanel({
         field.blur();
       }
     });
+    field.addEventListener('input', () => {
+      if (here) here.autoName = false; // the user names it, not the geocoder
+    });
     field.addEventListener('change', keep);
     field.addEventListener('blur', keep);
     return field;
@@ -1276,8 +1284,8 @@ export function createNavPanel({
     renderCtx();
     ctx.hidden = false;
     placeCtx(pos);
-    // The name, when the reverse geocoder knows one.
-    // Photon first; when it has nothing (or is down), Nominatim's reverse.
+    // The name, when a reverse geocoder knows one: Photon first; when it has
+    // nothing (or is down), Nominatim.
     const ask = nav.reversePlace ?? null;
     if (!ask || saved) return;
     Promise.resolve(ask(ll.lat, ll.lon))
@@ -1294,6 +1302,12 @@ export function createNavPanel({
             places.update(here.savedId, { name: r.name, note: r.detail });
         }
         here.autoName = false;
+        // Typing a name meanwhile: only the line under it changes.
+        if (ctx.contains(document.activeElement)) {
+          const sub = ctx.querySelector('.ct-nav__ctxsub');
+          if (sub) sub.textContent = String(here.detail ?? '').toUpperCase();
+          return;
+        }
         renderCtx();
       });
   }
