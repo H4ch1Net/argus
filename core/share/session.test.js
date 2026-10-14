@@ -9,6 +9,10 @@ import {
   startPlan,
   readSession,
   createSessionSaver,
+  sessionLayers,
+  withSessionLayers,
+  layerChanges,
+  createSharedLayers,
 } from './session.js';
 
 const memory = (init = {}) => {
@@ -210,4 +214,136 @@ test('the saver debounces, caps the wait, flushes at once, and survives bad stor
     },
   });
   assert.equal(failing.flush(), false);
+});
+
+// ------------------------------------------------------------ shared layers
+const CAR = ['incidents', 'chp', 'flights', 'radar'];
+const record = (layers, extra = {}) =>
+  encodeSession({
+    hash: `#v=1&lat=33.72&lon=-116.21&alt=12000&layers=${layers.join(',')}&sensor=nvg`,
+    controls: FULL.controls,
+    ...extra,
+  });
+
+test('the shared layers are the layers in the phone record', () => {
+  assert.deepEqual(sessionLayers(record(['flights', 'satellites'])), [
+    'flights',
+    'satellites',
+  ]);
+  assert.deepEqual(sessionLayers(record([])), []);
+  assert.equal(sessionLayers(null), null);
+  assert.equal(sessionLayers('{"v":1}'), null);
+  assert.equal(sessionLayers(encodeSession({ hash: '#v=1&lat=1&lon=2&alt=3' })), null);
+  assert.equal(sessionLayers('not json'), null);
+});
+
+test('the car changes only the keys in its scope, and never starts a record', () => {
+  const before = record(['satellites', 'flights', 'quakes']);
+  const after = withSessionLayers(before, ['incidents', 'radar', 'satellites'], CAR, 5);
+  // satellites and quakes are outside the car's scope: kept as they were;
+  // flights (in scope, not chosen) goes off; incidents and radar come on.
+  assert.deepEqual(sessionLayers(after), ['satellites', 'quakes', 'incidents', 'radar']);
+  const s = decodeSession(after);
+  assert.equal(s.at, 5);
+  assert.match(
+    s.hash,
+    /^#v=1&lat=33\.72&lon=-116\.21&alt=12000&layers=[a-z,]+&sensor=nvg$/,
+  );
+  assert.deepEqual(s.controls, decodeSession(before).controls);
+  // A record without a layers field gets one.
+  const bare = encodeSession({ hash: '#v=1&lat=1&lon=2&alt=3' });
+  assert.deepEqual(sessionLayers(withSessionLayers(bare, ['chp'], CAR)), ['chp']);
+  assert.equal(withSessionLayers(null, ['chp'], CAR), null);
+  assert.equal(withSessionLayers('{"v":2}', ['chp'], CAR), null);
+  // Junk keys never reach the record.
+  const junk = withSessionLayers(bare, ['BAD KEY', 'chp'], [...CAR, 'BAD KEY']);
+  assert.deepEqual(sessionLayers(junk), ['chp']);
+});
+
+test('layer changes between two records, within a scope', () => {
+  const a = record(['flights', 'satellites']);
+  const b = record(['satellites', 'incidents', 'quakes']);
+  assert.deepEqual(layerChanges(a, b), { on: ['incidents', 'quakes'], off: ['flights'] });
+  assert.deepEqual(layerChanges(a, b, new Set(CAR)), {
+    on: ['incidents'],
+    off: ['flights'],
+  });
+  assert.deepEqual(layerChanges(null, b, new Set(CAR)), { on: ['incidents'], off: [] });
+  // A removed or unreadable record changes nothing.
+  assert.deepEqual(layerChanges(a, null), { on: [], off: [] });
+  assert.deepEqual(layerChanges(a, 'junk'), { on: [], off: [] });
+});
+
+test('shared layers: read, write and follow the other page', () => {
+  const st = memory({ [SESSION_KEY]: record(['flights', 'satellites']) });
+  const events = new Map();
+  const target = {
+    addEventListener: (t, fn) => events.set(t, fn),
+    removeEventListener: (t) => events.delete(t),
+  };
+  const doc = { visibilityState: 'visible', ...target };
+  const seen = [];
+  const car = createSharedLayers({
+    storage: st,
+    scope: CAR,
+    apply: (c) => seen.push(c),
+    target,
+    doc,
+    now: () => 7,
+  });
+  assert.deepEqual(car.read(), ['flights']);
+  assert.equal(car.write(['incidents']), true);
+  assert.deepEqual(sessionLayers(st.raw.get(SESSION_KEY)), ['satellites', 'incidents']);
+  assert.equal(decodeSession(st.raw.get(SESSION_KEY)).at, 7);
+  // The phone writes: radar on, satellites off; only radar is the car's.
+  const phone = record(['incidents', 'radar']);
+  events.get('storage')({
+    key: SESSION_KEY,
+    oldValue: st.raw.get(SESSION_KEY),
+    newValue: phone,
+    storageArea: st,
+  });
+  assert.deepEqual(seen, [{ on: ['radar'], off: [] }]);
+  // Other keys and other storage areas are not ours.
+  events.get('storage')({ key: 'argus.settings', oldValue: null, newValue: phone });
+  events.get('storage')({ key: SESSION_KEY, newValue: record([]), storageArea: {} });
+  assert.equal(seen.length, 1);
+  // Shown again with what the event already brought: nothing new.
+  st.setItem(SESSION_KEY, phone);
+  events.get('visibilitychange')();
+  assert.equal(seen.length, 1);
+  // No event (a page that does not get them): caught up when shown.
+  st.setItem(SESSION_KEY, record(['chp']));
+  doc.visibilityState = 'hidden';
+  events.get('visibilitychange')();
+  assert.equal(seen.length, 1);
+  doc.visibilityState = 'visible';
+  events.get('visibilitychange')();
+  assert.deepEqual(seen[1], { on: ['chp'], off: ['incidents', 'radar'] });
+  car.stop();
+  assert.equal(events.size, 0);
+  // No record (a first run): nothing to read, nothing written.
+  const empty = createSharedLayers({ storage: memory(), scope: CAR, target, doc });
+  assert.equal(empty.read(), null);
+  assert.equal(empty.write(['chp']), false);
+  // Without a scope a write is the whole set (the phone's side).
+  const all = createSharedLayers({ storage: st, target, doc });
+  assert.equal(all.write(['quakes']), true);
+  assert.deepEqual(all.read(), ['quakes']);
+  // Storage that throws: no crash.
+  const blocked = createSharedLayers({
+    storage: {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    },
+    scope: CAR,
+    target,
+    doc,
+  });
+  assert.equal(blocked.read(), null);
+  assert.equal(blocked.write(['chp']), false);
 });
