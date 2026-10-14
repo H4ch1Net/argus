@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TRAFFIC LIGHTS: a signal head, the top lamp lit (glyphs.js signal). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M7.5,2H16.5V22H7.5Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="square" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.2,4.6H13.8V8.2H10.2Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.2,10.2H13.8V13.8H10.2Z"
+        android:fillAlpha="0.55" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.2,15.8H13.8V19.4H10.2Z"
+        android:fillAlpha="0.3" />
+</vector>

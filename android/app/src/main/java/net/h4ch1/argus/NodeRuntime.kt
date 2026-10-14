@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -58,7 +59,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("immersive", true)
         set(v) = sp.edit().putBoolean("immersive", v).apply()
 
-    /** The layers shown on the car screen. */
+    /**
+     * The car's last layers: the start for a first run with no phone session
+     * (the car shows the phone's layers once there is one; shell-car).
+     */
     var carLayers: Set<String>
         get() = sp.getStringSet("carLayers", null)?.toSet() ?: CAR_DEFAULT_LAYERS
         set(v) = sp.edit().putStringSet("carLayers", v.toSet()).apply()
@@ -93,10 +97,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("tankGallons", false)
         set(v) = sp.edit().putBoolean("tankGallons", v).apply()
 
-    /** The VEHICLE silhouette: "auto" (guessed from the car's fuels), or one of VEHICLE_BODIES. */
-    var vehicleBody: String
-        get() = sp.getString("vehicleBody", null)?.takeIf { it in VEHICLE_BODIES } ?: "auto"
-        set(v) = sp.edit().putString("vehicleBody", v).apply()
+    /** The car screen's VEHICLE strip (fuel and range while parked), on by default. */
+    var carVehicleInfo: Boolean
+        get() = sp.getBoolean("carVehicleInfo", true)
+        set(v) = sp.edit().putBoolean("carVehicleInfo", v).apply()
 
     /**
      * Fuel level (percent) and odometer (metres) at the last fill-up the car
@@ -111,10 +115,6 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putLong("fuelBaselineOdoM", v).apply()
 
     companion object {
-        /** "auto" and the VEHICLE panel's silhouettes (shell-car/panels.js). */
-        val VEHICLE_BODIES = listOf("auto", "sedan", "suv", "ev")
-
-
         /** The DRIVE preset: what matters on the road (shell-car, CarLayers). */
         val CAR_DEFAULT_LAYERS = setOf("incidents", "chp", "trafficcams", "surveillance")
 
@@ -334,13 +334,32 @@ object NodeRuntime {
             false
         }
 
-    /** The last lines of the proxy log, for error screens. */
+    /**
+     * The last lines of the proxy log, for error screens. Only the end of the
+     * file is read: a log that has grown for weeks must not stall the screen
+     * that shows it.
+     */
     fun tail(file: File, lines: Int = 40): String =
         try {
-            if (file.isFile) file.readLines().takeLast(lines).joinToString("\n") else ""
+            if (!file.isFile) {
+                ""
+            } else {
+                RandomAccessFile(file, "r").use { f ->
+                    val start = (f.length() - TAIL_BYTES).coerceAtLeast(0L)
+                    val buf = ByteArray((f.length() - start).toInt())
+                    f.seek(start)
+                    f.readFully(buf)
+                    val text = String(buf, Charsets.UTF_8)
+                    // Starting mid-file: drop the partial first line.
+                    val whole = if (start > 0) text.substringAfter('\n') else text
+                    whole.lines().takeLast(lines).joinToString("\n")
+                }
+            }
         } catch (_: IOException) {
             ""
         }
+
+    private const val TAIL_BYTES = 64L * 1024
 
     /**
      * Restart the app process (Node cannot be restarted in place): new keys and

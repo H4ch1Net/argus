@@ -41,6 +41,7 @@ import net.h4ch1.argus.Ink
 import net.h4ch1.argus.NodeRuntime
 import net.h4ch1.argus.Prefs
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.max
@@ -62,8 +63,13 @@ import kotlin.math.roundToInt
  * showing it.
  *
  * The same bridge carries navigation (CarNav: search, route preview, the
- * route's progress back) and the car's own data for the page's VEHICLE panel
- * (CarStatsFeed).
+ * route's progress back), the layers (the page shows the phone's and reports
+ * which are on; the LAYERS list switches them through it), and the car's own
+ * data for the page's VEHICLE strip (CarStatsFeed).
+ *
+ * While the map runs, CarLocationService holds the process in the foreground
+ * for location: on the car display Android otherwise treats the app as in the
+ * background and stops handing out fixes on a locked phone.
  */
 class CarMapRenderer(
     private val carContext: CarContext,
@@ -86,6 +92,7 @@ class CarMapRenderer(
     private var paused = false
     private var started = true
     private var lastCarInfo: String? = null
+    private var locationHold: CarLocationService.Handle? = null
 
     /** Where the page's answers go (search results, routes, nav state). */
     var pageListener: CarPageListener? = null
@@ -108,7 +115,12 @@ class CarMapRenderer(
 
     override fun onCreate(owner: LifecycleOwner) {
         NodeRuntime.start(carContext)
-        carContext.getCarService(AppManager::class.java).setSurfaceCallback(this)
+        try {
+            carContext.getCarService(AppManager::class.java).setSurfaceCallback(this)
+        } catch (e: RuntimeException) {
+            // A host that cannot hand out a surface: the templates still work.
+            Log.e(TAG, "no car surface", e)
+        }
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
@@ -116,7 +128,17 @@ class CarMapRenderer(
         stats.stop()
         unobserve?.invoke()
         unobserve = null
+        // The car stopped showing Argus for good: location goes back to
+        // ordinary background rules, and its notification goes.
+        locationHold?.release()
+        locationHold = null
         release()
+    }
+
+    /** Hold the process in the foreground for location while the map runs. */
+    private fun holdLocation() {
+        if (locationHold != null || !hasLocation(carContext)) return
+        locationHold = CarLocationService.hold(carContext)
     }
 
     // Another app in front on the car screen: nothing to draw, no fix needed.
@@ -142,12 +164,21 @@ class CarMapRenderer(
 
     fun zoom(step: Float) = js("zoom(${factor(step)})")
 
-    fun pushLayers() = js("setLayers(${JSONArray(Prefs(carContext).carLayers.sorted())})")
+    /** A preset: these car layers on, the rest off (the page writes the shared set). */
+    fun applyLayers(keys: Set<String>): Boolean = js("setLayers(${JSONArray(keys.sorted())})")
+
+    /** One switch in the LAYERS list. False when the page cannot take it yet. */
+    fun toggleLayer(key: String, on: Boolean): Boolean =
+        js("toggleLayer(${JSONObject.quote(key)},$on)")
 
     fun pushView() = js("setView(${JSONObject.quote(Prefs(carContext).carView)})")
 
+    fun pushVehicleInfo() = js("setVehicleInfo(${Prefs(carContext).carVehicleInfo})")
+
     fun onLocationPermission() {
-        if (virtualDisplay != null) location.start()
+        if (virtualDisplay == null) return
+        location.start()
+        if (locationHold == null) holdLocation() else locationHold?.promote()
     }
 
     /** Car data permissions granted: subscribe again, now with access. */
@@ -189,24 +220,35 @@ class CarMapRenderer(
         density = dpi / 160f
         val existing = virtualDisplay
         if (existing != null) {
-            existing.resize(surfaceWidth, surfaceHeight, dpi)
-            existing.surface = surface
+            try {
+                existing.resize(surfaceWidth, surfaceHeight, dpi)
+                existing.surface = surface
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "car display could not take the new surface", e)
+                return
+            }
             if (started) resumePage()
             pushInsets()
             return
         }
         val displays = carContext.getSystemService(DisplayManager::class.java) ?: return
-        val created = displays.createVirtualDisplay(
-            DISPLAY_NAME,
-            surfaceWidth,
-            surfaceHeight,
-            dpi,
-            surface,
-            0, // private: only this app's windows, never mirrored
-        ) ?: return
+        val created = try {
+            displays.createVirtualDisplay(
+                DISPLAY_NAME,
+                surfaceWidth,
+                surfaceHeight,
+                dpi,
+                surface,
+                0, // private: only this app's windows, never mirrored
+            )
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "car display could not be created", e)
+            null
+        } ?: return
         virtualDisplay = created
         showPresentation(created.display)
         if (unobserve == null) unobserve = NodeRuntime.observe { onRuntime(it) }
+        holdLocation()
         location.start()
         stats.start()
     }
@@ -287,8 +329,16 @@ class CarMapRenderer(
 
     // ---------------------------------------------------------------- page
 
+    // Any step here can fail on a given phone (the display gone already, no
+    // WebView provider, or one being updated): the car then shows the host's
+    // own empty map with the templates, never a crash.
     private fun showPresentation(target: Display) {
-        val p = Presentation(carContext, target, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen)
+        val p = try {
+            Presentation(carContext, target, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen)
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "car presentation could not be created", e)
+            return
+        }
         p.window?.apply {
             // A window created from a service is not hardware accelerated by
             // default, and WebGL needs it.
@@ -298,12 +348,14 @@ class CarMapRenderer(
             )
             setBackgroundDrawable(ColorDrawable(Ink.GROUND))
         }
-        val wv = createWebView(p.context)
-        p.setContentView(wv)
+        val wv = createWebView(p.context) ?: return
         try {
+            p.setContentView(wv)
             p.show()
-        } catch (e: WindowManager.InvalidDisplayException) {
-            Log.e(TAG, "car display went away", e)
+        } catch (e: RuntimeException) {
+            // WindowManager.InvalidDisplayException (the car display went away),
+            // BadTokenException, and the like.
+            Log.e(TAG, "car presentation could not be shown", e)
             wv.destroy()
             return
         }
@@ -318,8 +370,11 @@ class CarMapRenderer(
             is NodeRuntime.State.Ready -> if (loadedPort != state.port) {
                 loadedPort = state.port
                 pageReady = false
-                // The car's layer choice rides in the share hash, so the first
-                // frame already has the right layers on (core/share/state.js).
+                // The page shows the phone's layers (the session the phone
+                // keeps in the same storage). This hash, the car's last
+                // choice, is the fallback for a first run with no phone
+                // session yet; it rides in the share hash, so the first frame
+                // already has the right layers on (core/share/state.js).
                 val layers = Prefs(carContext).carLayers.sorted().joinToString(",")
                 wv.loadUrl("http://127.0.0.1:${state.port}/?shell=car#v=1&layers=$layers")
             }
@@ -344,8 +399,14 @@ class CarMapRenderer(
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun createWebView(context: Context): WebView {
-        val wv = WebView(context)
+    private fun createWebView(context: Context): WebView? {
+        val wv = try {
+            WebView(context)
+        } catch (e: RuntimeException) {
+            // No WebView provider, or one being updated (AndroidRuntimeException).
+            Log.e(TAG, "car WebView unavailable", e)
+            return null
+        }
         // A fresh page starts running; pause it again if the car is not showing it.
         paused = false
         wv.setBackgroundColor(Ink.GROUND)
@@ -379,9 +440,15 @@ class CarMapRenderer(
                 webView = null
                 pageReady = false
                 loadedPort = 0
-                if (p != null) {
-                    val fresh = createWebView(p.context)
-                    p.setContentView(fresh)
+                val fresh = p?.let { createWebView(it.context) }
+                if (p != null && fresh != null) {
+                    try {
+                        p.setContentView(fresh)
+                    } catch (e: RuntimeException) {
+                        Log.e(TAG, "car WebView could not be shown again", e)
+                        fresh.destroy()
+                        return true
+                    }
                     webView = fresh
                     if (!started || virtualDisplay?.surface == null) pausePage()
                     onRuntime(NodeRuntime.state)
@@ -408,11 +475,11 @@ class CarMapRenderer(
     private fun isOwnPage(uri: Uri): Boolean =
         uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port == loadedPort && loadedPort != 0
 
-    /** Everything the page needs after a (re)load. */
+    /** Everything the page needs after a (re)load (it picks its layers itself). */
     private fun pushState() {
         pushInsets()
         pushView()
-        pushLayers()
+        pushVehicleInfo()
         lastFix?.let { js(it) }
         lastCarInfo?.let { js("setCarInfo(${JSONObject.quote(it)})") }
     }
@@ -500,17 +567,34 @@ class CarMapRenderer(
             main.post { pageListener?.onNav(body) }
         }
 
+        /**
+         * The layers this build can show and those that are on (the phone's
+         * shared set, as the car shows it): {"available":[...],"on":[...]}.
+         */
         @JavascriptInterface
-        fun layers(json: String?) {
-            val keys = try {
-                val arr = JSONArray(json ?: "[]")
-                (0 until minOf(arr.length(), 200)).map { arr.optString(it) }
-                    .filter { KEY.matches(it) }
-                    .toSet()
-            } catch (_: Exception) {
+        fun layerState(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            val (available, on) = try {
+                val o = JSONObject(body)
+                keys(o.optJSONArray("available")) to keys(o.optJSONArray("on"))
+            } catch (_: JSONException) {
                 return
             }
-            main.post { CarLayers.setAvailable(keys) }
+            main.post {
+                CarLayers.setState(available, on)
+                // The car's last choice, for a first run without a phone
+                // session; a layer this build cannot show keeps its old state.
+                val prefs = Prefs(carContext)
+                val car = CarLayers.ALL.map { it.key }.toSet()
+                prefs.carLayers = (on intersect car) + (prefs.carLayers - available)
+            }
+        }
+
+        private fun keys(arr: JSONArray?): Set<String> {
+            if (arr == null) return emptySet()
+            return (0 until minOf(arr.length(), 200)).map { arr.optString(it) }
+                .filter { KEY.matches(it) }
+                .toSet()
         }
     }
 

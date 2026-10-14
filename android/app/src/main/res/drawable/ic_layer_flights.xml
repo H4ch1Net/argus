@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FLIGHTS: the airliner silhouette (core/ui/aircraftIcons.js). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <group
+        android:translateX="48"
+        android:translateY="48">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M0,-42 C3.8,-40 4.6,-34 4.6,-26 L4.6,-14 L32,4 L34,6 L34,10 L31.4,9.2 L4.6,2.4 L4.2,20 L14,28 L14,32 L0,28.6 L-14,32 L-14,28 L-4.2,20 L-4.6,2.4 L-31.4,9.2 L-34,10 L-34,6 L-32,4 L-4.6,-14 L-4.6,-26 C-4.6,-34 -3.8,-40 0,-42 Z" />
+    </group>
+</vector>

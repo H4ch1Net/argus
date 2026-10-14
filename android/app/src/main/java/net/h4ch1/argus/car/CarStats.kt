@@ -22,15 +22,15 @@ import org.json.JSONObject
 import kotlin.math.roundToLong
 
 /**
- * The car's own data for the car page's VEHICLE panel (shell-car/vehicle.js):
+ * The car's own data for the car page's VEHICLE strip (shell-car/vehicle.js):
  * make, model and year, its fuels, fuel and battery level, range, low-fuel
  * warning, odometer and speed, read through the Car App Library's CarInfo
  * (Android Auto with app-projected; car API level 3 and up). Every value may
  * be missing (an older host, a car that does not report it, a permission not
  * granted): only what arrives is sent. Changes go to the page at most once a
- * second, as one JSON object (argusCar.setCarInfo), with the tank size and
- * body chosen in the phone's Settings and the consumption baseline: the fuel
- * level and odometer at the last fill-up seen, kept in Prefs across drives.
+ * second, as one JSON object (argusCar.setCarInfo), with the tank size set in
+ * the phone's Settings and the consumption baseline: the fuel level and
+ * odometer at the last fill-up seen, kept in Prefs across drives.
  */
 class CarStatsFeed(
     private val carContext: CarContext,
@@ -165,7 +165,6 @@ class CarStatsFeed(
             o.put("economy", JSONObject().put("fuelPctStart", basePct.toDouble()).put("odometerStartM", baseOdo))
         }
         prefs.tankLitres.takeIf { it > 0f && it.isFinite() }?.let { o.put("tankL", it.toDouble()) }
-        prefs.vehicleBody.takeIf { it != "auto" }?.let { o.put("body", it) }
         onJson(o.toString())
     }
 

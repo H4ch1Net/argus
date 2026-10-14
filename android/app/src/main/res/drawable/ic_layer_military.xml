@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MILITARY AIR: the fast jet silhouette (aircraftIcons.js). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <group
+        android:translateX="48"
+        android:translateY="48">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M0,-43 L3.5,-30 C4,-24 4.6,-16 5,-8 L27,20 L27,26 L6,16 L8,30 L8,34 L3,31 L3,38 L6.5,42 L6.5,44 L0,41.5 L-6.5,44 L-6.5,42 L-3,38 L-3,31 L-8,34 L-8,30 L-6,16 L-27,26 L-27,20 L-5,-8 C-4.6,-16 -4,-24 -3.5,-30 Z" />
+    </group>
+</vector>
