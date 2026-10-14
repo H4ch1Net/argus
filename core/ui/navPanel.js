@@ -1550,20 +1550,7 @@ export function createNavPanel({
         ),
         btn('CLEAR', () => end(), 'Clear the route'),
       ),
-      h(
-        'div.ct-section__note',
-        {},
-        'Routes: OSRM / Valhalla (FOSSGIS), TomTom with a key. ',
-        h(
-          'a',
-          {
-            href: 'https://www.openstreetmap.org/fixthemap',
-            target: '_blank',
-            rel: 'noopener noreferrer',
-          },
-          'FIX THE MAP',
-        ),
-      ),
+      // The route card credits its provider; SETUP > DATA CREDITS lists all.
     );
   }
 
