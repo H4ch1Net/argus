@@ -126,3 +126,22 @@ test('the same name within 200 m is kept once; bad points are skipped', () => {
   assert.deepEqual(rankPlaces('46211 jackson st', [a, b, c]), [a]);
   assert.equal(rankPlaces('x', [a, b], { limit: 1 }).length, 1);
 });
+
+test('road names as people type them match OSM spellings (Indio)', () => {
+  assert.equal(textScore('Golf Center pkway', 'Golf Center Parkway'), 1);
+  assert.equal(textScore('golf center pky', 'Golf Center Parkway'), 1);
+  assert.equal(textScore('Indio Blvd', 'Indio Boulevard'), 1);
+  assert.equal(textScore('Jackson St', 'Jackson Street'), 1);
+  assert.equal(textScore('Monroe St', 'Monroe Street'), 1);
+  // Routes however they are written.
+  for (const name of ['CA 111', 'CA- 111', 'State Route 111', 'SR 111', 'Hwy 111'])
+    assert.equal(textScore('Highway 111', name), 1, name);
+  for (const name of ['Interstate 10', 'I 10', 'I-10'])
+    assert.equal(textScore('I-10', name), 1, name);
+  assert.equal(textScore('US 99', 'U.S. Route 99'), 1);
+  assert.deepEqual(placeTokens('Highway 111 Bridge'), ['rt111', 'bridge']);
+  // A ZIP after a state is not a route: an address keeps its numbers.
+  assert.deepEqual(placeTokens('Indio, CA 92201'), ['indio', 'ca', '92201']);
+  assert.equal(textScore('Avenue 44', 'Avenue 44'), 1);
+  assert.ok(textScore('Highway 111', 'Highway 11') < 0.75);
+});
