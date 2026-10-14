@@ -249,7 +249,8 @@ export function routeMatch(q, r) {
  */
 export function foldRoutes(w) {
   const out = [];
-  for (let i = 0; i < w.length; ) {
+  let i = 0;
+  while (i < w.length) {
     const r = routeAt(w, i);
     if (r) {
       out.push(`rt${r.route.num}`);
