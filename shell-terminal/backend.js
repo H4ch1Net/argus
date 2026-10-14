@@ -17,6 +17,7 @@ export async function connectBackend({
   proxyUrl = null,
   demo = false,
   warn = () => {},
+  near = homeFromEnv(),
 } = {}) {
   const wsReady = await ensureWebSocket();
   if (!wsReady) warn('no WebSocket client available: ships, BGP and CT streams are off');
@@ -84,8 +85,21 @@ export async function connectBackend({
     health,
     lookup: createLookup(client),
     correlate: createCorrelator({ proxyClient: client }),
-    geocode: createGeocoder(client),
+    // Near a home position (--at or ARGUS_HOME): local results first, and
+    // street crossings ("A & B") are looked for around it.
+    geocode: createGeocoder(client, { near }),
     envFiles,
     close,
   };
+}
+
+/** ARGUS_HOME as { lat, lon }, or null (the bias for search and crossings). */
+function homeFromEnv(env = process.env) {
+  const m = String(env.ARGUS_HOME ?? '').match(
+    /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/,
+  );
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
 }
