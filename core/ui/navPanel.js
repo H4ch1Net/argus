@@ -13,15 +13,22 @@ import {
 } from '../nav/format.js';
 import { createDriveSim } from '../nav/simulate.js';
 import { haversineM } from '../nav/geo.js';
+import { savedShortlist } from '../nav/search.js';
+import { greatCircleM, initialBearingDeg } from '../draw/geometry.js';
 
 // Navigation UI for the desktop and phone shells, ctOS style (the car has its
 // own, shell-car). Everything drives one navigator (core/nav/navigator.js):
 //
 //   WHERE TO   a search bar always at hand (desktop: top centre; phone: under
-//              the bar); results as launcher rows. A result, a long press or
-//              right click on the map (ROUTE HERE), or ROUTE HERE on any
-//              target card sets the destination.
-//   PREVIEW    DRIVE / WALK / BIKE, AVOID HIGHWAYS, TRAFFIC (only with the
+//              the bar). Before typing: HOME, WORK, SAVED (EDIT renames, sets
+//              HOME / WORK, deletes), RECENT, then pick on the map. Typing:
+//              results as launcher rows, each with a one-tap save (◇, ◆ when
+//              saved). A result, WHAT'S HERE > ROUTE HERE, or ROUTE HERE on
+//              any target card sets the destination.
+//   WHAT'S HERE a long press or right click on the map: the point's name and
+//              coordinates; SAVE, ROUTE HERE, FROM HERE, COPY, SHARE, MEASURE.
+//   PREVIEW    the destination (◇ saves it), DRIVE / WALK / BIKE, AVOID
+//              HIGHWAYS, TRAFFIC (only with the
 //              TomTom key), up to 3 routes with ETA, time, distance, traffic
 //              delay and SIGNALS; GO, SIM (a simulated drive, for a desk with
 //              no GPS), FLY (fly along), and where the trip starts (my
@@ -59,6 +66,32 @@ function tile(name) {
 const btn = (label, onclick, title = label, cls = '') =>
   h(`button.ct-btn${cls}`, { type: 'button', title, onclick }, label);
 
+/** Text to the clipboard (the async API, else a hidden field); false when refused. */
+async function copyText(s) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch {
+    // refused (no permission, not a secure context): the old way below
+  }
+  try {
+    const ta = h('textarea', {
+      readonly: true,
+      style: { position: 'fixed', opacity: '0' },
+    });
+    ta.value = s;
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param {{
  *   nav: object, view: object|null, fixes: object, shell: 'desktop'|'mobile',
@@ -68,7 +101,14 @@ const btn = (label, onclick, title = label, cls = '') =>
  *   flyAlong?: (coords: number[][]) => void, notify?: Function,
  *   canvas?: HTMLCanvasElement|null, pick?: (pos: {x:number,y:number}) => ({lat:number, lon:number}|null),
  *   demo?: boolean, onActive?: (kind: 'preview'|'drive') => void, now?: () => number,
+ *   places?: object|null, recents?: object|null, sketch?: object|null,
+ *   shareLink?: (p: {lat:number, lon:number}) => (string|null),
+ *   onSaved?: (place: object) => void,
  * }} deps
+ *   places: the saved places (core/places/saved.js); recents: the recent
+ *   destinations (core/places/recents.js); sketch: the globe's sketch layer
+ *   (core/scene/sketch.js: the pressed point and MEASURE); shareLink: a link
+ *   to a point (null: an OpenStreetMap link); onSaved: a place was saved.
  */
 export function createNavPanel({
   nav,
@@ -86,7 +126,13 @@ export function createNavPanel({
   demo = false,
   onActive,
   now = () => Date.now(),
+  places = null,
+  recents = null,
+  sketch = null,
+  shareLink = null,
+  onSaved = null,
 }) {
+  const near0 = () => near?.() ?? null;
   const units = () => settings?.get?.('units') ?? 'metric';
   const opts = {
     mode: settings?.get?.('navMode') ?? 'drive',
@@ -128,10 +174,158 @@ export function createNavPanel({
   let searchAbort = null;
   let rows = [];
   let sel = -1;
+  let editing = false; // the SAVED list's edit mode (rename, HOME / WORK, delete)
+  let renaming = null; // the saved place id being renamed inline
+  let showAllSaved = false;
+  let lastList = null; // what renderRows last drew, to draw it again after a change
+  let shownSearch = false; // the list shows search results (not the saved list)
 
   function origin2() {
     if (origin.kind === 'point') return origin;
     return fixes.get() ?? null;
+  }
+
+  // ----- saved places: one store (core/places/saved.js), shared with MY PLACES
+  const savedAt = (p) =>
+    p && Number.isFinite(p.lat) && Number.isFinite(p.lon)
+      ? (places?.near?.(p.lat, p.lon, 30) ?? null)
+      : null;
+  /** Save a place (one tap) or, when it is saved already, forget it. */
+  function toggleSaved(p) {
+    if (!places || !p) return null;
+    const had = p.savedId ? places.get(p.savedId) : savedAt(p);
+    if (had) {
+      places.remove(had.id);
+      return null;
+    }
+    const role = p.kind === 'home' || p.kind === 'work' ? p.kind : 'place';
+    const name =
+      role !== 'place' ? p.detail || p.name : String(p.name ?? '').trim() || fmtLL(p);
+    const saved = places.add({
+      name,
+      lat: p.lat,
+      lon: p.lon,
+      kind: role,
+      note: role === 'place' ? (p.detail ?? '') : '',
+    });
+    if (saved) onSaved?.(saved);
+    else notify?.({ title: 'PLACE LIST FULL', level: 'low', key: 'places-full' });
+    return saved;
+  }
+
+  /** The ◇ / ◆ button: one tap saves, saved ones show filled. */
+  function saveToggle(place, after) {
+    const on = Boolean(place.savedId ? places?.get?.(place.savedId) : savedAt(place));
+    return h(
+      'button.ct-nav__save',
+      {
+        type: 'button',
+        title: on ? 'Saved: tap to forget' : 'Save this place',
+        'aria-label': on ? 'Saved. Forget it' : 'Save this place',
+        'aria-pressed': String(on),
+        onpointerdown: (e) => e.preventDefault(), // keep the input's focus
+        onclick: (e) => {
+          e.stopPropagation();
+          toggleSaved(place);
+          after?.();
+        },
+      },
+      h('span.ct-nav__savemark'),
+    );
+  }
+
+  const ROLE_LETTER = { home: 'H', work: 'W' };
+  const glyphFor = (p) =>
+    p.kind === 'city'
+      ? 'frame'
+      : p.kind === 'saved'
+        ? 'diamond'
+        : p.kind === 'intersection'
+          ? 'cross'
+          : p.kind === 'recent'
+            ? 'dot'
+            : 'node';
+
+  /** A Place as a row (a search result, a saved place, a recent one). */
+  function placeRow(p) {
+    return {
+      label: String(p.name).toUpperCase(),
+      detail: String(p.detail ?? '').toUpperCase(),
+      glyph: glyphFor(p),
+      letter: ROLE_LETTER[p.kind] ?? null,
+      place: p,
+      save: Boolean(places),
+      run: () => routeHere(p),
+    };
+  }
+
+  /** WHERE TO before anything is typed: HOME, WORK, SAVED, RECENT, then the map. */
+  function homeRows() {
+    const near = origin2() ?? near0();
+    const list = savedList({ near, savedMax: showAllSaved ? 500 : 6 });
+    const out = [];
+    if (list.saved.length) {
+      out.push({
+        head: 'SAVED',
+        action: {
+          label: editing ? 'DONE' : 'EDIT',
+          title: editing ? 'Done editing' : 'Rename, set HOME / WORK, delete',
+          run: () => {
+            editing = !editing;
+            renaming = null;
+            renderRows(homeRows());
+          },
+        },
+      });
+      for (const p of list.saved) out.push({ ...placeRow(p), edit: editing });
+      if (list.hidden > 0 && !showAllSaved)
+        out.push({
+          label: `ALL SAVED (${list.total})`,
+          meta: '',
+          glyph: 'frame',
+          run: () => {
+            showAllSaved = true;
+            renderRows(homeRows());
+            input.focus();
+          },
+          keep: true,
+        });
+    }
+    if (list.recent.length && !editing) {
+      out.push({
+        head: 'RECENT',
+        action: {
+          label: 'CLEAR',
+          title: 'Forget the recent destinations',
+          run: () => {
+            recents?.clear?.();
+            renderRows(homeRows());
+          },
+        },
+      });
+      for (const p of list.recent) out.push(placeRow(p));
+    }
+    if (!editing) out.push(...quickRows());
+    return out;
+  }
+
+  /**
+   * The saved places (HOME, WORK first) and recent ones, as Places; `total`
+   * saved places besides HOME and WORK, `hidden` of them not listed.
+   */
+  function savedList({ near, savedMax }) {
+    const short = savedShortlist({ places, recents, near, savedMax, recentMax: 5 });
+    const saved = short.filter((p) => p.kind !== 'recent');
+    const total = (places?.list?.() ?? []).filter(
+      (p) => p.kind !== 'home' && p.kind !== 'work',
+    ).length;
+    const shown = saved.filter((p) => p.kind === 'saved').length;
+    return {
+      saved,
+      recent: short.filter((p) => p.kind === 'recent'),
+      total,
+      hidden: Math.max(0, total - shown),
+    };
   }
 
   function quickRows() {
@@ -154,12 +348,125 @@ export function createNavPanel({
     return out;
   }
 
+  const rowTile = (r) =>
+    r.letter ? h('span.ct-tile.ct-nav__letter', {}, r.letter) : tile(r.glyph ?? 'frame');
+
+  // Edit mode: the saved place's own controls instead of the save toggle.
+  function editControls(p) {
+    const id = p.savedId;
+    const rec = places?.get?.(id);
+    if (!rec) return null;
+    const ctl = (label, title, fn, pressed = null) =>
+      h(
+        'button.ct-btn.ct-nav__ed',
+        {
+          type: 'button',
+          title,
+          'aria-pressed': pressed === null ? null : String(pressed),
+          onpointerdown: (e) => e.preventDefault(),
+          onclick: (e) => {
+            e.stopPropagation();
+            fn();
+            renderRows(homeRows());
+          },
+        },
+        label,
+      );
+    return h(
+      'span.ct-nav__edits',
+      {},
+      ctl(
+        'HOME',
+        'Set as HOME',
+        () => places.setRole(id, rec.kind === 'home' ? null : 'home'),
+        rec.kind === 'home',
+      ),
+      ctl(
+        'WORK',
+        'Set as WORK',
+        () => places.setRole(id, rec.kind === 'work' ? null : 'work'),
+        rec.kind === 'work',
+      ),
+      ctl('REN', 'Rename', () => (renaming = id)),
+      ctl('×', `Delete ${rec.name}`, () => places.remove(id)),
+    );
+  }
+
+  // Inline rename: the row becomes a field (Enter or leaving it keeps the name).
+  function renameRow(p) {
+    const rec = places?.get?.(p.savedId);
+    const field = h('input.ct-nav__rename', {
+      type: 'text',
+      value: rec?.name ?? p.name,
+      maxlength: '60',
+      spellcheck: 'false',
+      autocomplete: 'off',
+      'aria-label': 'Name',
+    });
+    let done = false;
+    const commit = (keep) => {
+      if (done) return;
+      done = true;
+      const v = field.value.trim();
+      const open = !results.hidden; // a tap elsewhere closed the list: leave it closed
+      renaming = null;
+      if (keep && v && rec && v !== rec.name) places.update(rec.id, { name: v });
+      if (!open) return;
+      renderRows(homeRows());
+      input.focus();
+    };
+    field.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') commit(true);
+      else if (e.key === 'Escape') commit(false);
+    });
+    field.addEventListener('blur', () => setTimeout(() => commit(true), 0));
+    setTimeout(() => {
+      field.focus();
+      field.select?.();
+    }, 0);
+    return h('div.ct-nav__item.ct-nav__item--edit', {}, rowTile(placeRow(p)), field);
+  }
+
   function renderRows(list, note = '') {
-    rows = list;
+    lastList = list;
+    rows = list.filter((r) => !r.head);
     sel = -1;
     results.innerHTML = '';
     const from = origin2();
-    for (const [i, r] of list.entries()) {
+    let i = 0;
+    for (const r of list) {
+      if (r.head) {
+        results.appendChild(
+          h(
+            'div.ct-nav__head',
+            {},
+            h('span', {}, r.head),
+            r.action
+              ? h(
+                  'button.ct-nav__headbtn',
+                  {
+                    type: 'button',
+                    title: r.action.title,
+                    onpointerdown: (e) => e.preventDefault(),
+                    onclick: (e) => {
+                      e.stopPropagation();
+                      r.action.run();
+                    },
+                  },
+                  r.action.label,
+                )
+              : null,
+          ),
+        );
+        continue;
+      }
+      const at = i;
+      i += 1;
+      if (r.edit && renaming && r.place?.savedId === renaming) {
+        results.appendChild(renameRow(r.place));
+        continue;
+      }
       const meta =
         r.meta ??
         (from && Number.isFinite(r.place?.lat)
@@ -168,25 +475,29 @@ export function createNavPanel({
               units(),
             )
           : '');
-      results.appendChild(
+      const main = h(
+        'button.ct-row.ct-nav__row',
+        {
+          type: 'button',
+          role: 'option',
+          onpointerdown: (e) => e.preventDefault(), // keep the input's focus
+          onclick: () => choose(at),
+        },
+        rowTile(r),
         h(
-          'button.ct-row.ct-nav__row',
-          {
-            type: 'button',
-            role: 'option',
-            onpointerdown: (e) => e.preventDefault(), // keep the input's focus
-            onclick: () => choose(i),
-          },
-          tile(r.glyph ?? 'frame'),
-          h(
-            'span.ct-row__label',
-            {},
-            h('span.ct-nav__name', {}, r.label),
-            r.detail ? h('span.ct-nav__detail', {}, r.detail) : null,
-          ),
-          h('span.ct-row__meta', {}, meta),
+          'span.ct-row__label',
+          {},
+          h('span.ct-nav__name', {}, r.label),
+          r.detail ? h('span.ct-nav__detail', {}, r.detail) : null,
         ),
+        r.edit ? null : h('span.ct-row__meta', {}, meta),
       );
+      const side = r.edit
+        ? editControls(r.place)
+        : r.save && r.place
+          ? saveToggle(r.place, () => renderRows(lastList ?? []))
+          : null;
+      results.appendChild(h('div.ct-nav__item', {}, main, side));
     }
     if (note) results.appendChild(h('div.ct-nav__note', {}, note));
     results.hidden = !list.length && !note;
@@ -195,13 +506,16 @@ export function createNavPanel({
   function choose(i) {
     const r = rows[i];
     if (!r) return;
+    if (r.keep) return r.run();
     results.hidden = true;
+    editing = false;
+    renaming = null;
     input.blur();
     r.run();
   }
 
   function paintSel() {
-    [...results.querySelectorAll('.ct-row')].forEach((el, i) =>
+    [...results.querySelectorAll('.ct-nav__row')].forEach((el, i) =>
       el.classList.toggle('is-sel', i === sel),
     );
   }
@@ -211,24 +525,14 @@ export function createNavPanel({
     searchAbort?.abort();
     const ac = typeof AbortController === 'function' ? new AbortController() : null;
     searchAbort = ac;
-    renderRows(
-      rows.filter((r) => r.place),
-      'SEARCHING',
-    );
+    // The last answer stays while the next is on its way; the saved list does not.
+    renderRows(shownSearch ? rows.filter((r) => r.place) : [], 'SEARCHING');
     try {
-      const bias = origin2() ?? near?.() ?? null;
-      const places = await nav.search(q, { near: bias, limit: 8, signal: ac?.signal });
+      const bias = origin2() ?? near0();
+      const found = await nav.search(q, { near: bias, limit: 8, signal: ac?.signal });
       if (seq !== searchSeq) return;
-      renderRows(
-        places.map((p) => ({
-          label: String(p.name).toUpperCase(),
-          detail: String(p.detail ?? '').toUpperCase(),
-          glyph: p.kind === 'city' ? 'frame' : 'node',
-          place: p,
-          run: () => routeHere(p),
-        })),
-        places.length ? '' : 'NO MATCH',
-      );
+      renderRows(found.map(placeRow), found.length ? '' : 'NO MATCH');
+      shownSearch = true;
     } catch (err) {
       if (seq !== searchSeq || err?.name === 'AbortError') return;
       console.warn('[argus] nav search failed', err?.message ?? err);
@@ -236,29 +540,49 @@ export function createNavPanel({
     }
   }
 
+  function showHome() {
+    searchSeq += 1;
+    shownSearch = false;
+    renderRows(homeRows());
+  }
+
   input.addEventListener('input', () => {
     clearBtn.hidden = !input.value;
     clearTimeout(searchTimer);
     const q = input.value.trim();
+    editing = false;
+    renaming = null;
     if (q.length < 2) {
-      searchSeq += 1;
-      renderRows(quickRows());
+      showHome();
       return;
     }
     searchTimer = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE_MS);
   });
   input.addEventListener('focus', () => {
-    if (!input.value.trim()) renderRows(quickRows());
+    if (!input.value.trim()) showHome();
     else if (rows.length) results.hidden = false;
     // Find the user now, while they type: results then show how far each is,
     // the search leans towards them, and the plan needs no wait.
     if (origin.kind === 'me' && !fixes.get()) fixes.locate({ timeoutMs: 8000 });
   });
+  const inside = (el) => el === input || results.contains(el);
   input.addEventListener('blur', () => {
     setTimeout(() => {
-      if (document.activeElement !== input) results.hidden = true;
+      if (!inside(document.activeElement)) closeResults();
     }, 150);
   });
+  function closeResults() {
+    results.hidden = true;
+    editing = false;
+    renaming = null;
+    showAllSaved = false;
+  }
+  // A tap anywhere else closes the list (a rename field may hold the focus).
+  const onOutside = (e) => {
+    if (results.hidden) return;
+    if (bar.contains(e.target) || results.contains(e.target)) return;
+    closeResults();
+  };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -269,13 +593,13 @@ export function createNavPanel({
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (sel >= 0) choose(sel);
-      else if (rows[0]?.place) choose(0);
+      else if (rows[0]?.place && input.value.trim()) choose(0);
       else if (input.value.trim().length >= 2) {
         clearTimeout(searchTimer);
         runSearch(input.value.trim());
       }
     } else if (e.key === 'Escape') {
-      results.hidden = true;
+      closeResults();
       input.blur();
     }
   });
@@ -284,8 +608,13 @@ export function createNavPanel({
     clearBtn.hidden = true;
     if (nav.state.status === 'previewing' || nav.state.status === 'planning' || dest)
       end();
-    renderRows(quickRows());
+    showHome();
     input.focus();
+  });
+  // The list follows the store (a save from the map menu, MY PLACES, the car).
+  const unsubPlaces = places?.subscribe?.(() => {
+    if (!results.hidden && !input.value.trim() && !renaming) renderRows(homeRows());
+    paintCardSave();
   });
 
   // ------------------------------------------------------------- PREVIEW card
@@ -342,12 +671,19 @@ export function createNavPanel({
     trafficSwitch.el,
   );
 
+  const cardSave = h('span.ct-nav__cardsave');
+  /** The destination's save toggle (◇ / ◆), repainted when the list changes. */
+  function paintCardSave() {
+    cardSave.innerHTML = '';
+    if (places && dest) cardSave.append(saveToggle(dest, () => paintCardSave()));
+  }
   card.append(
     h(
       'div.ct-nav__cardhead',
       {},
       h('div.ct-nav__destwrap', {}, destName, destDetail),
       demo ? h('span.ct-tag', {}, 'DEMO') : null,
+      cardSave,
       h(
         'button.ct-nav__x',
         { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => end() },
@@ -454,6 +790,7 @@ export function createNavPanel({
     if (!show) return;
     destName.textContent = String(dest.name ?? 'DESTINATION').toUpperCase();
     destDetail.textContent = String(dest.detail || fmtLL(dest)).toUpperCase();
+    paintCardSave();
     fromVal.textContent =
       origin.kind === 'me'
         ? 'MY LOCATION'
@@ -542,6 +879,7 @@ export function createNavPanel({
         input.value = r.name;
         renderCard(nav.state);
         changed();
+        nav.remember?.(d);
       });
     }
   }
@@ -741,58 +1079,322 @@ export function createNavPanel({
   });
 
   // ------------------------------------------------------------- map press
-  // Long press (touch, pen) or right click: ROUTE HERE / ROUTE FROM HERE.
-  const ctx = h('div.ct-nav__ctx.ct-panel', { hidden: true, role: 'menu' });
+  // Long press (touch, pen) or right click: WHAT'S HERE. The point's
+  // coordinates at once, its name when Photon's reverse geocoder answers;
+  // SAVE (one tap, then rename and HOME / WORK right there), ROUTE HERE,
+  // FROM HERE, COPY (the coordinates), SHARE (a link to the point), MEASURE
+  // (the distance to the next tap).
+  const ctx = h('div.ct-nav__ctx.ct-panel', {
+    hidden: true,
+    role: 'dialog',
+    'aria-label': "What's here",
+    'data-shell': shell,
+  });
   let swallowUntil = 0;
-  function openCtx(pos, ll) {
+  let here = null; // { lat, lon, name, detail, named, savedId, seq }
+  let hereSeq = 0;
+
+  const fmtDeg = (p) => `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+
+  function ctxAction(label, title, fn, { pressed = null, cls = '' } = {}) {
+    return h(
+      `button.ct-btn.ct-nav__act${cls}`,
+      {
+        type: 'button',
+        title,
+        'aria-pressed': pressed === null ? null : String(pressed),
+        onclick: (e) => {
+          e.stopPropagation();
+          fn();
+        },
+      },
+      label,
+    );
+  }
+
+  function renderCtx() {
+    if (!here) return;
+    const p = here;
+    const rec = p.savedId ? places?.get?.(p.savedId) : null;
+    if (p.savedId && !rec) p.savedId = null;
     ctx.innerHTML = '';
+    const title = p.name || (p.named ? 'DROPPED PIN' : 'WHAT’S HERE');
     ctx.append(
-      h('div.ct-nav__ctxhead', {}, fmtLL(ll)),
       h(
-        'button.ct-row',
-        {
-          type: 'button',
-          role: 'menuitem',
-          onclick: () => (closeCtx(), routeHere({ lat: ll.lat, lon: ll.lon })),
-        },
-        tile('cross'),
-        h('span.ct-row__label', {}, 'ROUTE HERE'),
-      ),
-      h(
-        'button.ct-row',
-        {
-          type: 'button',
-          role: 'menuitem',
-          onclick: () => (
-            closeCtx(),
-            setOrigin({ kind: 'point', lat: ll.lat, lon: ll.lon })
+        'div.ct-nav__ctxhead',
+        {},
+        h(
+          'div.ct-nav__ctxwrap',
+          {},
+          // Saved: the name is the title, edited in place.
+          rec ? nameField(rec) : h('div.ct-nav__ctxtitle', {}, title.toUpperCase()),
+          h(
+            'div.ct-nav__ctxsub',
+            {},
+            p.named ? String(p.detail ?? '').toUpperCase() : 'LOOKING UP',
           ),
-        },
-        tile('square'),
-        h('span.ct-row__label', {}, 'ROUTE FROM HERE'),
+          h('div.ct-nav__ctxll', {}, fmtLL(p)),
+        ),
+        h(
+          'button.ct-nav__x',
+          {
+            type: 'button',
+            title: 'Close',
+            'aria-label': 'Close',
+            onclick: () => closeCtx(),
+          },
+          '×',
+        ),
       ),
     );
+    const role = (kind, label) =>
+      ctxAction(
+        label,
+        `Set as ${label}`,
+        () => {
+          places.setRole(rec.id, rec.kind === kind ? null : kind);
+          renderCtx();
+        },
+        { pressed: rec.kind === kind },
+      );
+    ctx.append(
+      h(
+        'div.ct-nav__ctxgrid',
+        {},
+        places
+          ? ctxAction(
+              rec ? 'SAVED' : 'SAVE',
+              rec ? 'Saved: tap to forget' : 'Save this place',
+              () => {
+                if (rec) {
+                  places.remove(rec.id);
+                  p.savedId = null;
+                } else {
+                  const saved = toggleSaved({
+                    lat: p.lat,
+                    lon: p.lon,
+                    name: p.name || `PIN ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`,
+                    detail: p.detail ?? '',
+                  });
+                  p.savedId = saved?.id ?? null;
+                  p.autoName = !p.named; // named when the answer comes
+                }
+                renderCtx();
+              },
+              { pressed: Boolean(rec), cls: '.ct-nav__act--save' },
+            )
+          : null,
+        // Saved: HOME / WORK right beside it; else the routes first.
+        rec ? role('home', 'HOME') : null,
+        rec ? role('work', 'WORK') : null,
+        ctxAction('ROUTE HERE', 'Plan a route to this point', () => {
+          closeCtx();
+          routeHere(placeOfHere());
+        }),
+        ctxAction('FROM HERE', 'Start the route from this point', () => {
+          closeCtx();
+          setOrigin({ kind: 'point', lat: p.lat, lon: p.lon, name: here?.name || null });
+        }),
+        ctxAction('COPY', 'Copy the coordinates', () => {
+          copyText(fmtDeg(p)).then((ok) =>
+            notify?.({
+              title: ok ? 'COORDINATES COPIED' : fmtDeg(p),
+              level: 'low',
+              key: 'copy',
+            }),
+          );
+          closeCtx();
+        }),
+        ctxAction('SHARE', 'Share a link to this point', () => {
+          sharePoint(p);
+          closeCtx();
+        }),
+        sketch && armTap
+          ? ctxAction('MEASURE', 'Distance from here to the next tap', () => {
+              closeCtx();
+              measureFrom(p);
+            })
+          : null,
+      ),
+    );
+  }
+
+  // A saved place's name as the sheet's title, edited in place (Enter, or
+  // leaving the field, keeps it).
+  function nameField(rec) {
+    const field = h('input.ct-nav__rename.ct-nav__ctxname', {
+      type: 'text',
+      value: rec.name,
+      maxlength: '60',
+      spellcheck: 'false',
+      autocomplete: 'off',
+      'aria-label': 'Name of this saved place',
+      title: 'Rename',
+    });
+    const keep = () => {
+      const v = field.value.trim();
+      if (v && v !== rec.name) {
+        places.update(rec.id, { name: v });
+        if (here) {
+          here.autoName = false;
+          here.name = v;
+        }
+      }
+    };
+    field.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        keep();
+        field.blur();
+      }
+    });
+    field.addEventListener('input', () => {
+      if (here) here.autoName = false; // the user names it, not the geocoder
+    });
+    field.addEventListener('change', keep);
+    field.addEventListener('blur', keep);
+    return field;
+  }
+
+  function placeOfHere() {
+    const rec = here?.savedId ? places?.get?.(here.savedId) : null;
+    return {
+      lat: here.lat,
+      lon: here.lon,
+      name: rec?.name ?? (here.named ? here.name || undefined : undefined),
+      detail: here.detail ?? '',
+    };
+  }
+
+  function openCtx(pos, ll) {
+    const seq = (hereSeq += 1);
+    const saved = savedAt(ll);
+    here = {
+      lat: ll.lat,
+      lon: ll.lon,
+      name: saved?.name ?? '',
+      detail: saved?.note ?? '',
+      named: Boolean(saved),
+      savedId: saved?.id ?? null,
+      autoName: false,
+    };
+    sketch?.clear?.('measure');
+    sketch?.clear?.('here');
+    sketch?.marker?.('here', [ll.lon, ll.lat]);
+    renderCtx();
     ctx.hidden = false;
+    placeCtx(pos);
+    // The name, when a reverse geocoder knows one: Photon first; when it has
+    // nothing (or is down), Nominatim.
+    const ask = nav.reversePlace ?? null;
+    if (!ask || saved) return;
+    Promise.resolve(ask(ll.lat, ll.lon))
+      .then((r) => r ?? (seq === hereSeq ? nav.reverse?.(ll.lat, ll.lon) : null))
+      .catch(() => null)
+      .then((r) => {
+        if (seq !== hereSeq || !here) return;
+        here.named = true;
+        if (r) {
+          here.name = r.name;
+          here.detail = r.detail;
+          // Saved before the name came: the saved place takes it.
+          if (here.savedId && here.autoName && places?.get?.(here.savedId))
+            places.update(here.savedId, { name: r.name, note: r.detail });
+        }
+        here.autoName = false;
+        // Typing a name meanwhile: only the line under it changes.
+        if (ctx.contains(document.activeElement)) {
+          const sub = ctx.querySelector('.ct-nav__ctxsub');
+          if (sub) sub.textContent = String(here.detail ?? '').toUpperCase();
+          return;
+        }
+        renderCtx();
+      });
+  }
+
+  function placeCtx(pos) {
     const r = canvas?.getBoundingClientRect?.() ?? {
       left: 0,
       top: 0,
       width: innerWidth,
       height: innerHeight,
     };
-    const w = 190;
-    const x = Math.min(r.left + pos.x + 8, r.left + r.width - w - 8);
-    const y = Math.min(r.top + pos.y + 8, r.top + r.height - 130);
+    const w = ctx.offsetWidth || 260;
+    const hgt = ctx.offsetHeight || 220;
+    const vw = globalThis.innerWidth || r.width;
+    const vh = globalThis.innerHeight || r.height;
+    // Beside the point, inside the screen (above the finger when low down).
+    let x = r.left + pos.x + 12;
+    let y = r.top + pos.y + 12;
+    if (x + w > vw - 8) x = Math.max(8, r.left + pos.x - w - 12);
+    if (x + w > vw - 8) x = Math.max(8, vw - w - 8);
+    if (y + hgt > vh - 8) y = Math.max(8, r.top + pos.y - hgt - 12);
     ctx.style.left = `${Math.max(8, x)}px`;
     ctx.style.top = `${Math.max(8, y)}px`;
   }
+
   function closeCtx() {
+    if (ctx.hidden) return;
     ctx.hidden = true;
+    here = null;
+    hereSeq += 1;
+    sketch?.clear?.('here');
   }
+
+  // MEASURE: a dashed line from the pressed point to the next tap, with the
+  // distance and bearing; the next long press clears it.
+  function measureFrom(a) {
+    armTap((b) => {
+      const m = greatCircleM(a, b);
+      const brg = Math.round(initialBearingDeg(a, b));
+      const label = `${formatNavDistance(m, units())}  ${String(brg).padStart(3, '0')}°`;
+      sketch.clear('measure');
+      sketch.line(
+        'measure',
+        [
+          [a.lon, a.lat],
+          [b.lon, b.lat],
+        ],
+        { dashed: true, width: 2 },
+      );
+      sketch.marker('measure', [a.lon, a.lat]);
+      sketch.marker('measure', [b.lon, b.lat], label);
+      notify?.({ title: `DISTANCE ${label}`, level: 'low', key: 'measure' });
+    }, 'TAP THE MAP: MEASURE TO');
+  }
+
+  async function sharePoint(p) {
+    const name = String(here?.name || '').trim();
+    const url =
+      shareLink?.(p) ??
+      `https://www.openstreetmap.org/?mlat=${p.lat.toFixed(5)}&mlon=${p.lon.toFixed(5)}#map=17/${p.lat.toFixed(5)}/${p.lon.toFixed(5)}`;
+    const text = [name, fmtDeg(p)].filter(Boolean).join('  ');
+    try {
+      if (navigator.share && matchMedia?.('(pointer: coarse)').matches) {
+        await navigator.share({ title: name || 'Argus point', text, url });
+        return;
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+    const ok = await copyText(url);
+    notify?.({
+      title: ok ? 'LINK COPIED' : 'LINK',
+      body: ok ? '' : url,
+      level: 'low',
+      key: 'share',
+    });
+  }
+
   const onDocDown = (e) => {
     if (!ctx.hidden && !ctx.contains(e.target)) closeCtx();
+    onOutside(e);
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') closeCtx();
+    if (e.key === 'Escape') {
+      closeCtx();
+      sketch?.clear?.('measure');
+    }
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(
       document.activeElement?.tagName ?? '',
     );
@@ -810,7 +1412,6 @@ export function createNavPanel({
   };
   document.addEventListener('pointerdown', onDocDown, true);
   document.addEventListener('keydown', onKey);
-
   let press = null;
   const toPos = (e) => {
     const r = canvas.getBoundingClientRect();
@@ -952,7 +1553,7 @@ export function createNavPanel({
       h(
         'div.ct-section__note',
         {},
-        'Long press or right click the map: ROUTE HERE. Routes: OSRM / Valhalla (FOSSGIS), TomTom with a key. ',
+        'Routes: OSRM / Valhalla (FOSSGIS), TomTom with a key. ',
         h(
           'a',
           {
@@ -1014,6 +1615,8 @@ export function createNavPanel({
       clearInterval(etaTimer);
       document.removeEventListener('pointerdown', onDocDown, true);
       document.removeEventListener('keydown', onKey);
+      unsubPlaces?.();
+      closeCtx();
       if (canvas) {
         canvas.removeEventListener('pointerdown', onDown);
         canvas.removeEventListener('pointermove', onMove);

@@ -347,6 +347,7 @@ fun maneuverIcon(context: CarContext, name: String): CarIcon =
  * (shell-car/index.js, core/nav/navigator.js):
  *
  *   host -> page   search(query, reqId)        page -> host   searchResults(reqId, json)
+ *                  (SAVED_QUERY: HOME, WORK, the saved places, the recent ones)
  *                  preview(placeJson, optsJson)                routes(json)
  *                  selectRoute(id), navigate(routeId), stopNav()
  *                                                              nav(json), about once a second
@@ -637,6 +638,13 @@ class CarNav(
     companion object {
         const val OFFLINE = "OFFLINE"
         const val TIMEOUT = "TIMEOUT"
+
+        /**
+         * The search that lists the user's own places before anything is
+         * typed: HOME, WORK, SAVED, then the recent destinations (kinds
+         * "home", "work", "saved", "recent"; core/nav/search.js SAVED_QUERY).
+         */
+        const val SAVED_QUERY = "@saved"
         private const val MAX_RECENTS = 5
         private const val MAX_RESULTS = 12
         private const val MAX_ROUTES = 3

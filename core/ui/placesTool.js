@@ -1,19 +1,14 @@
 import './scenesTool.css';
+import './navPanel.css';
 import { h } from './dom.js';
-import { section, createChoice } from './controls.js';
+import { section } from './controls.js';
 
-// MY PLACES (TOOLS): the user's own locations and landmarks. SAVE VIEW keeps
-// the place in the middle of the view with the camera that framed it; PICK ON
-// MAP keeps a point you tap. Each row flies there, renames or deletes; the
-// list exports and imports as JSON. Kept on this device only.
-
-const KINDS = [
-  { id: 'place', label: 'Place' },
-  { id: 'landmark', label: 'Landmark' },
-  { id: 'home', label: 'Home' },
-  { id: 'work', label: 'Work' },
-  { id: 'watch', label: 'Watch' },
-];
+// MY PLACES (TOOLS): the user's saved places, the same list as WHERE TO's
+// HOME / WORK / SAVED and WHAT'S HERE > SAVE (core/places/saved.js). SAVE
+// VIEW keeps the place in the middle of the view with the camera that framed
+// it; PICK ON MAP keeps a point you tap. Each row flies there; HOME / WORK,
+// rename (in place) and delete beside it; the list exports and imports as
+// JSON. Kept on this device only.
 
 /**
  * @param {{ store: object, centre: () => ({ lat: number, lon: number }|null),
@@ -22,17 +17,17 @@ const KINDS = [
  *   notify: Function, onChange?: () => void }} deps
  */
 export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onChange }) {
-  let kind = 'place';
   const nameInput = h('input.ct-scenes__input', {
     type: 'text',
     maxlength: '60',
-    placeholder: 'optional',
+    placeholder: 'NAME (OPTIONAL)',
     autocomplete: 'off',
     spellcheck: 'false',
     'aria-label': 'Place name',
   });
   const list = h('div.ct-tool__steps.ct-scroll');
   const summary = h('div.ct-tool__summary');
+  let renaming = null;
   const file = h('input', {
     type: 'file',
     accept: 'application/json,.json',
@@ -49,21 +44,16 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
     },
   });
 
-  const nameOr = (fallback) => nameInput.value.trim() || fallback;
   function save(ll, withView) {
     if (!ll) {
-      notify({
-        title: 'NO GROUND THERE',
-        body: 'Aim at the globe, not the sky.',
-        level: 'low',
-      });
+      notify({ title: 'NO GROUND THERE', level: 'low' });
       return;
     }
     const p = store.add({
-      name: nameOr(`${kind.toUpperCase()} ${ll.lat.toFixed(3)} ${ll.lon.toFixed(3)}`),
+      name: nameInput.value.trim() || `PLACE ${ll.lat.toFixed(4)} ${ll.lon.toFixed(4)}`,
       lat: ll.lat,
       lon: ll.lon,
-      kind,
+      kind: 'place',
       view: withView ? view() : undefined,
     });
     nameInput.value = '';
@@ -73,45 +63,98 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
     });
   }
 
+  const small = (label, title, onclick, pressed = null) =>
+    h(
+      'button.ct-btn.ct-nav__ed',
+      {
+        type: 'button',
+        title,
+        'aria-pressed': pressed === null ? null : String(pressed),
+        onclick,
+      },
+      label,
+    );
+
+  function renameField(p) {
+    const field = h('input.ct-nav__rename', {
+      type: 'text',
+      value: p.name,
+      maxlength: '60',
+      spellcheck: 'false',
+      autocomplete: 'off',
+      'aria-label': 'Name',
+    });
+    let done = false;
+    const commit = (keep) => {
+      if (done) return;
+      done = true;
+      const v = field.value.trim();
+      renaming = null;
+      if (keep && v && v !== p.name) store.update(p.id, { name: v });
+      else render();
+    };
+    field.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') commit(true);
+      else if (e.key === 'Escape') commit(false);
+    });
+    field.addEventListener('blur', () => commit(true));
+    setTimeout(() => {
+      field.focus();
+      field.select?.();
+    }, 0);
+    return h('div.ct-places__row.ct-nav__item--edit', {}, field);
+  }
+
   function render() {
     const places = store.list();
     summary.textContent = `${String(places.length).padStart(2, '0')} SAVED ON THIS DEVICE`;
     list.innerHTML = '';
-    for (const p of places) {
-      const del = h(
-        'button.ct-btn',
-        { type: 'button', title: `Delete ${p.name}`, onclick: () => store.remove(p.id) },
-        'X',
-      );
-      const ren = h(
-        'button.ct-btn',
-        {
-          type: 'button',
-          title: 'Rename',
-          onclick: () => {
-            const next = window.prompt('Name', p.name);
-            if (next != null) store.update(p.id, { name: next });
-          },
-        },
-        'REN',
-      );
+    // HOME and WORK first, then the rest as saved (newest first).
+    const order = [
+      ...places.filter((p) => p.kind === 'home'),
+      ...places.filter((p) => p.kind === 'work'),
+      ...places.filter((p) => p.kind !== 'home' && p.kind !== 'work'),
+    ];
+    for (const p of order) {
+      if (renaming === p.id) {
+        list.appendChild(renameField(p));
+        continue;
+      }
+      const role = (kind, label) =>
+        small(
+          label,
+          `Set as ${label}`,
+          () => store.setRole(p.id, p.kind === kind ? null : kind),
+          p.kind === kind,
+        );
       list.appendChild(
         h(
-          'div.ct-places__row',
+          'div.ct-places__row.ct-places__row--roles',
           {},
           h(
             'button.ct-row',
             { type: 'button', title: `Fly to ${p.name}`, onclick: () => flyTo(p) },
             h('span.ct-row__label', {}, p.name.toUpperCase()),
-            h('span.ct-row__meta', {}, p.kind.toUpperCase()),
           ),
-          ren,
-          del,
+          role('home', 'HOME'),
+          role('work', 'WORK'),
+          small('REN', 'Rename', () => {
+            renaming = p.id;
+            render();
+          }),
+          small('×', `Delete ${p.name}`, () => store.remove(p.id)),
         ),
       );
     }
     if (!places.length)
-      list.appendChild(h('div.ct-section__note', {}, 'Nothing saved yet.'));
+      list.appendChild(
+        h(
+          'div.ct-section__note',
+          {},
+          'Nothing saved yet. Long press the map, or ◇ in WHERE TO.',
+        ),
+      );
   }
 
   store.subscribe(() => {
@@ -122,17 +165,6 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
 
   const el = section(
     'MY PLACES',
-    h(
-      'div.ct-section__note',
-      {},
-      'Your own places and landmarks, on this device only. They show on the map with the My places layer and in search.',
-    ),
-    createChoice({
-      caption: 'Kind',
-      options: KINDS,
-      current: kind,
-      onSelect: (id) => (kind = id),
-    }).el,
     h('label.ct-scenes__field', {}, h('span.ct-scenes__label', {}, 'NAME'), nameInput),
     h(
       'div.ct-seg',
@@ -165,6 +197,7 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
         'button.ct-btn',
         {
           type: 'button',
+          title: 'Save the list as a file (to move it to another device)',
           onclick: () => {
             const blob = new Blob([store.export()], { type: 'application/json' });
             const a = h('a', {
@@ -177,7 +210,15 @@ export function createPlacesTool({ store, centre, view, flyTo, pick, notify, onC
         },
         'EXPORT',
       ),
-      h('button.ct-btn', { type: 'button', onclick: () => file.click() }, 'IMPORT'),
+      h(
+        'button.ct-btn',
+        {
+          type: 'button',
+          title: 'Add places from an exported file',
+          onclick: () => file.click(),
+        },
+        'IMPORT',
+      ),
     ),
     file,
   );

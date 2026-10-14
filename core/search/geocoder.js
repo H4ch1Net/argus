@@ -5,7 +5,10 @@
 //      (the user, else the view centre);
 //   3. for a numbered street address, the address geocoders beside it
 //      (./address.js: US Census, else Nominatim around the user);
-//   4. OSM Nominatim through the proxy feed 'nominatim', the last resort.
+//   4. OSM Nominatim through the proxy feed 'nominatim', the last resort;
+//   5. for "A & B", where the two streets cross near `near` (./intersection.js:
+//      the basemap's vector tiles, else Overpass), first when the query
+//      clearly names two streets.
 // The network answers are ranked local first (./rank.js), and offline prefix
 // matches lead them. parseNominatim is pure and tested; createGeocoder wires
 // the chain to the proxy client. Inputs are places, never people.
@@ -13,7 +16,27 @@
 import { searchPlaces, normalizePlaceName } from './places.js';
 import { PHOTON_FEED, PHOTON_PATH, photonParams, parsePhoton } from './photon.js';
 import { lookupAddress, parseAddress } from './address.js';
-import { rankPlaces } from './rank.js';
+import { rankPlaces, textScore } from './rank.js';
+import { parseIntersection, lookupIntersection } from './intersection.js';
+import { createRoadTileLoader } from './roadTiles.js';
+
+/** An intersection that takes longer than this is left out of the answer. */
+const CROSSING_TIMEOUT_MS = 9000;
+/** With a crossing in hand, how long the place search may still take. */
+const CROSSING_GRACE_MS = 1200;
+
+/** A promise's list, or [] if it fails or takes longer than `ms`. */
+async function graceful(promise, ms) {
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve([]), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => []), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function parseNominatim(json) {
   const arr = Array.isArray(json) ? json : [];
@@ -49,17 +72,24 @@ export function mergePlaces(offline, network, limit = 5) {
 }
 
 /**
- * @param {{ getJson: Function } | null} proxyClient  null: offline places only
+ * @param {{ getJson: Function, getBytes?: Function } | null} proxyClient  null: offline places only
  * @param {{ near?: (() => ({lat:number, lon:number}|null)) | {lat:number, lon:number} | null,
- *   photon?: boolean, limit?: number }} [opts]
- *   near: the view centre, sent to Photon as a soft proximity bias
+ *   photon?: boolean, limit?: number, roads?: Function|null }} [opts]
+ *   near: the view centre, sent to Photon as a soft proximity bias; roads:
+ *   the road line loader for intersections (default: the vector tiles)
  * @returns {(query: string, signal?: AbortSignal) => Promise<Array<{ name: string,
  *   latitude: number, longitude: number }>>}
  */
 export function createGeocoder(
   proxyClient,
-  { near = null, photon = true, limit = 5 } = {},
+  { near = null, photon = true, limit = 5, roads = undefined } = {},
 ) {
+  const loadRoads =
+    roads === undefined
+      ? proxyClient?.getBytes
+        ? createRoadTileLoader(proxyClient)
+        : null
+      : roads;
   return async (query, signal) => {
     const q = String(query ?? '').trim();
     if (!q) return [];
@@ -78,14 +108,32 @@ export function createGeocoder(
             return [];
           })
       : Promise.resolve([]);
-    if (photon) {
-      try {
-        network = parsePhoton(
-          await proxyClient.getJson(PHOTON_FEED, PHOTON_PATH, {
+    // Two streets: where they cross near the user, beside the place search.
+    const inter = bias ? parseIntersection(q) : null;
+    const crossings = inter
+      ? crossingResults(inter, { proxyClient, loadRoads, near: bias, signal })
+      : Promise.resolve([]);
+    const photonAsk = photon
+      ? proxyClient
+          .getJson(PHOTON_FEED, PHOTON_PATH, {
             params: photonParams(q, bias, limit),
             signal,
-          }),
-        );
+          })
+          .then(parsePhoton)
+      : Promise.resolve([]);
+    photonAsk.catch(() => {}); // awaited below, or left behind on purpose
+    // A clear intersection that was found does not wait long for a slow
+    // place search: the crossing, and what Photon has said by then.
+    if (inter?.strong) {
+      const xs = await crossings;
+      if (xs.length) {
+        const quick = await graceful(photonAsk, CROSSING_GRACE_MS);
+        return mergePlaces(offline, [...xs, ...rankLabels(q, quick, bias)], limit);
+      }
+    }
+    if (photon) {
+      try {
+        network = await photonAsk;
       } catch (err) {
         if (signal?.aborted) throw err;
         failure = err;
@@ -105,10 +153,42 @@ export function createGeocoder(
       }
     }
     network = rankLabels(q, [...(await addresses), ...network], bias);
+    const xs = await crossings;
+    if (xs.length) {
+      const good = network.some((r) => textScore(q, r.name) >= 0.75);
+      network = inter.strong || !good ? [...xs, ...network] : [...network, ...xs];
+    }
     // Nothing anywhere and a feed failed: say why rather than "no results".
     if (!network.length && !offline.length && failure) throw failure;
     return mergePlaces(offline, network, limit);
   };
+}
+
+/** An intersection's crossings as geocoder results ([] on failure or after 9 s). */
+async function crossingResults(parsed, { proxyClient, loadRoads, near, signal }) {
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve([]), CROSSING_TIMEOUT_MS);
+  });
+  const found = lookupIntersection(parsed, {
+    near,
+    loadRoads,
+    proxyClient,
+    signal,
+  }).catch(() => []);
+  try {
+    const list = await Promise.race([found, late]);
+    return list.slice(0, 2).map((c) => ({
+      name: `${c.a} & ${c.b}`,
+      latitude: c.lat,
+      longitude: c.lon,
+      kind: 'intersection',
+      bbox: null,
+      source: c.source,
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function validNear(near) {

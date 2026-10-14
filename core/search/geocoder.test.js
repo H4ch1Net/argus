@@ -111,3 +111,23 @@ test('offline prefix hits lead, and the same place from the network is not repea
   );
   assert.equal(mergePlaces(offline, []).length, 3);
 });
+
+test('launcher and terminal: two streets give their crossing, without waiting on Photon', async () => {
+  const fs = await import('node:fs');
+  const { lines } = JSON.parse(
+    fs.readFileSync(new URL('./fixtures/indio-roads.json', import.meta.url), 'utf8'),
+  );
+  // Photon never answers (as on Oct 14 2026, 502 after 15 s).
+  const client = { getJson: () => new Promise(() => {}) };
+  const geocode = createGeocoder(client, {
+    near: () => ({ lat: 33.7206, lon: -116.2156 }),
+    roads: async () => lines,
+  });
+  const t0 = Date.now();
+  const [first] = await geocode('Highway 111 and Golf Center pkway');
+  assert.ok(Date.now() - t0 < 4000);
+  assert.equal(first.name, 'Highway 111 & Golf Center Parkway');
+  assert.equal(first.kind, 'intersection');
+  assert.ok(Math.abs(first.latitude - 33.7149) < 0.0005);
+  assert.ok(Math.abs(first.longitude + 116.2103) < 0.0005);
+});

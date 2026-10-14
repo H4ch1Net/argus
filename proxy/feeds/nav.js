@@ -168,7 +168,8 @@ const ADDRESS_LINE = (v) =>
   v.length <= 200 &&
   // eslint-disable-next-line no-control-regex
   !/[\u0000-\u001f\u007f-\u009f]/.test(v);
-const DEG1 = /^-?\d{1,3}(?:\.\d)?$/;
+// A point to five decimals (about a metre): what core/search sends.
+const DEG5 = /^-?\d{1,3}(?:\.\d{1,5})?$/;
 
 // --- Nominatim (proxy/feeds.js): the keys Argus sends, each pinned -------------
 // Search: q, JSON, a limit, address details, a bias box (never bounded).
@@ -265,24 +266,27 @@ export const feeds = [
     cache: { ttlMs: HOUR, staleMs: 24 * HOUR },
   },
   {
-    // Where the user is, as an address names it (Photon's reverse geocoder,
-    // same komoot instance and terms as 'photon'), so a bare street address
-    // can be looked up in the user's state (core/search/region.js).
-    // Live-tested Oct 2026: /reverse?lat=33.7&lon=-116.2&limit=1 answered a
-    // street in Coachella, California, US. Pinned to one rounded point and one
-    // answer; the client asks once per ~10 km square per session, and the
-    // answers are cached a day.
+    // What is at a point, as an address names it (Photon's reverse geocoder,
+    // same komoot instance and terms as 'photon'): the user's region, so a
+    // bare street address can be looked up in their state
+    // (core/search/region.js, one point per ~10 km square per session), and
+    // the map's WHAT'S HERE sheet and the town of an intersection
+    // (core/search/reverse.js, one point to five decimals). Live-tested Oct
+    // 2026: /reverse?lat=33.7&lon=-116.2&limit=1 answered a street in
+    // Coachella, California, US; lat=33.71491&lon=-116.21031 answered 46th
+    // Avenue, Indio. Pinned to one point and one answer; answers are cached
+    // a day and the governor keeps it to a person's pace.
     id: 'photon-reverse',
     baseUrl: 'https://photon.komoot.io',
     methods: ['GET'],
     allowPaths: [exactPath('/reverse')],
     allowQuery: (q) =>
-      pinnedQuery({ lat: DEG1, lon: DEG1, limit: '1' })(q) &&
+      pinnedQuery({ lat: DEG5, lon: DEG5, limit: '1' })(q) &&
       Math.abs(Number(q.get('lat'))) <= 90 &&
       Math.abs(Number(q.get('lon'))) <= 180,
     headers: UA,
-    governor: { ratePerMinute: 10 },
-    cache: { ttlMs: 24 * HOUR, staleMs: 7 * 24 * HOUR, maxEntries: 64 },
+    governor: { ratePerMinute: 20 },
+    cache: { ttlMs: 24 * HOUR, staleMs: 7 * 24 * HOUR, maxEntries: 256, maxBytes: 2e6 },
   },
   {
     // US street addresses (U.S. Census Bureau Geocoder, onelineaddress on the
