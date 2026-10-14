@@ -1,19 +1,21 @@
 import * as Cesium from 'cesium';
+import { createRouteLines } from '../core/nav/routeLines.js';
 
-// The route on the car map, ctOS: the way ahead a white line on a dark
-// keyline, the way already driven dimmed to grey, alternatives grey while
-// previewing, and the destination as a bracketed target with its name. One
-// PolylineCollection, one billboard and one label. Positions change only on a
-// new route or a nav update (about once a second); each change asks for one
+// The route on the car map, ctOS: the way ahead white, the way already driven
+// dimmed to grey, alternatives grey while previewing, and the destination as a
+// bracketed target with its name. The lines are the phone's ground lines
+// (core/nav/routeLines.js): draped on the globe, so the globe's depth test
+// never hides part of them, built once per set of routes; choosing a route,
+// starting it and driving it only recolour their pieces (about 100 m each).
+// One billboard and one label for the destination. Each change asks for one
 // render, and nothing here runs per frame.
 
-const LIFT_M = 4; // above the ellipsoid, clear of the globe's depth test
+const LIFT_M = 4; // the destination mark, above the ellipsoid
+const WIDTH = 8; // px: read at arm's length
 const INK = Cesium.Color.WHITE;
 const KEYLINE = Cesium.Color.fromCssColorString('#0e0e0e').withAlpha(0.85);
 const DIM = Cesium.Color.fromCssColorString('#7a7a7a').withAlpha(0.75);
 const ALT = Cesium.Color.fromCssColorString('#9a9a9a').withAlpha(0.8);
-
-const colour = (c) => Cesium.Material.fromType('Color', { color: c });
 
 // The destination target: four corner brackets round a filled square, white
 // on a dark keyline, drawn once at twice its size for crisp edges.
@@ -63,36 +65,35 @@ function target() {
 /** @param {import('cesium').Viewer} viewer */
 export function createRouteView(viewer) {
   const { scene } = viewer;
-  const lines = scene.primitives.add(new Cesium.PolylineCollection());
+  const lines = createRouteLines(scene, { width: WIDTH });
   const marks = scene.primitives.add(new Cesium.BillboardCollection({ scene }));
   const labels = scene.primitives.add(new Cesium.LabelCollection({ scene }));
-  const carts = new Map(); // route id -> Cartesian3[] (converted once per route)
-  let active = null; // { carts, travelled, ahead, keyline }
+  let shown = []; // the routes the lines were built from, in build order
+  // What the lines show: { selectedId } while previewing, { activeIx, along }
+  // on a route (its index in `shown`, metres driven).
+  let mode = null;
   const render = () => scene.requestRender();
 
-  function cartsOf(route) {
-    const key = route?.id ?? '';
-    if (carts.has(key)) return carts.get(key);
-    const pts = [];
-    for (const p of route?.geometry ?? []) {
-      if (Number.isFinite(p?.[0]) && Number.isFinite(p?.[1]))
-        pts.push(Cesium.Cartesian3.fromDegrees(p[0], p[1], LIFT_M));
-    }
-    // Only the routes on screen are kept.
-    if (carts.size > 8) carts.clear();
-    carts.set(key, pts);
-    return pts;
+  // New geometry only for a different set of routes.
+  function show(routes) {
+    const list = (routes || []).filter((r) => r?.geometry?.length >= 2);
+    const same = list.length === shown.length && list.every((r, i) => r === shown[i]);
+    if (same) return;
+    shown = list;
+    lines.build(list);
   }
 
-  const line = (positions, width, color) =>
-    positions.length >= 2
-      ? lines.add({
-          positions,
-          width,
-          material: colour(color),
-          arcType: Cesium.ArcType.NONE,
-        })
-      : null;
+  function paint() {
+    lines.paint((ri, piece) => {
+      if (!mode) return null;
+      if (mode.selectedId !== undefined)
+        return shown[ri]?.id === mode.selectedId ? INK : ALT;
+      // On a route: the others go, the driven part dims.
+      if (ri !== mode.activeIx) return null;
+      return piece.to <= mode.along ? DIM : INK;
+    });
+    render();
+  }
 
   function setDestination(dest) {
     marks.removeAll();
@@ -126,73 +127,50 @@ export function createRouteView(viewer) {
     }
   }
 
-  function clearLines() {
-    lines.removeAll();
-    active = null;
-  }
-
   return {
-    /** Candidate routes, the selected one on top in white, the rest grey. */
+    /** Candidate routes, the selected one in white, the rest grey. */
     showPreview(routes, selectedId, dest) {
-      clearLines();
-      const list = routes || [];
-      for (const r of list) if (r.id !== selectedId) line(cartsOf(r), 5, ALT);
-      const sel = list.find((r) => r.id === selectedId) ?? list[0];
-      if (sel) {
-        const pts = cartsOf(sel);
-        line(pts, 11, KEYLINE);
-        line(pts, 6, INK);
-      }
-      setDestination(dest);
-      render();
-    },
-
-    /** The route being driven: all of it ahead until the first progress. */
-    showActive(route, dest) {
-      clearLines();
-      const pts = cartsOf(route);
-      active = {
-        carts: pts,
-        keyline: line(pts, 11, KEYLINE),
-        travelled: lines.add({
-          positions: [],
-          width: 6,
-          material: colour(DIM),
-          show: false,
-        }),
-        ahead: line(pts, 6, INK),
-        index: -1,
+      show(routes);
+      mode = {
+        selectedId: (shown.find((r) => r.id === selectedId) ?? shown[0])?.id ?? null,
       };
+      paint();
       setDestination(dest);
       render();
     },
 
     /**
-     * Split the active route where the vehicle is: `at` = { index, lat, lon }
-     * (the segment it is on and the snapped point, nav.js locateOnRoute).
+     * The route being driven: all of it ahead until the first progress. Started
+     * from a preview, the lines already built stay (only the colours change).
      */
-    setProgress(at) {
-      if (!active?.ahead || !at || !Number.isInteger(at.index)) return;
-      const { carts: pts } = active;
-      const i = Math.min(Math.max(at.index, 0), pts.length - 2);
-      const here = Cesium.Cartesian3.fromDegrees(at.lon, at.lat, LIFT_M);
-      const done = pts.slice(0, i + 1);
-      done.push(here);
-      const ahead = pts.slice(i + 1);
-      ahead.unshift(here);
-      active.travelled.positions = done;
-      active.travelled.show = done.length >= 2;
-      active.ahead.positions = ahead;
-      active.keyline.positions = ahead;
-      active.index = i;
+    showActive(route, dest) {
+      let ix = shown.indexOf(route);
+      if (ix < 0)
+        ix = shown.findIndex((r) => r.id === route?.id && r.geometry === route?.geometry);
+      if (ix < 0) {
+        show(route ? [route] : []);
+        ix = 0;
+      }
+      mode = { activeIx: ix, along: 0 };
+      paint();
+      setDestination(dest);
       render();
     },
 
+    /** Where the vehicle is on the active route: `at.along` metres from its start (nav.js locateOnRoute). */
+    setProgress(at) {
+      if (!mode || mode.activeIx === undefined || !Number.isFinite(at?.along)) return;
+      if (at.along === mode.along) return;
+      mode.along = at.along;
+      paint();
+    },
+
     clear() {
-      clearLines();
+      mode = null;
+      shown = [];
+      lines.clear();
       marks.removeAll();
       labels.removeAll();
-      carts.clear();
       render();
     },
 
@@ -215,7 +193,7 @@ export function createRouteView(viewer) {
     },
 
     destroy() {
-      scene.primitives.remove(lines);
+      lines.destroy();
       scene.primitives.remove(marks);
       scene.primitives.remove(labels);
     },

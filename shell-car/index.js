@@ -898,9 +898,9 @@ export async function mountShell(root, bootOpts = {}) {
   };
 
   let lastReadout = 0;
-  // While previewing routes the readout steps aside for them; on a route it
-  // keeps to two rows, and only where the routing card leaves room for it
-  // beside the vehicle.
+  // Small and out of the way: two rows, one on a route (and only where the
+  // routing card leaves room for it beside the vehicle), none while
+  // previewing routes.
   const READOUT_ROUTE_MIN_PX = 900;
   function renderReadout() {
     const now = performance.now();
@@ -911,7 +911,7 @@ export async function mountShell(root, bootOpts = {}) {
       readout.hidden = true;
       return;
     }
-    const max = drive ? 2 : 3;
+    const max = drive ? 1 : 2;
     readout.classList.toggle('is-route', Boolean(drive));
     const here = fix ? predicted(now) : null;
     const rows = [];
@@ -963,7 +963,7 @@ export async function mountShell(root, bootOpts = {}) {
       `div.car-row${isHub ? '.is-hub' : ''}${isAhead ? '.is-ahead' : ''}`,
       {},
       h('span.car-row__id', {}, id),
-      h('span.car-row__name', {}, String(name).slice(0, 16)),
+      h('span.car-row__name', {}, String(name).slice(0, 24)),
       h('span.car-row__kind', {}, String(kind).slice(0, 18)),
       h(
         'span.car-row__range',

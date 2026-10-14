@@ -332,6 +332,37 @@ test('typing: the saved places that match come first; "home" finds HOME', async 
   assert.deepEqual(savedPlace(places.role('work')).name, 'Work');
 });
 
+test('a HOME saved under the name "Home" does not repeat it as the detail', () => {
+  const home = savedPlace({
+    id: 'h1',
+    name: ' home ',
+    lat: 33.7,
+    lon: -116.2,
+    kind: 'home',
+    note: 'side entrance',
+  });
+  assert.equal(home.name, 'Home');
+  assert.equal(home.detail, 'side entrance');
+  const work = savedPlace({
+    id: 'w1',
+    name: 'Work',
+    lat: 33.7,
+    lon: -116.2,
+    kind: 'work',
+  });
+  assert.equal(work.detail, '');
+  assert.equal(
+    savedPlace({
+      id: 'w2',
+      name: '82 Civic Center',
+      lat: 33.7,
+      lon: -116.2,
+      kind: 'work',
+    }).detail,
+    '82 Civic Center',
+  );
+});
+
 test('"Highway 111 and Golf Center pkway" near Indio: the crossing first, in Indio', async () => {
   resetReverseMemo();
   const asked = [];

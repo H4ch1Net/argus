@@ -3717,10 +3717,13 @@ async function attachTracking(
   if (import.meta.env.DEV && window.__argus)
     Object.assign(window.__argus, { tracker, cockpit });
 
-  // The label of a contact, for tracking boxes, contacts and the sky HUD.
+  // The label of a contact, for tracking boxes, contacts and the sky HUD: at
+  // most 20 characters, with an ellipsis where it is cut.
   const labelFor = (target) => {
     const t = resolve(target)?.metadata?.title;
-    return t ? String(t).toUpperCase().slice(0, 18) : null;
+    if (!t) return null;
+    const s = String(t).toUpperCase();
+    return s.length > 20 ? `${s.slice(0, 19).trimEnd()}…` : s;
   };
   // Select without bringing the target panel forward (the phone's radio
   // tuner lives in TOOLS: stepping the dial must not switch the sheet away).

@@ -206,8 +206,8 @@ reads `--`. The average needs your tank size: long-press the Argus icon,
   lies on the map.
 
 Driver-distraction rules shape the car screen: the map, the status strip and
-the nearest-contacts readout (two rows on a route, none while you compare
-routes), plus Android Auto's own search, route and routing-card screens. No
+the nearest-contacts readout (two small rows, one on a route, none while
+you compare routes), plus Android Auto's own search, route and routing-card screens. No
 video, no camera stills, and only critical notices (a missing proxy, say);
 feed errors stay on the phone.
 

@@ -19,10 +19,11 @@ const WIDTH = 6;
 
 /**
  * @param {import('cesium').Scene} scene
+ * @param {{ width?: number }} [opts]  line width in pixels (the car's is wider)
  * @returns {{ build: (routes: object[]) => void, paint: (colorOf: (routeIndex: number,
  *   piece: object) => import('cesium').Color) => void, clear: () => void, destroy: () => void }}
  */
-export function createRouteLines(scene) {
+export function createRouteLines(scene, { width = WIDTH } = {}) {
   let supported = false;
   try {
     supported = Cesium.GroundPolylinePrimitive?.isSupported?.(scene) === true;
@@ -108,7 +109,7 @@ export function createRouteLines(scene) {
             positions: Cesium.Cartesian3.fromDegreesArrayHeights(
               e.piece.path.flatMap(([lon, lat]) => [lon, lat, 15]),
             ),
-            width: WIDTH - 1,
+            width: width - 1,
             material: Cesium.Material.fromType('Color', {
               color: Cesium.Color.TRANSPARENT,
             }),
@@ -124,7 +125,7 @@ export function createRouteLines(scene) {
           id: e.id,
           geometry: new Cesium.GroundPolylineGeometry({
             positions: Cesium.Cartesian3.fromDegreesArray(e.piece.path.flat()),
-            width: WIDTH,
+            width,
           }),
           attributes: {
             color: Cesium.ColorGeometryInstanceAttribute.fromColor(

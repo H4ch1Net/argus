@@ -226,15 +226,18 @@ const ROLE_NAMES = { home: 'Home', work: 'Work' };
 
 /**
  * A saved place (core/places/saved.js) as a search Place: HOME and WORK by
- * their role ("Home", with the place's own name as the detail), the others by
- * name. `savedId` is the saved record's id.
+ * their role ("Home", with the place's own name as the detail unless that
+ * only repeats the role), the others by name. `savedId` is the saved record's
+ * id.
  */
 export function savedPlace(p) {
   const role = ROLE_NAMES[p.kind] ? p.kind : null;
+  const own = String(p.name ?? '');
+  const repeats = role && own.trim().toLowerCase() === role;
   return {
     id: `saved:${p.id}`,
     name: role ? ROLE_NAMES[role] : p.name,
-    detail: role ? p.name : (p.note ?? ''),
+    detail: role && !repeats ? own : (p.note ?? ''),
     lat: p.lat,
     lon: p.lon,
     kind: role ?? 'saved',
