@@ -304,7 +304,13 @@ object NodeRuntime {
     private fun awaitHealth(app: Context, paths: ArgusPaths) {
         val deadline = SystemClock.elapsedRealtime() + READY_TIMEOUT_MS
         while (!nodeExited && SystemClock.elapsedRealtime() < deadline) {
-            val port = paths.portFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
+            // Node writes this file while it starts: a read can race it (and
+            // an exception on this thread would end the process).
+            val port = try {
+                paths.portFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
+            } catch (_: IOException) {
+                null
+            }
             if (port != null && healthy(port)) {
                 Prefs(app).port = port
                 publish(State.Ready(port))

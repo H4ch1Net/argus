@@ -269,6 +269,8 @@
   gap: 3px;
   padding: 6px 10px 7px;
   border-top: 1px solid var(--date-border);
+  /* Opaque: the tracking frame's corner label sits under it. */
+  background: var(--background);
 }
 .car-veh__more[hidden],
 .car-veh__name[hidden] {

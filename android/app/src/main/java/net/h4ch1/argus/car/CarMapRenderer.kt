@@ -516,18 +516,33 @@ class CarMapRenderer(
         return true
     }
 
+    // The session is over: the display may be gone already, so each step
+    // stands on its own.
     private fun release() {
         pageReady = false
         loadedPort = 0
         webView?.let {
-            it.stopLoading()
-            (it.parent as? ViewGroup)?.removeView(it)
-            it.destroy()
+            try {
+                it.stopLoading()
+                (it.parent as? ViewGroup)?.removeView(it)
+                it.destroy()
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "car WebView release", e)
+            }
         }
         webView = null
-        presentation?.dismiss()
+        try {
+            presentation?.dismiss()
+        } catch (e: RuntimeException) {
+            // "not attached to window manager": the display went first.
+            Log.w(TAG, "car presentation release", e)
+        }
         presentation = null
-        virtualDisplay?.release()
+        try {
+            virtualDisplay?.release()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "car display release", e)
+        }
         virtualDisplay = null
     }
 
