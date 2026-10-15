@@ -67,10 +67,19 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("carLayers", null)?.toSet() ?: CAR_DEFAULT_LAYERS
         set(v) = sp.edit().putStringSet("carLayers", v.toSet()).apply()
 
-    /** The car map's view: "3d" (tilted, heading up), "2d" (flat, heading up) or "north". */
+    /**
+     * The car map's camera: "auto" (tilted, heading up, zoom by speed and the
+     * next turn) or "north" (flat, north up). Earlier builds saved "3d" and
+     * "2d", which read as "auto".
+     */
     var carView: String
         get() = sp.getString("carView", null)?.takeIf { it in CAR_VIEWS } ?: CAR_VIEWS.first()
         set(v) = sp.edit().putString("carView", v).apply()
+
+    /** The car map's speed readout (SPEED in the car's LAYERS list), on by default. */
+    var carSpeedo: Boolean
+        get() = sp.getBoolean("carSpeedo", true)
+        set(v) = sp.edit().putBoolean("carSpeedo", v).apply()
 
     /** The car's recent destinations, newest first: a JSON array of places (car/CarNav.kt). */
     var carRecents: String
@@ -118,8 +127,8 @@ class Prefs(context: Context) {
         /** The DRIVE preset: what matters on the road (shell-car, CarLayers). */
         val CAR_DEFAULT_LAYERS = setOf("incidents", "chp", "trafficcams", "surveillance")
 
-        /** The car's views, in the VIEW button's order (shell-car/model.js VIEW_ORDER). */
-        val CAR_VIEWS = listOf("3d", "2d", "north")
+        /** The car's camera modes, in the AUTO / NORTH button's order (shell-car/model.js VIEW_ORDER). */
+        val CAR_VIEWS = listOf("auto", "north")
     }
 }
 

@@ -64,9 +64,14 @@ class CarLocationService : Service() {
         super.onDestroy()
     }
 
+    // Each outcome goes to CarGpsLog (Settings, CAR GPS), so a drive leaves a
+    // record of whether Android let the service hold location.
     private fun promote(): Boolean {
         if (foreground) return true
-        if (!hasLocation(this)) return false
+        if (!hasLocation(this)) {
+            CarGpsLog.foreground("NO LOCATION PERMISSION")
+            return false
+        }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         } else {
@@ -75,12 +80,16 @@ class CarLocationService : Service() {
         return try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(this), type)
             foreground = true
+            CarGpsLog.foreground("ON")
+            CarGpsLog.save(this)
             true
         } catch (e: RuntimeException) {
             // ForegroundServiceStartNotAllowedException (Android 12+, no
             // exemption at the time), SecurityException (the location
             // permission or the foreground type refused), and the like.
             Log.w(TAG, "car location service could not go to the foreground", e)
+            CarGpsLog.foreground("REFUSED: ${e.javaClass.simpleName}")
+            CarGpsLog.save(this)
             false
         }
     }

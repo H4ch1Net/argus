@@ -10,10 +10,7 @@ import android.graphics.drawable.ColorDrawable
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.net.Uri
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -76,7 +73,7 @@ class CarMapRenderer(
     lifecycle: Lifecycle,
 ) : SurfaceCallback, DefaultLifecycleObserver {
     private val main = Handler(Looper.getMainLooper())
-    private val location = CarLocationFeed(carContext) { onFix(it) }
+    private val location = CarLocationFeed(carContext) { fix, _ -> onFix(fix) }
     private val stats = CarStatsFeed(carContext) { pushCarInfo(it) }
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
@@ -85,9 +82,12 @@ class CarMapRenderer(
     private var surfaceHeight = 0
     private var density = 1f
     private var visibleArea: Rect? = null
+    private var stableArea: Rect? = null
     private var loadedPort = 0
     private var pageReady = false
-    private var lastFix: String? = null
+    private var lastFix: Location? = null
+    private var lastFixAge = 0L // ms old when it arrived
+    private var lastFixAt = 0L // when it arrived (elapsedRealtime)
     private var unobserve: (() -> Unit)? = null
     private var paused = false
     private var started = true
@@ -160,7 +160,19 @@ class CarMapRenderer(
 
     // ------------------------------------------------------------ controls
 
-    fun recenter() = js("recenter()")
+    fun recenter() {
+        onDriverAction()
+        js("recenter()")
+    }
+
+    /**
+     * The driver pressed something on the car screen: ask once more for the
+     * location service to go to the foreground (Android may allow it just
+     * after an interaction where it refused at the start).
+     */
+    fun onDriverAction() {
+        locationHold?.promote()
+    }
 
     fun zoom(step: Float) = js("zoom(${factor(step)})")
 
@@ -174,6 +186,8 @@ class CarMapRenderer(
     fun pushView() = js("setView(${JSONObject.quote(Prefs(carContext).carView)})")
 
     fun pushVehicleInfo() = js("setVehicleInfo(${Prefs(carContext).carVehicleInfo})")
+
+    fun pushSpeedo() = js("setSpeedo(${Prefs(carContext).carSpeedo})")
 
     fun onLocationPermission() {
         if (virtualDisplay == null) return
@@ -265,8 +279,12 @@ class CarMapRenderer(
         pushInsets()
     }
 
+    // The stable area is what no template UI will ever cover (the buttons
+    // come and go, the routing card stays): the vehicle is centred in it, so
+    // it does not jump when Android Auto shows or hides its buttons.
     override fun onStableAreaChanged(stableArea: Rect) {
-        if (visibleArea == null) onVisibleAreaChanged(stableArea)
+        this.stableArea = Rect(stableArea)
+        pushInsets()
     }
 
     // Gestures, in surface pixels from the host; the page takes CSS pixels.
@@ -480,13 +498,15 @@ class CarMapRenderer(
         pushInsets()
         pushView()
         pushVehicleInfo()
-        lastFix?.let { js(it) }
+        pushSpeedo()
+        // The last fix again, with its real age: a replay is not a live fix.
+        lastFix?.let { js(fixCall(it, lastFixAge + (SystemClock.elapsedRealtime() - lastFixAt))) }
         lastCarInfo?.let { js("setCarInfo(${JSONObject.quote(it)})") }
     }
 
     /** The area the host leaves uncovered (action strips, cards), as CSS-pixel insets. */
     private fun pushInsets() {
-        val area = visibleArea ?: return
+        val area = stableArea?.takeIf { !it.isEmpty } ?: visibleArea ?: return
         if (surfaceWidth == 0 || surfaceHeight == 0) return
         val top = area.top / density
         val left = area.left / density
@@ -496,13 +516,26 @@ class CarMapRenderer(
     }
 
     private fun onFix(fix: Location) {
+        lastFix = fix
+        lastFixAge = ageMs(fix)
+        lastFixAt = SystemClock.elapsedRealtime()
+        lastLocation = fix
+        js(fixCall(fix, lastFixAge))
+    }
+
+    /** The page call for a fix that is `age` ms old (the page shows NO GPS past 5 s). */
+    private fun fixCall(fix: Location, age: Long): String {
         val heading = if (fix.hasBearing()) num(fix.bearing) else "null"
         val speed = if (fix.hasSpeed()) num(fix.speed) else "null"
         val accuracy = if (fix.hasAccuracy()) num(fix.accuracy) else "null"
-        val call = "setLocation(${fix.latitude},${fix.longitude},$heading,$speed,$accuracy)"
-        lastFix = call
-        lastLocation = fix
-        js(call)
+        return "setLocation(${fix.latitude},${fix.longitude},$heading,$speed,$accuracy,$age)"
+    }
+
+    /** How old a fix is, in ms; 0 when it does not say (the car's own fixes arrive live). */
+    private fun ageMs(fix: Location): Long {
+        val at = fix.elapsedRealtimeNanos
+        if (at <= 0L) return 0L
+        return ((SystemClock.elapsedRealtimeNanos() - at) / 1_000_000L).coerceAtLeast(0L)
     }
 
     private fun js(call: String): Boolean = jsAll(listOf(call))
@@ -643,73 +676,3 @@ p{margin:0;color:#7a7a7a;font-size:13px;letter-spacing:.08em}</style></head>
 internal fun hasLocation(context: Context): Boolean =
     context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
-/**
- * The phone's location for the car map, from the platform LocationManager (no
- * Google Play services): GPS once a second, the network provider until GPS
- * has a fix.
- */
-class CarLocationFeed(
-    context: Context,
-    private val onFix: (Location) -> Unit,
-) : LocationListener {
-    private val appContext = context.applicationContext
-    private val manager = appContext.getSystemService(LocationManager::class.java)
-    private var running = false
-    private var lastGpsAt = 0L
-
-    @SuppressLint("MissingPermission")
-    fun start() {
-        val lm = manager ?: return
-        if (running || !hasLocation(appContext)) return
-        running = true
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { it in lm.allProviders }
-        for (p in providers) {
-            try {
-                lm.requestLocationUpdates(p, 1000L, 0f, this, Looper.getMainLooper())
-            } catch (e: SecurityException) {
-                Log.w("ArgusCar", "location $p refused", e)
-            } catch (e: IllegalArgumentException) {
-                Log.w("ArgusCar", "location $p unavailable", e)
-            }
-        }
-        // A recent fix first, so the map does not wait for the GPS.
-        providers
-            .mapNotNull {
-                try {
-                    lm.getLastKnownLocation(it)
-                } catch (_: SecurityException) {
-                    null
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }
-            .maxByOrNull { it.time }
-            ?.let(onFix)
-    }
-
-    fun stop() {
-        if (!running) return
-        running = false
-        manager?.removeUpdates(this)
-    }
-
-    override fun onLocationChanged(location: Location) {
-        val now = SystemClock.elapsedRealtime()
-        if (location.provider == LocationManager.GPS_PROVIDER) {
-            lastGpsAt = now
-        } else if (now - lastGpsAt < 10_000) {
-            return // GPS is flowing: skip the coarser fixes
-        }
-        onFix(location)
-    }
-
-    // Abstract before API 30: implemented so older Android never hits them missing.
-    @Deprecated("Deprecated in Java")
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
-    override fun onProviderEnabled(provider: String) = Unit
-
-    override fun onProviderDisabled(provider: String) = Unit
-}

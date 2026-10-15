@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 import java.io.IOException
 import java.util.Locale
+import net.h4ch1.argus.car.CarGpsLog
 
 /**
  * Native settings, in the ctOS look: the keys file the proxy reads
@@ -120,6 +121,14 @@ class SettingsActivity : Activity() {
                 addView(ctButton(getString(R.string.action_cancel)) { finish() })
             },
         )
+
+        // The last Android Auto drive: which sources gave the car map its
+        // position, and whether the location service reached the foreground.
+        CarGpsLog.summary(this)?.let { report ->
+            column.addView(ctHeading(getString(R.string.settings_car_gps)))
+            column.addView(ctNote(getString(R.string.settings_car_gps_help)))
+            column.addView(block(report), LinearLayout.LayoutParams(MATCH, WRAP))
+        }
 
         column.addView(ctHeading(getString(R.string.settings_log)))
         column.addView(

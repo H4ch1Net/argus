@@ -1,7 +1,7 @@
-/* Car shell (Android Auto), ctOS: the globe edge to edge, a status strip top
-   left, the nearest contacts bottom left, both in large type for a glance at
-   arm's length. Everything stays inside the area the car's own controls leave
-   free (--car-* insets, set by the app). */
+/* Car shell (Android Auto), ctOS: the globe edge to edge, a small speed
+   readout and the nearest contacts bottom left, for a glance at arm's length.
+   Everything stays inside the area the car's own controls leave free (--car-*
+   insets, set by the app). */
 
 .argus-shell-car {
   --car-top: 0px;
@@ -59,7 +59,8 @@
 }
 
 /* ------------------------------------------------------------ status */
-/* Top left: the page's own maneuver banner (browser only), then the strip. */
+/* Top left: the page's own maneuver banner (browser only) and the VEHICLE
+   strip while parked. */
 .car-topleft {
   position: absolute;
   top: calc(var(--car-top) + 8px);
@@ -69,51 +70,53 @@
   align-items: flex-start;
   gap: 8px;
 }
-.car-status {
+/* The speed: one small square bottom left of the free area. */
+.car-speedo {
+  position: absolute;
+  left: calc(var(--car-left) + 8px);
+  bottom: calc(var(--car-bottom) + 8px);
+  width: 58px;
+  height: 50px;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   background: var(--panel-translucent);
   border: 1px solid var(--date-border);
   box-shadow: var(--window-shadow);
 }
-.car-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 10px 5px;
-  border-left: 1px solid var(--date-border);
+.car-speedo[hidden] {
+  display: none;
 }
-.car-cell:first-child {
-  border-left: 0;
-}
-.car-cell__label {
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--textSecondary);
-}
-.car-cell__value {
-  font-size: 20px;
-  line-height: 1.1;
+.car-speedo__value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
   color: var(--textPrimary);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
-/* Speed leads, read in a glance. */
-.car-cell--lead .car-cell__value {
-  font-size: 30px;
-  font-weight: 600;
-}
-/* Without a fresh fix, speed and heading dim (the last ones are history). */
-.car-status.is-stale .car-cell:nth-child(-n + 2) .car-cell__value {
+.car-speedo__unit {
+  font-size: 9px;
+  letter-spacing: 0.12em;
   color: var(--textSecondary);
+}
+/* No position for five seconds: NO GPS in red, the number dimmed. */
+.car-speedo.is-stale .car-speedo__value {
+  color: var(--textSecondary);
+}
+.car-speedo.is-stale .car-speedo__unit {
+  color: var(--error);
+  letter-spacing: 0.06em;
 }
 
 /* --------------------------------------------------- nearest contacts */
 .car-readout {
   position: absolute;
-  left: calc(var(--car-left) + 8px);
-  bottom: calc(var(--car-bottom) + 14px);
-  min-width: min(260px, calc(100% - var(--car-left) - var(--car-right) - 16px));
-  max-width: min(420px, calc(100% - var(--car-left) - var(--car-right) - 16px));
+  left: calc(var(--car-left) + 74px);
+  bottom: calc(var(--car-bottom) + 8px);
+  min-width: min(260px, calc(100% - var(--car-left) - var(--car-right) - 82px));
+  max-width: min(420px, calc(100% - var(--car-left) - var(--car-right) - 82px));
   background: var(--panel-translucent);
   border: 1px solid var(--date-border);
   box-shadow: var(--window-shadow);
@@ -121,10 +124,14 @@
 .car-readout[hidden] {
   display: none;
 }
+/* Speed readout off (SPEED in the car's LAYERS list): the list takes its place. */
+.car-speedo[hidden] ~ .car-readout {
+  left: calc(var(--car-left) + 8px);
+}
 /* On a route: narrower, clear of the vehicle at the centre of the free area. */
 .car-readout.is-route {
   min-width: 0;
-  max-width: min(340px, calc(100% - var(--car-left) - var(--car-right) - 16px));
+  max-width: min(340px, calc(100% - var(--car-left) - var(--car-right) - 82px));
 }
 .car-row {
   display: grid;

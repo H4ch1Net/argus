@@ -14,6 +14,9 @@ import {
   followAltitude,
   followFrameMs,
   followPose,
+  aimFor,
+  shortPlaceName,
+  viewModeOf,
   formatDistance,
   formatHeading,
   formatSpeed,
@@ -59,62 +62,123 @@ test('the follow view rises from 1.8 km to 6.5 km with speed', () => {
   assert.ok(mid > 3800 && mid < 4400, String(mid));
 });
 
-test('followPose looks ahead of the vehicle along its heading', () => {
+test('followPose follows the vehicle itself; the driver scales the zoom', () => {
   const pose = followPose({ lat: 51.5, lon: -0.12, heading: 90, speed: 0 });
   assert.equal(pose.pitch, -45);
   assert.equal(pose.heading, 90);
   // Eye 1.8 km up at 45 degrees: range is 1800 / sin 45.
   near(pose.range, 1800 * Math.SQRT2, 1e-6);
-  // The look point is 450 m east of the vehicle.
-  near(distanceM(51.5, -0.12, pose.lat, pose.lon), 450, 0.5);
-  near(bearingDeg(51.5, -0.12, pose.lat, pose.lon), 90, 0.05);
-  // The driver's zoom scales it.
+  // No look-ahead: the pose is on the vehicle (aimFor centres it on screen).
+  assert.equal(pose.lat, 51.5);
+  assert.equal(pose.lon, -0.12);
   near(followPose({ lat: 0, lon: 0 }, { scale: 2 }).range, 3600 * Math.SQRT2, 1e-6);
-  // Navigating, it looks at the route that far ahead (here: round a bend north).
-  const asked = [];
-  const bend = followPose(
-    { lat: 51.5, lon: -0.12, heading: 90, speed: 0 },
-    { ahead: (m) => (asked.push(m), destination(51.5, -0.12, 0, m)) },
-  );
-  assert.deepEqual(asked, [450]);
-  near(angleDelta(0, bearingDeg(51.5, -0.12, bend.lat, bend.lon)), 0, 0.05);
-  assert.equal(bend.heading, 90);
   // A 60 degree view 2 km out spans 2309 m: 1.5 m a pixel on a 1536 px canvas.
   near(
     metresPerPixel(2000, Math.PI / 3, 1536, 576),
     (2 * 2000 * Math.tan(Math.PI / 6)) / 1536,
     1e-9,
   );
-  // Portrait: the fov is the vertical one, so the horizontal span is narrower.
-  assert.ok(
-    metresPerPixel(2000, Math.PI / 3, 576, 1536) <
-      (2 * 2000 * Math.tan(Math.PI / 6)) / 576,
-  );
   near(
     metresPerPixel(2000, undefined, 1536, 576),
     metresPerPixel(2000, Math.PI / 3, 1536, 576),
     1e-12,
   );
-  // No route point (past the end, say): straight ahead as before.
-  const none = followPose({ lat: 51.5, lon: -0.12, heading: 90 }, { ahead: () => null });
-  near(bearingDeg(51.5, -0.12, none.lat, none.lon), 90, 0.05);
 });
 
-test('the flat views look straight down; north up ignores the course', () => {
+test('AUTO is heading up and tilted, NORTH flat and north up; old saved views mean AUTO', () => {
   const fix = { lat: 51.5, lon: -0.12, heading: 90, speed: 0 };
-  const flat = followPose(fix, { mode: '2d' });
-  assert.equal(flat.pitch, -90);
-  assert.equal(flat.heading, 90);
-  near(flat.range, 1800, 1e-6);
   const north = followPose(fix, { mode: 'north' });
   assert.equal(north.pitch, -90);
   assert.equal(north.heading, 0);
-  // An unknown mode is the 3D view.
-  assert.equal(followPose(fix, { mode: 'nope' }).pitch, -45);
-  assert.equal(nextViewMode('3d'), '2d');
-  assert.equal(nextViewMode('2d'), 'north');
-  assert.equal(nextViewMode('north'), '3d');
-  assert.equal(VIEW_MODES[nextViewMode('nope')].label, '3D');
+  near(north.range, 1800, 1e-6);
+  for (const mode of ['auto', '3d', '2d', 'nope', undefined]) {
+    const p = followPose(fix, { mode });
+    assert.equal(p.pitch, -45);
+    assert.equal(p.heading, 90);
+  }
+  assert.equal(nextViewMode('auto'), 'north');
+  assert.equal(nextViewMode('north'), 'auto');
+  assert.equal(nextViewMode('3d'), 'north');
+  assert.equal(viewModeOf('2d'), 'auto');
+  assert.equal(VIEW_MODES[nextViewMode('nope')].label, 'NORTH');
+});
+
+// The camera model Cesium's lookAt uses (heading, pitch, range from the aim
+// point), projecting a ground point to the screen: the check for aimFor.
+function project(aim, at, { heading, pitch, range, fov, width, height }) {
+  const r = Math.PI / 180;
+  const east = distanceM(aim.lat, aim.lon, aim.lat, at.lon) * Math.sign(at.lon - aim.lon);
+  const north =
+    distanceM(aim.lat, aim.lon, at.lat, aim.lon) * Math.sign(at.lat - aim.lat);
+  const h = heading * r;
+  const p = pitch * r;
+  const fwd = [Math.sin(h) * Math.cos(p), Math.cos(h) * Math.cos(p), Math.sin(p)];
+  const right = [Math.cos(h), -Math.sin(h), 0];
+  const up = [
+    right[1] * fwd[2] - right[2] * fwd[1],
+    right[2] * fwd[0] - right[0] * fwd[2],
+    right[0] * fwd[1] - right[1] * fwd[0],
+  ];
+  const v = [east + fwd[0] * range, north + fwd[1] * range, fwd[2] * range];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const z = dot(v, fwd);
+  const aspect = width / height;
+  const half = Math.tan(fov / 2);
+  const tanX = aspect >= 1 ? half : half * aspect;
+  const tanY = aspect >= 1 ? half / aspect : half;
+  const nx = dot(v, right) / z / tanX;
+  const ny = dot(v, up) / z / tanY;
+  return { x: ((nx + 1) * width) / 2, y: ((1 - ny) * height) / 2 };
+}
+
+test('aimFor puts the vehicle exactly where asked on screen (beside the routing card)', () => {
+  const at = { lat: 33.7149, lon: -116.2103 };
+  const view = { width: 793, height: 384, fov: Math.PI / 3 };
+  // The free area right of a 280 px routing card: its middle.
+  const x = 280 + (793 - 280) / 2;
+  const y = 384 / 2;
+  for (const [heading, pitch, range] of [
+    [0, -45, 2546],
+    [118, -45, 4000],
+    [271, -45, 9192],
+    [0, -90, 1800],
+    [200, -90, 6500],
+  ]) {
+    const cam = { ...view, heading, pitch, range };
+    const aim = aimFor(at, { ...cam, x, y });
+    const s = project(aim, at, cam);
+    near(s.x, x, 0.6);
+    near(s.y, y, 0.6);
+  }
+  // The middle of the screen is the vehicle itself.
+  const mid = aimFor(at, {
+    ...view,
+    heading: 30,
+    pitch: -45,
+    range: 3000,
+    x: 396.5,
+    y: 192,
+  });
+  near(distanceM(at.lat, at.lon, mid.lat, mid.lon), 0, 0.01);
+  // Above the horizon there is nowhere to aim.
+  assert.equal(
+    aimFor(at, { ...view, heading: 0, pitch: -5, range: 3000, x: 396, y: 0 }),
+    null,
+  );
+});
+
+test('shortPlaceName keeps whole parts and never ends on a comma', () => {
+  assert.equal(
+    shortPlaceName('46211 JACKSON STREET, INDIO, CA, UNITED STATES'),
+    '46211 JACKSON STREET, INDIO',
+  );
+  assert.equal(shortPlaceName('FANTASY SPRINGS CASINO'), 'FANTASY SPRINGS CASINO');
+  assert.equal(
+    shortPlaceName('THE VERY LONG NAME OF A PLACE WITHOUT COMMAS AT ALL'),
+    'THE VERY LONG NAME OF A\u2026',
+  );
+  assert.equal(shortPlaceName('  a   b  '), 'a b');
+  assert.equal(shortPlaceName(null), '');
 });
 
 test('carResolutionScale holds a car display to its pixel budget', () => {

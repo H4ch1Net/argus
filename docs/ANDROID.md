@@ -68,7 +68,13 @@ While the car map runs, a quiet notification shows, **ARGUS : CAR MAP, using
 location for the Android Auto map**. On the car display Android does not count
 an app as in front, so without it a locked phone stops handing out positions
 and the arrow stands still while you drive. It goes away when Argus leaves
-the car screen for good. Play may ask for a foreground service declaration for
+the car screen for good. The car map also takes the **car's own GPS** through
+Android Auto (it reaches Argus over the car connection, whatever the phone
+thinks of the app), then Android's fused location, the phone's GPS and the
+network, best first. **Settings and keys**, **CAR GPS** shows the last drive:
+whether the notification's service started, and how many positions each
+source sent and how many were used; it is the first thing to look at if the
+arrow ever stands still. Play may ask for a foreground service declaration for
 this (Play Console, **App content**, **Foreground service permissions**:
 `FOREGROUND_SERVICE_LOCATION`, use **Navigation**: it shows the driver's
 position on the Android Auto map while driving).
@@ -149,9 +155,9 @@ permissions, asked once).
   starts the route.
 - **On the route:** Android Auto's routing card shows the next maneuver
   (ctOS arrows), its distance and road, the one after, and the remaining
-  distance, time and arrival. The map follows closer in, looks ahead along
-  the route (round the next bend), and zooms in on the approach to a turn;
-  the route ahead is white, what you have driven grey. Off the route it plans
+  distance, time and arrival. The map follows closer in, keeps you in the
+  middle beside the card, and zooms in on the approach to a turn; the route
+  ahead is white, what you have driven grey. Off the route it plans
   again on its own. **End** stops; on arrival it ends by itself after a
   while. The car's cluster display, where it has one, gets the same steps.
 - Routes come from the same navigator as the globe on the phone, through the
@@ -161,7 +167,7 @@ permissions, asked once).
 ### Vehicle
 
 When the car stands still for three seconds (and is not on a route), a small
-**VEHICLE** strip shows under the speed at top left: fuel (or an electric
+**VEHICLE** strip shows at top left: fuel (or an electric
 car's battery) with a thin meter, and the range; **LOW** in red when the car
 says fuel is low. Tap it for a few seconds of the rest: make, model and year,
 a hybrid's battery, odometer, and the average consumption since your last
@@ -173,15 +179,18 @@ reads `--`. The average needs your tank size: long-press the Argus icon,
 
 ### In the car
 
-- **The view:** follows you, about 1.8 km above you when stopped, widening to
-  about 6.5 km at motorway speed. Your position is the white chevron. **VIEW**
-  (top right) cycles three views: **3D** (tilted 45 degrees, heading up), **2D**
-  (straight down, heading up) and **North** (straight down, north up). The flat
-  views are the lightest to draw. The choice is remembered.
-- **Map buttons** (right side): pan, re-centre, zoom in, zoom out. Zooming
-  while following changes the follow distance; dragging or panning switches to
-  free look (MODE FREE), and the map follows you again by itself after ten
-  seconds without a touch once you are driving; re-centre flies back at once.
+- **The view:** follows you with your position (the white chevron) in the
+  middle of the part of the screen Android Auto leaves free, beside the turn
+  card while navigating; it does not jump when the buttons show or hide. The
+  camera button (top right) switches between **AUTO** (tilted, heading up) and
+  **NORTH** (flat, north up). Both zoom by themselves: about 1.8 km up when
+  stopped, widening to about 6.5 km at motorway speed, and closer before a
+  turn. The choice is remembered.
+- **Map buttons** (right side): pan, **RECENTER** (the crosshair), zoom in,
+  zoom out. Zooming while following changes the follow distance until
+  RECENTER; dragging switches to free look, and the map follows you again by
+  itself after ten seconds without a touch once you are driving; RECENTER
+  flies back at once and puts you in the middle again.
 - **LAYERS** (top right, beside WHERE TO and VIEW): the same layers as the
   phone. The car shows the road-safe ones you left on in the phone app, and a
   switch here changes them for the phone too (it opens with them next time).
@@ -189,8 +198,9 @@ reads `--`. The average needs your tank size: long-press the Argus icon,
   can show (traffic incidents appear once the phone's proxy has a TomTom key).
   The header has two presets, **DRIVE** (traffic incidents, CHP incidents,
   traffic cameras, surveillance and ALPR locations) and the aircraft glyph for
-  **Sky** (aircraft overhead); **VEHICLE INFO** is the last row. Before the
-  phone app has ever run, the car starts with Drive.
+  **Sky** (aircraft overhead); **SPEED** (the speed square) and **VEHICLE
+  INFO** are the last rows. Before the phone app has ever run, the car starts
+  with Drive.
 - **Android Auto draws** every button, list and card itself, in its own font
   and shapes (Google's rule for every car app). Argus sets everything it is
   allowed to, in ctOS: the glyphs (white), all text in capitals, the routing
@@ -203,13 +213,15 @@ reads `--`. The average needs your tank size: long-press the Argus icon,
   would never be in view. Their flight level stays on their labels.
 - **Touch screens:** drag to pan, pinch or double-tap to zoom, tap a contact to
   select it (its row turns green, marked 00).
-- **Readouts:** top left, speed (large; km/h, or mph where the phone's region
-  uses it), heading and mode. Bottom left, the selected contact and the
-  nearest ones, **what is ahead first** (within 60 degrees of your course,
-  marked with a white edge), each with range and an arrow showing where it
-  lies on the map.
+- **Readouts:** bottom left of the free area, a small speed square (the car's
+  own speedometer when Android Auto gives it, else the GPS; km/h, or mph
+  where the phone's region uses it). It says **NO GPS** in red when no
+  position has come for five seconds, rather than showing an old number.
+  Beside it, the selected contact and the nearest ones, **what is ahead
+  first** (within 60 degrees of your course, marked with a white edge), each
+  with range and an arrow showing where it lies on the map.
 
-Driver-distraction rules shape the car screen: the map, the status strip and
+Driver-distraction rules shape the car screen: the map, the speed square and
 the nearest-contacts readout (two small rows, one on a route, none while
 you compare routes), plus Android Auto's own search, route and routing-card screens. No
 video, no camera stills, and only critical notices (a missing proxy, say);
@@ -290,20 +302,20 @@ page's own maneuver banner instead of Android Auto's card).
 
 ## Troubleshooting
 
-| Symptom                                                   | Fix                                                                                                                                                       |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Boot screen shows `ARGUS_BOOT : FAILED`                   | The reason and the proxy log are on that screen. **RESTART**; if it repeats, **SETTINGS** shows the full log (also `adb logcat -s ARGUS-NODE ArgusNode`). |
-| "App not installed" when updating                         | The APK's signature changed (debug key): uninstall Argus, then install. Copy your keys out of Settings first.                                             |
-| Argus missing in the car                                  | Android Auto only lists navigation apps installed from Google Play: install it through internal testing ([Android Auto](#android-auto)), then reconnect.  |
-| Car shows `ARGUS_BOOT : OPEN ARGUS ON THE PHONE`          | The proxy did not start: open Argus on the phone to see why.                                                                                              |
-| Car map stays black or blank                              | Update **Android System WebView** (and Chrome) from the Play Store; reconnect. `adb logcat -s ArgusCar` shows the car page's messages.                    |
-| No position (NO FIX)                                      | Location permission for Argus, and the phone's location on. In the car the phone's GPS is used.                                                           |
-| The car arrow stands still while driving                  | The **ARGUS : CAR MAP** notification should show while the car map runs; battery saver can still hold location back. `adb logcat -s ArgusCar`.            |
-| Argus crashes                                             | The next start says **LAST CRASH** on the boot screen; **Settings**, **LAST CRASH**, **COPY** has the trace. Native crashes: `adb logcat -b crash -d`.    |
-| Globe says NO PROXY REACHABLE                             | A proxy address set in SETUP (for a proxy on another machine) overrides the phone's own: clear it there.                                                  |
-| A key does not take effect                                | Long-press the icon, **Restart proxy** (OpenSky and AISStream load at start).                                                                             |
-| Scene export does nothing                                 | Downloads from the page are not supported inside the app; import works (system file picker). Use share links, or the browser version, to export.          |
-| White globe, "WebGL unavailable" or hardware acceleration | Update Android System WebView; the app needs the GPU (OpenGL ES 3).                                                                                       |
+| Symptom                                                   | Fix                                                                                                                                                               |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot screen shows `ARGUS_BOOT : FAILED`                   | The reason and the proxy log are on that screen. **RESTART**; if it repeats, **SETTINGS** shows the full log (also `adb logcat -s ARGUS-NODE ArgusNode`).         |
+| "App not installed" when updating                         | The APK's signature changed (debug key): uninstall Argus, then install. Copy your keys out of Settings first.                                                     |
+| Argus missing in the car                                  | Android Auto only lists navigation apps installed from Google Play: install it through internal testing ([Android Auto](#android-auto)), then reconnect.          |
+| Car shows `ARGUS_BOOT : OPEN ARGUS ON THE PHONE`          | The proxy did not start: open Argus on the phone to see why.                                                                                                      |
+| Car map stays black or blank                              | Update **Android System WebView** (and Chrome) from the Play Store; reconnect. `adb logcat -s ArgusCar` shows the car page's messages.                            |
+| No position (NO FIX)                                      | Location permission for Argus, and the phone's location on. In the car the phone's GPS is used.                                                                   |
+| The car arrow stands still while driving                  | **Settings and keys**, **CAR GPS**: which sources sent positions and whether the service started. Battery saver can hold location back. `adb logcat -s ArgusCar`. |
+| Argus crashes                                             | The next start says **LAST CRASH** on the boot screen; **Settings**, **LAST CRASH**, **COPY** has the trace. Native crashes: `adb logcat -b crash -d`.            |
+| Globe says NO PROXY REACHABLE                             | A proxy address set in SETUP (for a proxy on another machine) overrides the phone's own: clear it there.                                                          |
+| A key does not take effect                                | Long-press the icon, **Restart proxy** (OpenSky and AISStream load at start).                                                                                     |
+| Scene export does nothing                                 | Downloads from the page are not supported inside the app; import works (system file picker). Use share links, or the browser version, to export.                  |
+| White globe, "WebGL unavailable" or hardware acceleration | Update Android System WebView; the app needs the GPU (OpenGL ES 3).                                                                                               |
 
 ## Building it yourself
 

@@ -26,6 +26,8 @@
     <string name="settings_log_empty">(EMPTY)</string>
     <string name="settings_save_failed">Could not save the keys: %1$s</string>
     <string name="settings_crash">LAST CRASH</string>
+    <string name="settings_car_gps">CAR GPS</string>
+    <string name="settings_car_gps_help">The last Android Auto drive: where the position came from.</string>
     <string name="settings_copied">COPIED</string>
 
     <string name="shortcut_settings">Settings and keys</string>
@@ -34,9 +36,9 @@
 
     <!-- Android Auto: short caps titles (Android Auto draws them in its own font). -->
     <string name="car_layers">LAYERS</string>
-    <string name="car_view_3d">3D</string>
-    <string name="car_view_2d">2D</string>
+    <string name="car_view_auto">AUTO</string>
     <string name="car_view_north">NORTH</string>
+    <string name="car_speedo">SPEED</string>
     <string name="car_preset_drive">DRIVE</string>
     <string name="car_preset_sky">SKY</string>
     <string name="car_vehicle_info">VEHICLE INFO</string>
