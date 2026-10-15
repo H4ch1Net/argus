@@ -57,9 +57,10 @@ export function destination(lat, lon, bearing, distance) {
 }
 
 // The follow view: tilted 45 degrees, 1.8 km up at a standstill rising to
-// 6.5 km at motorway speed, so the look-ahead grows with speed. Close enough
-// that streets and the cameras on them read at a glance; the driver's zoom
-// (the car's +/- buttons) scales it.
+// 6.5 km at motorway speed (the automatic zoom), the vehicle in the middle of
+// the free part of the screen. Close enough that streets and the cameras on
+// them read at a glance; the driver's zoom (the car's +/- buttons) scales it
+// until RECENTER.
 export const FOLLOW_PITCH_DEG = -45;
 const ALT_MIN_M = 1800;
 const ALT_MAX_M = 6500;
@@ -74,35 +75,72 @@ export function followAltitude(speed) {
 }
 
 /**
- * Where the follow camera looks: a point ahead of the vehicle (so the vehicle
- * sits in the lower part of the view, as in a navigation app), with the range
- * that puts the eye at followAltitude() above it. `scale` is the driver's zoom.
- * While navigating, `ahead(metres)` gives the point that far along the route,
- * so the view looks round the next bend instead of straight on.
+ * The follow camera for a vehicle: its heading (north in the north-up view),
+ * pitch and the range that puts the eye at followAltitude() above it. `scale`
+ * is the driver's zoom. The camera is aimed so the vehicle itself shows in
+ * the middle of the free screen (aimFor); nothing looks ahead of it.
  */
 export function followPose(
   { lat, lon, heading = 0, speed = 0 },
-  { scale = 1, mode = '3d', ahead = null } = {},
+  { scale = 1, mode = 'auto' } = {},
 ) {
-  const view = VIEW_MODES[mode] ?? VIEW_MODES['3d'];
+  const view = VIEW_MODES[viewModeOf(mode)];
   const alt = followAltitude(speed) * clamp(scale, 0.05, 20);
-  const range = alt / Math.sin(rad(-view.pitch));
-  // Look ahead of the vehicle along its course, so it sits low in the view.
-  const look = ahead?.(alt * 0.25) ?? destination(lat, lon, heading, alt * 0.25);
   return {
-    lat: look.lat,
-    lon: look.lon,
-    heading: view.headingUp ? wrap360(heading) : 0,
+    lat,
+    lon,
+    heading: view.headingUp ? wrap360(heading ?? 0) : 0,
     pitch: view.pitch,
-    range,
+    range: alt / Math.sin(rad(-view.pitch)),
   };
+}
+
+/**
+ * Where to aim the camera (Cesium lookAt: heading, pitch, range from the aim
+ * point) so the ground point `at` shows at screen point (x, y) of a width x
+ * height view with Cesium's `fov` (radians, the wider axis): the ray through
+ * (x, y) is cast onto the ground round the aim point, and the aim point is
+ * that far the other way from `at`. Flat ground: exact to a pixel at the few
+ * kilometres the car looks from. Null when (x, y) is above the horizon.
+ */
+export function aimFor(
+  at,
+  { heading = 0, pitch = FOLLOW_PITCH_DEG, range, fov, width, height, x, y },
+) {
+  const W = Math.max(1, width);
+  const H = Math.max(1, height);
+  const aspect = W / H;
+  const half = Math.tan((Number.isFinite(fov) && fov > 0 ? fov : Math.PI / 3) / 2);
+  const tanX = aspect >= 1 ? half : half * aspect;
+  const tanY = aspect >= 1 ? half / aspect : half;
+  const h = rad(heading);
+  const p = rad(pitch);
+  // East, north, up: the camera's forward, right and up axes.
+  const fwd = [Math.sin(h) * Math.cos(p), Math.cos(h) * Math.cos(p), Math.sin(p)];
+  const right = [Math.cos(h), -Math.sin(h), 0];
+  const up = [
+    right[1] * fwd[2] - right[2] * fwd[1],
+    right[2] * fwd[0] - right[0] * fwd[2],
+    right[0] * fwd[1] - right[1] * fwd[0],
+  ];
+  const nx = (2 * x) / W - 1;
+  const ny = 1 - (2 * y) / H;
+  const dir = fwd.map((f, i) => f + right[i] * nx * tanX + up[i] * ny * tanY);
+  if (!(dir[2] < -1e-9)) return null;
+  // The eye sits `range` back along the forward axis from the aim point.
+  const eye = fwd.map((f) => -f * range);
+  const t = -eye[2] / dir[2];
+  const east = eye[0] + t * dir[0];
+  const north = eye[1] + t * dir[1];
+  const off = Math.hypot(east, north);
+  if (off < 0.01) return { lat: at.lat, lon: at.lon };
+  return destination(at.lat, at.lon, deg(Math.atan2(east, north)) + 180, off);
 }
 
 /**
  * Ground metres per screen pixel across the view at `range` from the camera,
  * for Cesium's `fov` (the wider of the two axes; radians) on a width x height
- * canvas. Used to slide the follow view's centre into the part of the screen
- * the host's cards leave free.
+ * canvas.
  */
 export function metresPerPixel(range, fov, width, height) {
   const w = Math.max(1, width);
@@ -114,19 +152,44 @@ export function metresPerPixel(range, fov, width, height) {
 }
 
 /**
- * The car's views, cycled by its VIEW button: the tilted 3D view, heading up;
- * a flat 2D view, heading up; and 2D north up. The flat views are also the
- * lightest to draw: no tiles toward a horizon.
+ * The car's two camera modes, switched by its AUTO / NORTH button: AUTO is
+ * heading up and tilted, with the zoom following speed and the next turn;
+ * NORTH is flat and north up, zoomed the same way. The older '3d' and '2d'
+ * (saved by earlier builds) mean AUTO.
  */
 export const VIEW_MODES = {
-  '3d': { label: '3D', pitch: FOLLOW_PITCH_DEG, headingUp: true },
-  '2d': { label: '2D', pitch: -90, headingUp: true },
+  auto: { label: 'AUTO', pitch: FOLLOW_PITCH_DEG, headingUp: true },
   north: { label: 'NORTH', pitch: -90, headingUp: false },
 };
-export const VIEW_ORDER = ['3d', '2d', 'north'];
-/** The view after `mode` in the VIEW button's cycle. */
+export const VIEW_ORDER = ['auto', 'north'];
+/** A saved or requested mode as one of VIEW_MODES ('auto' for anything else). */
+export const viewModeOf = (mode) => (mode === 'north' ? 'north' : 'auto');
+/** The mode after `mode` on the AUTO / NORTH button. */
 export const nextViewMode = (mode) =>
-  VIEW_ORDER[(VIEW_ORDER.indexOf(mode) + 1) % VIEW_ORDER.length];
+  VIEW_ORDER[(VIEW_ORDER.indexOf(viewModeOf(mode)) + 1) % VIEW_ORDER.length];
+
+/**
+ * A place name for the map label: whole comma parts while they fit in `max`
+ * ("46211 JACKSON STREET, INDIO"), else the first part cut at a word with an
+ * ellipsis; never a dangling comma.
+ */
+export function shortPlaceName(name, max = 28) {
+  const text = String(name ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= max) return text;
+  const parts = text.split(/\s*,\s*/).filter(Boolean);
+  let out = '';
+  for (const part of parts) {
+    const next = out ? `${out}, ${part}` : part;
+    if (next.length > max) break;
+    out = next;
+  }
+  if (out) return out;
+  const cut = parts[0].slice(0, max - 1);
+  const word = cut.lastIndexOf(' ');
+  return `${(word > max / 2 ? cut.slice(0, word) : cut).trimEnd()}\u2026`;
+}
 
 // ------------------------------------------------------------ frame budget
 /**

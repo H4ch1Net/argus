@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { createRouteLines } from '../core/nav/routeLines.js';
+import { shortPlaceName } from './model.js';
 
 // The route on the car map, ctOS: the way ahead white, the way already driven
 // dimmed to grey, alternatives grey while previewing, and the destination as a
@@ -107,9 +108,8 @@ export function createRouteView(viewer) {
       height: 30,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     });
-    const name = String(dest.name || '')
-      .toUpperCase()
-      .slice(0, 28);
+    // Whole parts of the name only ("46211 JACKSON STREET, INDIO").
+    const name = shortPlaceName(String(dest.name || '').toUpperCase());
     if (name) {
       labels.add({
         position: at,

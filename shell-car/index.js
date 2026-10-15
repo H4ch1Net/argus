@@ -10,6 +10,7 @@ import {
 import {
   CAR_LAYER_KEYS,
   VIEW_MODES,
+  aimFor,
   angleDelta,
   carResolutionScale,
   clamp,
@@ -18,17 +19,15 @@ import {
   followFrameMs,
   followPose,
   formatDistance,
-  formatHeading,
-  formatSpeed,
   isParkedJitter,
   layerCode,
   lerp,
-  metresPerPixel,
   nearestContacts,
   planLayerClicks,
   shouldResumeFollow,
   speedBetween,
   unitsForLocale,
+  viewModeOf,
   wrap360,
 } from './model.js';
 import {
@@ -39,7 +38,6 @@ import {
   locateOnRoute,
   navPayload,
   navZoom,
-  pointAlong,
   routesPayload,
   searchPayload,
 } from './nav.js';
@@ -62,13 +60,15 @@ import './shell.css';
 // Car shell (Android Auto). The Android app draws this page on the car display
 // (android/.../car/CarMapRenderer.kt) and drives it through window.argusCar:
 // gestures from the car's screen, the phone's location, and the car's LAYERS
-// and VIEW buttons. The view follows the vehicle as a GPS app does: tilted 3D
-// heading up, flat 2D heading up, or 2D north up, 1.8 to 6.5 km up depending
-// on speed; a drag looks round the map and, once the driver lets it be for
-// ten seconds on the move, it follows again (RECENTER at once).
-// Driver-distraction rules shape the UI: the map, a status strip (speed,
-// heading, mode), the nearest contacts ahead in large type and the tracking
-// boxes; no menus, no text entry, no video. Main still mounts its components;
+// and AUTO / NORTH buttons. The view follows the vehicle as a GPS app does,
+// the vehicle in the middle of the part of the screen Android Auto leaves
+// free: AUTO (tilted, heading up) or NORTH (flat, north up), 1.8 to 6.5 km up
+// by speed and closer before a turn; a drag looks round the map and, once the
+// driver lets it be for ten seconds on the move, it follows again (RECENTER
+// at once).
+// Driver-distraction rules shape the UI: the map, a small speed readout
+// (SPEED in the car's LAYERS list hides it), the nearest contacts ahead and
+// the tracking boxes; no menus, no text entry, no video. Main still mounts its components;
 // the slots this shell has no place for are ignored.
 //
 // The layers are the phone's (core/share/session.js): the car shows those of
@@ -83,8 +83,8 @@ import './shell.css';
 // It is also the car's GPS: the Android Auto screens (search, route preview,
 // the routing card) ask this page through the same bridge to search, plan and
 // follow a route with the navigator (core/nav/navigator.js, handed in by main
-// through setNavigator), and the page draws the route, looks ahead along it,
-// and reports progress back about once a second. Parked, a small VEHICLE strip
+// through setNavigator), and the page draws the route, zooms in before each
+// turn, and reports progress back about once a second. Parked, a small VEHICLE strip
 // shows the car's own data (setCarInfo; off with setVehicleInfo(false)); it
 // hides as soon as the car moves.
 //
@@ -100,6 +100,8 @@ const CAR_ANIMATION_FPS = 8;
 const FIX_STALE_MS = 5000;
 const GEO_FALLBACK_MS = 6000; // no fix pushed by the app: use the WebView's own
 const SYNTHETIC_POINTER = 4242;
+const MPH_PER_MPS = 2.236936;
+const KMH_PER_MPS = 3.6;
 
 /**
  * @param {HTMLElement} root
@@ -157,6 +159,7 @@ export async function mountShell(root, bootOpts = {}) {
       early.toggles = [...(early.toggles ?? []), [key, on]];
     },
     setVehicleInfo: (on) => (ctl ? ctl.setVehicleInfo(on) : (early.vehicleInfo = on)),
+    setSpeedo: (on) => (ctl ? ctl.setSpeedo(on) : (early.speedo = on)),
     setInsets: (...a) => (ctl ? ctl.setInsets(...a) : (early.insets = a)),
     setView: (mode) => (ctl ? ctl.setView(mode) : (early.view = mode)),
     search: (query, reqId) =>
@@ -222,26 +225,12 @@ export async function mountShell(root, bootOpts = {}) {
   const units = unitsForLocale(navigator.language);
 
   // ------------------------------------------------------------------ HUD
-  const cell = (label) => {
-    const value = h('span.car-cell__value', {}, '--');
-    return {
-      el: h('div.car-cell', {}, h('span.car-cell__label', {}, label), value),
-      value,
-    };
-  };
-  // Speed and heading first and largest; the car's own bar already shows the
-  // time and the VIEW button its view. MODE says whether the map follows.
-  const cells = {
-    speed: cell('SPD'),
-    heading: cell('HDG'),
-    mode: cell('MODE'),
-  };
-  cells.speed.el.classList.add('car-cell--lead');
-  const status = h(
-    'div.car-status',
-    { role: 'status' },
-    ...Object.values(cells).map((c) => c.el),
-  );
+  // The speed, small, bottom left of the free area: the car's own
+  // speedometer when the app reads it, else the GPS; NO GPS when neither has
+  // spoken for five seconds (an honest blank, not a frozen number).
+  const speedValue = h('span.car-speedo__value', {}, '--');
+  const speedUnit = h('span.car-speedo__unit', {}, units === 'imperial' ? 'MPH' : 'KM/H');
+  const speedo = h('div.car-speedo', { role: 'status' }, speedValue, speedUnit);
   const readout = h('div.car-readout', { hidden: true });
   const notify = h('div.car-notify');
   // The own-position marker: the icon chosen in SETTINGS (core/ui/selfIcons.js),
@@ -257,25 +246,20 @@ export async function mountShell(root, bootOpts = {}) {
   drawSelfIcon(DEFAULT_SELF_ICON);
   // Inside the app Android Auto draws the routing card; the page's own
   // maneuver banner (with its ETA line) is for the browser only. The VEHICLE
-  // strip sits under the status strip while parked.
+  // strip sits top left while parked.
   const inApp = Boolean(window.ArgusCarHost);
   const banner = createNavBanner({ units });
   const vehicleWidget = createVehicleWidget();
-  const topLeft = h(
-    'div.car-topleft',
-    {},
-    inApp ? null : banner.el,
-    status,
-    vehicleWidget.el,
-  );
-  hud.append(topLeft, readout, notify, marker);
+  const topLeft = h('div.car-topleft', {}, inApp ? null : banner.el, vehicleWidget.el);
+  hud.append(topLeft, speedo, readout, notify, marker);
 
   // ---------------------------------------------------------------- state
   let fix = null; // { lat, lon, heading, speed, accuracy, t }
   let fromApp = false;
   let following = true;
   let rangeScale = 1;
-  let viewMode = '3d';
+  let viewMode = 'auto';
+  let speedoOn = true; // the car's LAYERS list: SPEED
   let overlay = null;
   let summary = null;
   let wantLayers = null;
@@ -292,7 +276,7 @@ export async function mountShell(root, bootOpts = {}) {
   let touchedAt = 0; // the driver's last drag, pinch or tap on the map
 
   // ------------------------------------------------------------ following
-  const view = { lat: 0, lon: 0, heading: 0, pitch: VIEW_MODES['3d'].pitch, range: 0 };
+  const view = { lat: 0, lon: 0, heading: 0, pitch: VIEW_MODES.auto.pitch, range: 0 };
   let viewSet = false;
   let acquiringUntil = 0;
   let raf = 0;
@@ -337,7 +321,7 @@ export async function mountShell(root, bootOpts = {}) {
     Math.abs(view.range - target.range) < 1;
 
   // Navigating: where the vehicle is along the route, carried forward since
-  // the last nav update at its speed, for the look-ahead and the zoom.
+  // the last nav update at its speed, for the heading at a crawl and the zoom.
   function routeAlong(now) {
     if (!drive?.at) return null;
     const moved = clamp((now - drive.atT) / 1000, 0, DEAD_RECKON_S) * (fix.speed || 0);
@@ -352,31 +336,32 @@ export async function mountShell(root, bootOpts = {}) {
     const along = routeAlong(now);
     let heading = fix.heading;
     let scale = rangeScale;
-    let ahead = null;
     if (along !== null) {
       // GPS course is noise at a crawl: steer by the road instead.
       if (!((fix.speed || 0) > 3)) heading = bearingAlong(drive.ix, along) ?? heading;
+      // Closer before a turn, wider on the open road (the automatic zoom).
       scale *= navZoom(navState?.progress?.distanceToStepM, fix.speed);
-      ahead = (m) => pointAlong(drive.ix, along + m);
     }
     const target = followPose(
       { lat: pos.lat, lon: pos.lon, heading, speed: fix.speed },
-      { scale, mode: viewMode, ahead },
+      { scale, mode: viewMode },
     );
-    // Centre the vehicle in what the host leaves free (its routing card and
-    // controls cover the sides): slide the view sideways by half the
-    // difference between the left and right insets.
-    const dx = (insets.left - insets.right) / 2;
-    if (Math.abs(dx) >= 1) {
-      const mpp = metresPerPixel(
-        target.range,
-        cam.frustum?.fov,
-        scene.canvas.clientWidth,
-        scene.canvas.clientHeight,
-      );
-      const moved = destination(target.lat, target.lon, target.heading - 90, dx * mpp);
-      target.lat = moved.lat;
-      target.lon = moved.lon;
+    // The vehicle in the middle of what the host leaves free (its routing
+    // card and buttons cover the sides): aim the camera so it projects there.
+    const c = middle();
+    const aim = aimFor(target, {
+      heading: target.heading,
+      pitch: target.pitch,
+      range: target.range,
+      fov: cam.frustum?.fov,
+      width: scene.canvas.clientWidth,
+      height: scene.canvas.clientHeight,
+      x: c.x,
+      y: c.y,
+    });
+    if (aim) {
+      target.lat = aim.lat;
+      target.lon = aim.lon;
     }
     // 20 updates a second on the move or in a turn, 12 when creeping.
     const frameMs = followFrameMs(
@@ -567,20 +552,36 @@ export async function mountShell(root, bootOpts = {}) {
   }
 
   // ------------------------------------------------------------- location
-  function setLocation(lat, lon, heading, speed, accuracy, { app: pushed = true } = {}) {
+  /**
+   * A fix: `ageMs` is how old it already is (the app replays its last fix when
+   * the page comes back, and a stored fix from before the drive is history,
+   * not a position): an old one never replaces a newer one, and one past
+   * FIX_STALE_MS shows NO GPS instead of a speed.
+   */
+  function setLocation(
+    lat,
+    lon,
+    heading,
+    speed,
+    accuracy,
+    ageMs = 0,
+    { app: pushed = true } = {},
+  ) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
     if (pushed && !fromApp) {
       fromApp = true;
       stopGeolocation();
     }
+    const t = performance.now() - (Number.isFinite(ageMs) ? clamp(ageMs, 0, 864e5) : 0);
+    if (fix && t <= fix.t) return;
     const next = {
       lat,
       lon,
       heading: Number.isFinite(heading) ? heading : null,
       speed: Number.isFinite(speed) && speed >= 0 ? speed : null,
       accuracy: Number.isFinite(accuracy) ? accuracy : null,
-      t: performance.now(),
+      t,
     };
     // Standing still, the GPS wanders a few metres a second: hold the last
     // position, or the view would creep, re-render and refetch every fix.
@@ -642,6 +643,7 @@ export async function mountShell(root, bootOpts = {}) {
           p.coords.heading,
           p.coords.speed,
           p.coords.accuracy,
+          Math.max(0, Date.now() - p.timestamp),
           { app: false },
         ),
       () => {},
@@ -780,13 +782,20 @@ export async function mountShell(root, bootOpts = {}) {
   }
 
   // ----------------------------------------------------------------- view
+  // AUTO or NORTH (the car's button; older builds saved '3d' or '2d': AUTO).
   function setView(mode) {
-    if (!VIEW_MODES[mode] || mode === viewMode) return;
-    viewMode = mode;
+    const next = viewModeOf(mode);
+    if (next === viewMode) return;
+    viewMode = next;
     // Following, the view eases into the new pitch and heading; in free look,
     // the new view takes the map back to the vehicle.
     if (following) startFollow();
     else ctl.recenter();
+  }
+
+  // SPEED in the car's LAYERS list: the speed readout at all.
+  function setSpeedo(on) {
+    speedoOn = on !== false;
     refreshStatus();
   }
 
@@ -807,12 +816,11 @@ export async function mountShell(root, bootOpts = {}) {
 
   function layoutOverlay() {
     if (!overlay) return;
-    // The tracking frame starts under the strips top left (the VEHICLE strip
-    // too while it shows).
-    const above = vehicleWidget.shown ? vehicleWidget.el : status;
-    const top = above.getBoundingClientRect().bottom - root.getBoundingClientRect().top;
+    // The tracking boxes keep clear of what sits top left (the browser's
+    // banner, the VEHICLE strip while it shows).
+    const top = topLeft.getBoundingClientRect().bottom - root.getBoundingClientRect().top;
     overlay.setInsets({
-      top: Math.max(insets.top, top),
+      top: Math.max(insets.top, topLeft.childElementCount ? top : 0),
       right: insets.right,
       bottom: insets.bottom,
       left: insets.left,
@@ -823,18 +831,26 @@ export async function mountShell(root, bootOpts = {}) {
   const pad2 = (n) => String(n).padStart(2, '0');
   // Each cell is written only when its text changes: no style or layout work
   // for an unchanged strip, once a second.
-  const put = (c, text) => {
-    if (c.value.textContent !== text) c.value.textContent = text;
+  const put = (el, text) => {
+    if (el.textContent !== text) el.textContent = text;
   };
   function refreshStatus() {
     // Backgrounded (the browser ?shell=car fallback): skip the repaint. The
     // next visible tick catches the fix up, so nothing is lost.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const fresh = fix && performance.now() - fix.t < FIX_STALE_MS;
-    put(cells.speed, formatSpeed(fresh ? fix.speed : NaN, units));
-    put(cells.heading, formatHeading(fresh ? fix.heading : NaN));
-    put(cells.mode, !fix ? 'NO FIX' : drive ? 'ROUTE' : following ? 'FOLLOW' : 'FREE');
-    status.classList.toggle('is-stale', !fresh);
+    const now = performance.now();
+    const speed = speedNow(now);
+    const located = Boolean(fix) && now - fix.t < FIX_STALE_MS;
+    speedo.hidden = !speedoOn;
+    put(
+      speedValue,
+      Number.isFinite(speed)
+        ? String(Math.round(speed * (units === 'imperial' ? MPH_PER_MPS : KMH_PER_MPS)))
+        : '--',
+    );
+    // No position for five seconds: say so where the unit was.
+    put(speedUnit, located ? (units === 'imperial' ? 'MPH' : 'KM/H') : 'NO GPS');
+    speedo.classList.toggle('is-stale', !located);
     refreshVehicle();
   }
 
@@ -1239,6 +1255,7 @@ export async function mountShell(root, bootOpts = {}) {
     toggleLayer,
     adoptLayers,
     setVehicleInfo,
+    setSpeedo,
     setInsets,
     setView,
     search,
@@ -1261,6 +1278,7 @@ export async function mountShell(root, bootOpts = {}) {
       vehicle: vehicleWidget.shown,
       vehicleOpen: vehicleWidget.open,
       vehicleInfo: vehicleInfoOn,
+      speedo: speedoOn ? speedValue.textContent + ' ' + speedUnit.textContent : null,
     }),
   };
 
@@ -1289,7 +1307,9 @@ export async function mountShell(root, bootOpts = {}) {
     },
     attachOverlay(o) {
       overlay = o;
-      o.setOptions({ density: 'low' });
+      // Boxes on the nearest few contacts; no viewport frame and corner
+      // readouts (state, object count, SIG / TRK) on a car screen.
+      o.setOptions({ density: 'low', frame: false });
       o.subscribe((s) => {
         summary = s;
         renderReadout();
@@ -1317,6 +1337,7 @@ export async function mountShell(root, bootOpts = {}) {
   if (early.layers) setLayers(early.layers);
   for (const [key, on] of early.toggles ?? []) toggleLayer(key, on);
   if (early.vehicleInfo !== undefined) setVehicleInfo(early.vehicleInfo);
+  if (early.speedo !== undefined) setSpeedo(early.speedo);
   if (early.carInfo) setCarInfo(early.carInfo);
   if (bootOpts.navigator) setNavigator(bootOpts.navigator);
   // Tell the app the page is listening, so it sends the current state.
