@@ -508,6 +508,8 @@ class CarNav(
 
     fun start(place: CarPlace, routeId: String) {
         main.removeCallbacks(endAfterArrival)
+        // NAVIGATE was just pressed: location in the foreground, if not yet.
+        renderer.onDriverAction()
         destination = place
         info = null
         if (!navigating) {

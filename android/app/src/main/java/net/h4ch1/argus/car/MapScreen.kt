@@ -108,23 +108,16 @@ internal fun Screen.invalidateOn(nav: CarNav) {
 }
 
 @StringRes
-private fun viewTitle(mode: String): Int = when (mode) {
-    "2d" -> R.string.car_view_2d
-    "north" -> R.string.car_view_north
-    else -> R.string.car_view_3d
-}
+private fun viewTitle(mode: String): Int = if (mode == "north") R.string.car_view_north else R.string.car_view_auto
 
 @DrawableRes
-private fun viewIcon(mode: String): Int = when (mode) {
-    "2d" -> R.drawable.ic_car_view_2d
-    "north" -> R.drawable.ic_car_view_north
-    else -> R.drawable.ic_car_view_3d
-}
+private fun viewIcon(mode: String): Int = if (mode == "north") R.drawable.ic_car_view_north else R.drawable.ic_car_view_auto
 
 /**
  * The map screen: the globe fills the car display (CarMapRenderer), with the
- * map controls in the map action strip (pan, re-centre, zoom in, zoom out),
- * and WHERE TO (END while navigating), LAYERS and VIEW in the action strip,
+ * map controls in the map action strip (pan, RECENTER, zoom in, zoom out;
+ * Android Auto only sends drags while PAN is there), and WHERE TO (END while
+ * navigating), LAYERS and the camera (AUTO or NORTH) in the action strip,
  * each a ctOS glyph with a short title. Android Auto draws these buttons
  * itself (its font, its shapes); the app picks the icons and the words.
  * Navigating, Android Auto draws the routing card from CarNav, on the ctOS
@@ -140,17 +133,25 @@ class MapScreen(
         invalidateOn(nav)
     }
 
+    // Every press also asks again for location in the foreground
+    // (CarMapRenderer.onDriverAction).
     private fun action(@StringRes title: Int, @DrawableRes icon: Int, onClick: () -> Unit): Action =
         Action.Builder()
             .setTitle(carContext.getString(title))
             .setIcon(carContext.icon(icon))
-            .setOnClickListener { onClick() }
+            .setOnClickListener {
+                renderer.onDriverAction()
+                onClick()
+            }
             .build()
 
     private fun mapAction(@DrawableRes icon: Int, onClick: () -> Unit): Action =
         Action.Builder()
             .setIcon(carContext.icon(icon))
-            .setOnClickListener { onClick() }
+            .setOnClickListener {
+                renderer.onDriverAction()
+                onClick()
+            }
             .build()
 
     override fun onGetTemplate(): Template {
@@ -170,7 +171,10 @@ class MapScreen(
             val end = Action.Builder()
                 .setTitle(carContext.getString(R.string.car_end))
                 .setIcon(carContext.icon(R.drawable.ic_car_end))
-                .setOnClickListener { nav.stop() }
+                .setOnClickListener {
+                    renderer.onDriverAction()
+                    nav.stop()
+                }
             if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_4) {
                 end.setFlags(Action.FLAG_PRIMARY).setBackgroundColor(CarColor.RED)
             }
@@ -187,12 +191,15 @@ class MapScreen(
                 screenManager.push(LayersScreen(carContext, renderer))
             },
         )
-        // VIEW cycles 3D -> 2D -> NORTH; its title and glyph are the view it is on.
+        // The camera: AUTO (tilted, heading up, zoom by speed and the next
+        // turn) or NORTH (flat, north up); its title and glyph are the mode it
+        // is in, a press switches to the other and follows the vehicle again.
         actions.addAction(
             action(viewTitle(prefs.carView), viewIcon(prefs.carView)) {
                 val views = Prefs.CAR_VIEWS
                 prefs.carView = views[(views.indexOf(prefs.carView) + 1) % views.size]
                 renderer.pushView()
+                renderer.recenter()
                 invalidate()
             },
         )
@@ -216,9 +223,9 @@ class MapScreen(
 }
 
 /**
- * LAYERS: a switch per layer the page can show, each with its map glyph, and
- * VEHICLE INFO (the small fuel and range strip while parked) last; the presets
- * DRIVE and SKY in the header. The switches change the layers the phone
+ * LAYERS: a switch per layer the page can show, each with its map glyph, then
+ * SPEED (the small speed readout on the map) and VEHICLE INFO (the small fuel
+ * and range strip while parked); the presets DRIVE and SKY in the header. The switches change the layers the phone
  * shares, so the phone opens with them too. When the host allows fewer rows
  * than there are layers, those that are on come first (so they can be
  * switched off), and the choice holds while the list is open.
@@ -288,8 +295,8 @@ class LayersScreen(carContext: CarContext, private val renderer: CarMapRenderer)
     override fun onGetTemplate(): Template {
         val on = onNow()
         val available = CarLayers.available
-        // One row stays for VEHICLE INFO.
-        val rows = (listLimit() - 1).coerceAtLeast(1)
+        // Two rows stay for SPEED and VEHICLE INFO.
+        val rows = (listLimit() - 2).coerceAtLeast(1)
         val layers = shown?.takeIf { shownFor == available }
             ?: pick(rows, available, on).also {
                 shown = it
@@ -308,6 +315,18 @@ class LayersScreen(carContext: CarContext, private val renderer: CarMapRenderer)
                     .build(),
             )
         }
+        val speedo = Toggle.Builder { checked ->
+            prefs.carSpeedo = checked
+            renderer.pushSpeedo()
+            invalidate()
+        }.setChecked(prefs.carSpeedo).build()
+        list.addItem(
+            Row.Builder()
+                .setTitle(carContext.getString(R.string.car_speedo))
+                .setImage(carContext.icon(R.drawable.ic_car_speed), Row.IMAGE_TYPE_ICON)
+                .setToggle(speedo)
+                .build(),
+        )
         val vehicle = Toggle.Builder { checked ->
             prefs.carVehicleInfo = checked
             renderer.pushVehicleInfo()

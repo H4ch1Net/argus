@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- RECENTER: corner brackets round the own-position chevron. -->
+<!-- RECENTER: the locate crosshair (a square ring, four ticks, the centre). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M3,8V3H8M16,3H21V8M21,16V21H16M8,21H3V16"
+        android:pathData="M6,6H18V18H6Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="square" />
+    <path
+        android:pathData="M12,1.5V5M12,19V22.5M1.5,12H5M19,12H22.5"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="2"
         android:strokeLineCap="square" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M12,6.5L16.5,17.5L12,14.8L7.5,17.5Z" />
+        android:pathData="M10,10H14V14H10Z" />
 </vector>

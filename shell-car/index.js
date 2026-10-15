@@ -391,12 +391,26 @@ export async function mountShell(root, bootOpts = {}) {
       // Only a view that is still on its way moves the camera: once it rests
       // on the target, nothing renders and nothing refetches until the next
       // real change.
+      // The turn, tilt and zoom ease; the aim does not: it is worked out
+      // again for the eased view, so the vehicle stays in the middle of the
+      // free area through a turn instead of swinging round it.
       const k = 1 - Math.exp(-dt / EASE_S);
-      view.lat = lerp(view.lat, target.lat, k);
-      view.lon = wrap360(view.lon + angleDelta(view.lon, target.lon) * k + 180) - 180;
       view.heading = wrap360(view.heading + angleDelta(view.heading, target.heading) * k);
       view.pitch = lerp(view.pitch, target.pitch, k);
       view.range = lerp(view.range, target.range, k);
+      const held = aimFor(pos, {
+        heading: view.heading,
+        pitch: view.pitch,
+        range: view.range,
+        fov: cam.frustum?.fov,
+        width: scene.canvas.clientWidth,
+        height: scene.canvas.clientHeight,
+        x: c.x,
+        y: c.y,
+      });
+      view.lat = held?.lat ?? lerp(view.lat, target.lat, k);
+      view.lon =
+        held?.lon ?? wrap360(view.lon + angleDelta(view.lon, target.lon) * k + 180) - 180;
       applyView();
     }
     if (!settledOn(target) || (fix.speed || 0) > 0.3 || now < acquiringUntil) {

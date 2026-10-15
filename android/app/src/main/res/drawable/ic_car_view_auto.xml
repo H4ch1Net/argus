@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- VIEW 2D: the ground flat, on a grid. -->
+<!-- AUTO: the ground tilted away with the vehicle's chevron, heading up. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M3.5,3.5H20.5V20.5H3.5Z"
+        android:pathData="M7.5,4.5H16.5L21,19.5H3Z"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="2"
         android:strokeLineCap="square" />
     <path
-        android:pathData="M12,3.5V20.5M3.5,12H20.5"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineCap="square" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,8.5L15.2,16.5L12,14.6L8.8,16.5Z" />
 </vector>
