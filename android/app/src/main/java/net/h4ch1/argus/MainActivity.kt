@@ -65,7 +65,7 @@ class MainActivity : Activity() {
 
     // A place from Gemini or Google Assistant, or a geo: link, waiting for the
     // page to take it ({"kind","uri"}; the page asks through takeGeoIntent).
-    private val pendingGeo = AtomicReference<String?>(null)
+    private val pendingGeoIntent = AtomicReference<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,7 +146,7 @@ class MainActivity : Activity() {
         val scheme = uri.substringBefore(':').lowercase(Locale.ROOT)
         if (scheme != "geo" && scheme != "geo.offline") return
         val kind = if (intent.action == Intent.ACTION_VIEW) "search" else "navigate"
-        pendingGeo.set(JSONObject().put("kind", kind).put("uri", uri).toString())
+        pendingGeoIntent.set(JSONObject().put("kind", kind).put("uri", uri).toString())
         webView?.evaluateJavascript(
             "window.argusHost&&window.argusHost.geoIntent&&window.argusHost.geoIntent()",
             null,
@@ -510,7 +510,7 @@ class MainActivity : Activity() {
 
         /** The place handed over by Gemini or a geo: link, once ({"kind","uri"}), or null. */
         @JavascriptInterface
-        fun takeGeoIntent(): String? = pendingGeo.getAndSet(null)
+        fun takeGeoIntent(): String? = pendingGeoIntent.getAndSet(null)
 
         /**
          * The page needs a position (GEO, follow-me, navigation): push the
