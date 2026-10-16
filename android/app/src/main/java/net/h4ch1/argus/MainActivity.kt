@@ -36,7 +36,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * The phone app: a full-screen WebView on the globe served by the proxy on
@@ -60,6 +62,10 @@ class MainActivity : Activity() {
     private var wantLocation = false // the page asked for the native feed
     private var resumed = false
     private var backCallback: Any? = null // OnBackInvokedCallback (Android 13+)
+
+    // A place from Gemini or Google Assistant, or a geo: link, waiting for the
+    // page to take it ({"kind","uri"}; the page asks through takeGeoIntent).
+    private val pendingGeoIntent = AtomicReference<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,9 +115,14 @@ class MainActivity : Activity() {
         handleAction(intent)
     }
 
-    /** Launcher shortcuts (res/xml/shortcuts.xml). Returns true when the activity is going away. */
+    /**
+     * Launcher shortcuts (res/xml/shortcuts.xml), and places handed over by
+     * Gemini, Google Assistant or a geo: link. Returns true when the activity
+     * is going away.
+     */
     private fun handleAction(intent: Intent?): Boolean {
         when (intent?.action) {
+            ACTION_CAR_NAVIGATE, ACTION_PHONE_NAVIGATE, Intent.ACTION_VIEW -> intent?.let { takeGeo(it) }
             ACTION_SETTINGS -> openSettings()
             ACTION_FULLSCREEN -> {
                 val prefs = Prefs(this)
@@ -125,6 +136,21 @@ class MainActivity : Activity() {
             }
         }
         return false
+    }
+
+    // The page shows the route (a point) or the search (a place to look for)
+    // in WHERE TO; it reads the request with core/nav/geoIntent.js. The
+    // actions ("exit navigation", ...) are for the car.
+    private fun takeGeo(intent: Intent) {
+        val uri = intent.dataString?.takeIf { it.length <= 2_000 } ?: return
+        val scheme = uri.substringBefore(':').lowercase(Locale.ROOT)
+        if (scheme != "geo" && scheme != "geo.offline") return
+        val kind = if (intent.action == Intent.ACTION_VIEW) "search" else "navigate"
+        pendingGeoIntent.set(JSONObject().put("kind", kind).put("uri", uri).toString())
+        webView?.evaluateJavascript(
+            "window.argusHost&&window.argusHost.geoIntent&&window.argusHost.geoIntent()",
+            null,
+        )
     }
 
     private fun onRuntime(state: NodeRuntime.State) {
@@ -482,6 +508,10 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun version(): String = BuildConfig.VERSION_NAME
 
+        /** The place handed over by Gemini or a geo: link, once ({"kind","uri"}), or null. */
+        @JavascriptInterface
+        fun takeGeoIntent(): String? = pendingGeoIntent.getAndSet(null)
+
         /**
          * The page needs a position (GEO, follow-me, navigation): push the
          * phone's GPS into window.argusHost.location about once a second while
@@ -517,6 +547,10 @@ class MainActivity : Activity() {
         const val ACTION_SETTINGS = "net.h4ch1.argus.action.SETTINGS"
         const val ACTION_RESTART = "net.h4ch1.argus.action.RESTART"
         const val ACTION_FULLSCREEN = "net.h4ch1.argus.action.FULLSCREEN"
+
+        // Google's navigation app intents (Gemini, Google Assistant).
+        const val ACTION_CAR_NAVIGATE = "androidx.car.app.action.NAVIGATE"
+        const val ACTION_PHONE_NAVIGATE = "android.intent.action.NAVIGATE"
 
         /** A number for a JS call: two decimals, or null when not finite. */
         private fun num(v: Double): String =

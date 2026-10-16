@@ -1,10 +1,13 @@
 package net.h4ch1.argus.car
 
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.DrawableRes
 import androidx.car.app.CarContext
+import androidx.car.app.CarToast
+import androidx.car.app.ScreenManager
 import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
 import androidx.car.app.model.DateTimeWithZone
@@ -47,6 +50,8 @@ interface CarPageListener {
     fun onRoutes(json: String) {}
 
     fun onNav(json: String) {}
+
+    fun onVoice(json: String) {}
 }
 
 // ------------------------------------------------------------------ model
@@ -354,11 +359,19 @@ fun maneuverIcon(context: CarContext, name: String): CarIcon =
  *                  selectRoute(id), navigate(routeId), stopNav()
  *                                                              nav(json), about once a second
  *
+ *                  voice(kind, uri, reqId)                     voice(json)
+ *
  * It tells Android Auto when navigation starts and ends (NavigationManager),
  * stops when Android Auto asks (another app, or the car, starts navigating),
  * sends the trip to the car's cluster display (updateTrip), and keeps the
  * last five destinations. If the page reloads mid-route (its renderer died),
  * the route is planned again to the same destination and followed on.
+ *
+ * Gemini and Google Assistant reach it through onIntent: "navigate to ..."
+ * shows the route and drives it (or lists the matches when the best is far),
+ * "find ... nearby" lists places, and "exit navigation", "what's my ETA",
+ * "avoid highways", "show traffic" and the like are done and answered on the
+ * screen. The assistant does the listening; Argus gets text.
  */
 class CarNav(
     private val carContext: CarContext,
@@ -567,8 +580,120 @@ class CarNav(
     private var resuming = false
 
     override fun onPageMounted() {
+        pageMounted = true
         val dest = destination
         if (navigating && dest != null) resume(dest, 1)
+        sendVoice()
+    }
+
+    // -------------------------------------------------------------- voice
+
+    private var pageMounted = false
+    private var pendingVoice: Pair<String, String>? = null
+    private var voiceReq: String? = null
+
+    /**
+     * An intent Android Auto handed the session (Session.onCreateScreen or
+     * onNewIntent): Gemini or Google Assistant's NAVIGATE (a place to drive
+     * to), VIEW geo: (places to look for) or VIEW geo.action: (an action).
+     * The page reads it once it is up; the newest request wins.
+     */
+    fun onIntent(intent: Intent) {
+        val data = intent.dataString?.takeIf { it.length <= MAX_URI } ?: return
+        val scheme = data.substringBefore(':').lowercase(Locale.ROOT)
+        val kind = when {
+            scheme.startsWith("geo.action") -> "action"
+            scheme != "geo" && scheme != "geo.offline" -> return
+            intent.action == CarContext.ACTION_NAVIGATE || intent.action == ACTION_NAVIGATE_PHONE -> "navigate"
+            intent.action == Intent.ACTION_VIEW -> "search"
+            else -> return
+        }
+        Log.i(TAG, "voice request: $kind")
+        pendingVoice = kind to data
+        sendVoice()
+    }
+
+    private fun sendVoice() {
+        val (kind, uri) = pendingVoice ?: return
+        if (!pageMounted) return // onPageMounted sends it
+        seq += 1
+        val id = "v$seq"
+        if (!renderer.voice(kind, uri, id)) return
+        pendingVoice = null
+        voiceReq = id
+        main.postDelayed({
+            if (voiceReq == id) {
+                voiceReq = null
+                toast(carContext.getString(R.string.car_voice_no_answer))
+            }
+        }, VOICE_TIMEOUT_MS)
+    }
+
+    override fun onVoice(json: String) {
+        val o = try {
+            JSONObject(json)
+        } catch (e: JSONException) {
+            Log.w(TAG, "bad voice answer from the page", e)
+            return
+        }
+        if (o.str("reqId", 40) != voiceReq) return
+        voiceReq = null
+        val message = o.str("message", 120)
+        val screens = carContext.getCarService(ScreenManager::class.java)
+        when (o.str("kind", 20)) {
+            "route" -> {
+                val place = CarPlace.parse(o.optJSONObject("place")) ?: return toast(message)
+                if (o.optBoolean("avoidHighways", false)) prefs.carAvoidHighways = true
+                renderer.onDriverAction()
+                screens.popToRoot()
+                screens.push(RoutePreviewScreen(carContext, this, place, autoStart = o.optBoolean("autoStart", false)))
+                o.str("note", 120).takeIf { it.isNotEmpty() }?.let { toast(it) }
+            }
+            "list" -> {
+                val arr = o.optJSONArray("results") ?: JSONArray()
+                val places = (0 until minOf(arr.length(), MAX_RESULTS)).mapNotNull { CarPlace.parse(arr.optJSONObject(it)) }
+                if (o.optBoolean("avoidHighways", false)) prefs.carAvoidHighways = true
+                screens.popToRoot()
+                screens.push(SearchScreen(carContext, this, o.str("query", 200), places))
+            }
+            "action" -> {
+                if (o.optBoolean("stop", false)) stop()
+                if (o.has("avoidHighways")) {
+                    val avoid = o.optBoolean("avoidHighways", false)
+                    if (prefs.carAvoidHighways != avoid) {
+                        prefs.carAvoidHighways = avoid
+                        replan()
+                    }
+                }
+                toast(message)
+            }
+            else -> toast(message)
+        }
+    }
+
+    // The highway choice changed mid-drive: plan again to the same place and
+    // follow the best route; the current one stays if no route comes.
+    private fun replan() {
+        val dest = destination ?: return
+        if (!navigating) return
+        preview(dest, prefs.carAvoidHighways) { r ->
+            if (!navigating || destination !== dest) return@preview
+            val first = r.routes.firstOrNull()
+            if (first != null) {
+                renderer.navigate(first.id)
+            } else {
+                toast(carContext.getString(if (prefs.carAvoidHighways) R.string.car_no_route_hwy else R.string.car_no_route))
+            }
+        }
+    }
+
+    private fun toast(text: String) {
+        if (text.isEmpty()) return
+        try {
+            CarToast.makeText(carContext, text, CarToast.LENGTH_LONG).show()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "toast refused", e)
+        }
     }
 
     // The page reloaded mid-route: plan to the same place again and follow the
@@ -643,6 +768,9 @@ class CarNav(
         const val OFFLINE = "OFFLINE"
         const val TIMEOUT = "TIMEOUT"
 
+        /** The phone's NAVIGATE action (Android Auto's own is CarContext.ACTION_NAVIGATE). */
+        const val ACTION_NAVIGATE_PHONE = "android.intent.action.NAVIGATE"
+
         /**
          * The search that lists the user's own places before anything is
          * typed: HOME, WORK, SAVED, then the recent destinations (kinds
@@ -657,6 +785,8 @@ class CarNav(
         private const val RESUME_TRIES = 8
         private const val RESUME_RETRY_MS = 3_000L
         private const val ARRIVED_END_MS = 45_000L
+        private const val MAX_URI = 2_000
+        private const val VOICE_TIMEOUT_MS = 30_000L
     }
 }
 

@@ -100,7 +100,7 @@ async function copyText(s) {
  *   targetPoint: () => ({lat:number, lon:number, name?:string}|null),
  *   flyAlong?: (coords: number[][]) => void, notify?: Function,
  *   canvas?: HTMLCanvasElement|null, pick?: (pos: {x:number,y:number}) => ({lat:number, lon:number}|null),
- *   demo?: boolean, onActive?: (kind: 'preview'|'drive') => void, now?: () => number,
+ *   demo?: boolean, onActive?: (kind: 'preview'|'drive'|'search') => void, now?: () => number,
  *   places?: object|null, recents?: object|null, sketch?: object|null,
  *   shareLink?: (p: {lat:number, lon:number}) => (string|null),
  *   onSaved?: (place: object) => void,
@@ -1579,6 +1579,32 @@ export function createNavPanel({
     routeHere,
     routeFrom: (p) => setOrigin({ kind: 'point', lat: p.lat, lon: p.lon, name: p.name }),
     openSearch,
+    /**
+     * WHERE TO with this text, searched at once: a place handed over by
+     * Gemini, Google Assistant or a geo: link (main.js). The list opens for a
+     * tap on the right match.
+     */
+    async searchFor(q) {
+      const text = String(q ?? '')
+        .trim()
+        .slice(0, 200);
+      if (!text || bar.hidden) return;
+      clearTimeout(searchTimer);
+      input.value = text;
+      clearBtn.hidden = false;
+      editing = false;
+      renaming = null;
+      results.hidden = false;
+      onActive?.('search');
+      // Asked from elsewhere, maybe with the app just started: where the
+      // user is first (a few seconds at most), so the matches are theirs.
+      if (origin.kind === 'me' && !fixes.get()) {
+        renderRows([], 'LOCATING');
+        await fixes.locate({ timeoutMs: 8000 }).catch(() => null);
+        if (input.value !== text) return;
+      }
+      runSearch(text);
+    },
     menuSection: createMenuSection,
     /**
      * True just after a right press or a long press on the map: the tap the

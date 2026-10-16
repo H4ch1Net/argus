@@ -53,6 +53,7 @@ import { createSharedLayers } from '../core/share/session.js';
 import { decodeShareHash } from '../core/share/state.js';
 import { ICON_SIZES } from '../core/ui/iconPrefs.js';
 import { SETTINGS_KEY } from '../core/settings/store.js';
+import { answerGeoAction, parseGeoIntent, planGeoIntent } from '../core/nav/geoIntent.js';
 
 /** The layer keys in a share hash ('#v=1&layers=...'), [] without any. */
 const hashLayers = (hash) => decodeShareHash(hash)?.layers ?? [];
@@ -172,6 +173,8 @@ export async function mountShell(root, bootOpts = {}) {
     navigate: (routeId) => ctl?.navigate(routeId),
     stopNav: () => ctl?.stopNav(),
     setCarInfo: (json) => (ctl ? ctl.setCarInfo(json) : (early.carInfo = json)),
+    voice: (kind, uri, reqId) =>
+      ctl ? ctl.voice(kind, uri, reqId) : (early.voice = [kind, uri, reqId]),
     state: () => ctl?.state() ?? null,
   };
 
@@ -1162,7 +1165,16 @@ export async function mountShell(root, bootOpts = {}) {
   // Frame the routes in the part of the screen the host's cards leave free:
   // the box is widened by the share of the screen each inset covers.
   function fitPreview() {
-    const b = preview && routeView.bounds(preview.routes, preview.dest);
+    if (preview) fitBounds(routeView.bounds(preview.routes, preview.dest));
+  }
+
+  // The whole route of the drive (ROUTE OVERVIEW by voice): free look, so
+  // the map follows the vehicle again by itself after a while.
+  function overview() {
+    if (drive) fitBounds(routeView.bounds([drive.route], drive.dest));
+  }
+
+  function fitBounds(b) {
     if (!b) return;
     let [w, s, e, n] = b;
     const padX = (e - w) * 0.1 + 0.002;
@@ -1269,6 +1281,78 @@ export async function mountShell(root, bootOpts = {}) {
     if (had) ctl.recenter();
   }
 
+  // ------------------------------------------------------------ voice
+  // A destination or a navigation action spoken to Gemini or Google
+  // Assistant, which Android Auto hands over as a geo: URI (the assistant
+  // listens; this only reads its text: core/nav/geoIntent.js). A place is
+  // searched like WHERE TO, near the vehicle; the answer goes back to the app
+  // (ArgusCarHost.voice), which shows the route (and drives it) or the list,
+  // or puts the answer on the screen. A newer request drops an older one.
+  let voiceSeq = 0;
+  const VOICE_WAIT_MS = 15_000;
+  const waitFor = (ok, ms) =>
+    new Promise((resolve) => {
+      const t0 = performance.now();
+      const tick = () => {
+        if (ok()) resolve(true);
+        else if (performance.now() - t0 >= ms) resolve(false);
+        else setTimeout(tick, 250);
+      };
+      tick();
+    });
+
+  async function voice(kind, uri, reqId) {
+    const id = String(reqId ?? '').slice(0, 40);
+    const mine = (voiceSeq += 1);
+    const reply = (body) => toHost('voice', JSON.stringify({ reqId: id, ...body }));
+    const req = parseGeoIntent(uri, kind === 'search' ? 'search' : 'navigate');
+    if (!req)
+      return reply({ kind: 'message', message: 'ARGUS COULD NOT READ THAT PLACE' });
+    if (req.kind === 'action') return reply(voiceAction(req.act));
+    // Started by the request itself, the navigator and the first position
+    // may still be on their way.
+    await waitFor(() => nav && (req.dest || currentPosition()), VOICE_WAIT_MS);
+    if (mine !== voiceSeq) return;
+    if (!nav)
+      return reply({ kind: 'message', message: 'MAP STARTING. ASK AGAIN IN A MOMENT.' });
+    const avoid = req.avoid.highways ? { avoidHighways: true } : {};
+    if (req.dest) return reply({ ...planGeoIntent(req), ...avoid });
+    const here = currentPosition();
+    let places;
+    try {
+      places = await nav.search(req.query, {
+        near: req.near ?? here ?? undefined,
+        limit: 8,
+      });
+    } catch (err) {
+      log('warn', 'VOICE SEARCH FAILED', err);
+      if (mine === voiceSeq) reply({ kind: 'message', message: 'SEARCH FAILED' });
+      return;
+    }
+    if (mine !== voiceSeq) return;
+    const { results } = searchPayload(places, here, units);
+    reply({ ...planGeoIntent(req, results), ...avoid });
+  }
+
+  // What the page does itself (follow, overview, the traffic layer); the app
+  // ends the route and changes the highway choice, and shows the message.
+  function voiceAction(act) {
+    const a = answerGeoAction(act, {
+      nav: navPayload(navState ?? { status: 'idle' }, { units, side }),
+      trafficAvailable: rowStates().some((r) => r.key === 'trafficflow'),
+      units,
+      clock: (ms) =>
+        new Date(ms).toLocaleTimeString(navigator.language || undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+        }),
+    });
+    if (a.follow) ctl.recenter();
+    if (a.overview) overview();
+    if (a.layer) toggleLayer(a.layer, a.on);
+    return { kind: 'action', ...a };
+  }
+
   function pushNav(force = false) {
     clearTimeout(navTimer);
     navTimer = 0;
@@ -1316,6 +1400,7 @@ export async function mountShell(root, bootOpts = {}) {
     navigate: navigateTo,
     stopNav,
     setCarInfo,
+    voice,
     state: () => ({
       following,
       rangeScale,
@@ -1393,6 +1478,7 @@ export async function mountShell(root, bootOpts = {}) {
   if (early.iconSize !== undefined) setIconSize(early.iconSize);
   if (early.carInfo) setCarInfo(early.carInfo);
   if (bootOpts.navigator) setNavigator(bootOpts.navigator);
+  if (early.voice) voice(...early.voice);
   // Tell the app the page is listening, so it sends the current state.
   try {
     window.ArgusCarHost?.ready?.();

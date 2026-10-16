@@ -4,7 +4,9 @@
 // TomTom key, for a numbered street address the address geocoders
 // (../search/address.js: US Census, else Nominatim), and for "A & B" the
 // crossing of two streets (../search/intersection.js: the basemap's vector
-// tiles, else Overpass), all biased near the user (or the view centre) and
+// tiles, else Overpass), and for a kind of place ("gas station", "coffee",
+// "parking") the nearest of that kind (../search/nearby.js: OpenStreetMap
+// through Overpass), all biased near the user (or the view centre) and
 // ranked local first (../search/rank.js), merged into Places: { id, name,
 // detail, lat, lon, kind }. The query SAVED_QUERY ("@saved") answers HOME,
 // WORK, the saved places and the recent destinations (the car's WHERE TO
@@ -26,7 +28,13 @@ import {
   crossingPlace,
 } from '../search/intersection.js';
 import { reversePlace } from '../search/reverse.js';
+import { findNearby, nearbyKind, stripFiller } from '../search/nearby.js';
 import { haversineM } from './geo.js';
+
+/** With this many places of an asked-for kind, name matches are left out. */
+const NEARBY_ENOUGH = 3;
+/** With fewer, name matches stay when this close. */
+const NEARBY_TAIL_M = 50_000;
 
 /** The query that lists HOME, WORK, the saved places and the recent ones. */
 export const SAVED_QUERY = '@saved';
@@ -190,7 +198,14 @@ export function mergePlaces(
   offline,
   networkLists,
   limit = 8,
-  { query = '', near = null, mine = [], crossings = [], strongCross = false } = {},
+  {
+    query = '',
+    near = null,
+    mine = [],
+    crossings = [],
+    strongCross = false,
+    nearby = [],
+  } = {},
 ) {
   const exact = offline.filter((p) => p.exact);
   const rest = offline.filter((p) => !p.exact);
@@ -209,6 +224,18 @@ export function mergePlaces(
     ordered = good
       ? [...mine, ...exact, ...inter, ...crossings, ...rest]
       : [...mine, ...crossings, ...exact, ...inter, ...rest];
+  }
+  // A kind of place asked for: the nearest of that kind first. Name matches
+  // for its words ("Hospitality Drive", a "Gas Station" abroad) are noise
+  // beside a few real ones, and kept close by only when there are fewer.
+  if (nearby.length) {
+    const rest = ordered.filter(
+      (p) =>
+        !mine.includes(p) &&
+        nearby.length < NEARBY_ENOUGH &&
+        (!near || haversineM(near.lat, near.lon, p.lat, p.lon) <= NEARBY_TAIL_M),
+    );
+    ordered = [...mine, ...nearby, ...rest];
   }
   const out = [];
   for (const p of ordered) {
@@ -367,8 +394,9 @@ export async function searchDestinations(
     roads = null,
   } = {},
 ) {
-  const q = text(query, SEARCH_QUERY_MAX);
-  if (!q) return [];
+  const raw = text(query, SEARCH_QUERY_MAX);
+  if (!raw) return [];
+  const q = raw.toLowerCase() === SAVED_QUERY ? raw : stripFiller(raw);
   const here =
     near && onGlobe(Number(near.lat), Number(near.lon))
       ? { lat: Number(near.lat), lon: Number(near.lon) }
@@ -397,6 +425,12 @@ export async function searchDestinations(
       .getJson(PHOTON_FEED, PHOTON_PATH, { params: photonParams(q, near, limit), signal })
       .then(photonPlaces),
   );
+  // A kind of place: the nearest of that kind, beside the name search (which
+  // stays the answer when the lookup fails or finds nothing).
+  const kind = here ? nearbyKind(q) : null;
+  const nearbyAsk = kind
+    ? findNearby({ proxyClient, roads, kind, near: here, limit, signal })
+    : Promise.resolve([]);
   // Two streets: where they cross near the user, beside the place search.
   const inter = here ? parseIntersection(q) : null;
   const crossing = inter
@@ -408,6 +442,7 @@ export async function searchDestinations(
     : Promise.resolve([]);
   const all = settleSoFar(asks);
   const crossings = await crossing;
+  const nearby = await nearbyAsk;
   // A clear intersection that was found does not wait long for a slow place
   // search (Photon answering 502 after 15 s, Oct 2026): what came is enough.
   const settled =
@@ -423,6 +458,7 @@ export async function searchDestinations(
     mine,
     crossings,
     strongCross: Boolean(inter?.strong),
+    nearby,
   });
   if (!merged.length && failure && !lists.some((l) => l.length)) throw failure;
   return merged;

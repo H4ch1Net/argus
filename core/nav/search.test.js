@@ -468,3 +468,58 @@ test('a found crossing does not wait for a place search that hangs', async () =>
   assert.equal(out[0].name, 'Jackson Street & Indio Boulevard');
   assert.equal(near(out[0], { lat: 33.7206, lon: -116.2162 }, 0.05), true);
 });
+
+test('a kind of place asked out loud: the nearest of that kind first, filler dropped', async () => {
+  const asked = [];
+  const client = {
+    getJson: async (feed, path, opts) => {
+      asked.push([feed, opts.params.q ?? opts.params.data]);
+      if (feed === 'overpass')
+        return {
+          elements: [
+            { type: 'node', id: 2, lat: 33.74, lon: -116.21, tags: { brand: 'Chevron' } },
+            { type: 'node', id: 1, lat: 33.716, lon: -116.211, tags: { name: 'ARCO' } },
+          ],
+        };
+      // Photon: a place called "Gas Station" (names only).
+      return {
+        features: [
+          {
+            geometry: { type: 'Point', coordinates: [-116.25, 33.73] },
+            properties: { name: 'Gas Station', city: 'Indio', countrycode: 'US' },
+          },
+        ],
+      };
+    },
+  };
+  const out = await searchDestinations(client, 'gas stations near me', { near: INDIO });
+  assert.deepEqual(
+    out.slice(0, 2).map((p) => p.name),
+    ['ARCO', 'Chevron'],
+  );
+  assert.equal(out[0].kind, 'fuel');
+  // Photon was asked without the filler; Overpass around the user.
+  assert.equal(asked.find((a) => a[0] === 'photon')[1], 'gas stations');
+  assert.match(
+    asked.find((a) => a[0] === 'overpass')[1],
+    /amenity"="fuel"\]\(around:10000,/,
+  );
+  // Overpass down: the name search still answers.
+  const down = {
+    getJson: async (feed) =>
+      feed === 'overpass'
+        ? Promise.reject(new Error('429'))
+        : client.getJson(feed, '', { params: {} }),
+  };
+  assert.equal(
+    (await searchDestinations(down, 'gas', { near: INDIO }))[0].name,
+    'Gas Station',
+  );
+  // A name is not a kind: no Overpass.
+  asked.length = 0;
+  await searchDestinations(client, 'Walmart', { near: INDIO });
+  assert.equal(
+    asked.some((a) => a[0] === 'overpass'),
+    false,
+  );
+});

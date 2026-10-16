@@ -256,6 +256,14 @@ class CarMapRenderer(
 
     fun stopNav() = js("stopNav()")
 
+    /**
+     * A place or an action from Gemini or Google Assistant (a geo: or
+     * geo.action: URI; kind "navigate", "search" or "action"). The page reads
+     * it (core/nav/geoIntent.js) and answers through voice().
+     */
+    fun voice(kind: String, uri: String, reqId: String): Boolean =
+        js("voice(${JSONObject.quote(kind)},${JSONObject.quote(uri)},${JSONObject.quote(reqId)})")
+
     private fun pushCarInfo(json: String) {
         lastCarInfo = json
         js("setCarInfo(${JSONObject.quote(json)})")
@@ -658,6 +666,13 @@ class CarMapRenderer(
         fun nav(json: String?) {
             val body = json?.takeIf { it.length <= MAX_JSON } ?: return
             main.post { pageListener?.onNav(body) }
+        }
+
+        /** The page's answer to a voice request (CarNav.onVoice). */
+        @JavascriptInterface
+        fun voice(json: String?) {
+            val body = json?.takeIf { it.length <= MAX_JSON } ?: return
+            main.post { pageListener?.onVoice(body) }
         }
 
         /**
