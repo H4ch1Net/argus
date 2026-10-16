@@ -152,7 +152,9 @@ permissions, asked once).
 - **WHERE TO** (top right) opens a search bar. Before you type it lists your
   last five destinations; type (or speak, when the car allows no keyboard
   while moving) and places near you appear, each with its distance and where
-  it is. Tap one.
+  it is. Tap one. A kind of place ("gas", "coffee", "parking", "EV
+  charging", "pharmacy") lists the nearest of that kind, from the map's own
+  OpenStreetMap data.
 - **Route preview:** up to three routes, fastest first, each with its time,
   distance, the roads it takes, its traffic delay and the traffic lights on
   it; the map shows them (the selected one in white). **Avoid hwy** plans
@@ -168,6 +170,38 @@ permissions, asked once).
 - Routes come from the same navigator as the globe on the phone, through the
   phone's proxy. If the car map reloads mid-route, it plans to the same place
   again and carries on.
+
+### Voice: Gemini and Google Assistant
+
+Ask the phone's assistant (the car's microphone button, or "Hey Google")
+while Argus is the map in the car, and Argus takes the place or the action;
+the assistant does the listening and hands Argus the words, Argus never
+records anything. If the assistant opens another map app instead, make Argus
+its default navigation app where the phone offers it (Gemini or Google
+Assistant settings, **Default navigation app**; Google documents the setting
+as Settings, Google, Gemini, Default navigation app), and Android Auto may ask
+which app to use the first time.
+
+- **"Navigate to Walmart"**, **"take me to 46211 Jackson Street"**,
+  **"navigate to the nearest gas station"**: the route shows and starts by
+  itself when the match is clear (one place, or the best one within 80 km, or
+  one with exactly that name close by). When it is not ("navigate to Los
+  Angeles": many), the places are listed: tap one.
+- **"Find coffee near me"**, **"gas stations nearby"**: the list, nearest
+  first.
+- **"Directions to ..."** shows the route without starting it; **"add a stop
+  at ..."** does the same (Argus has no stops yet) and says so.
+- While driving: **"what's my ETA"**, **"how far is it"**, **"what's my next
+  turn"**, **"where am I going"**, **"what road am I on"**, **"show the route
+  overview"**, **"follow me"**, **"avoid highways"** / **"allow highways"**
+  (plans again), **"show traffic"** / **"hide traffic"** (the traffic flow
+  layer, with a TomTom key), **"exit navigation"**. The answer shows on the
+  car screen. What Argus does not do (tolls, ferries, reports, voice guidance)
+  is said on the screen too.
+- Started by the assistant, Argus opens in the car first and answers once the
+  map is up (a few seconds).
+- On the phone the same request opens WHERE TO with the matches, or the
+  route to a point.
 
 ### Vehicle
 
@@ -327,6 +361,7 @@ page's own maneuver banner instead of Android Auto's card).
 | Car shows `ARGUS_BOOT : OPEN ARGUS ON THE PHONE`          | The proxy did not start: open Argus on the phone to see why.                                                                                                                                                                                                                        |
 | Car map stays black or blank                              | Update **Android System WebView** (and Chrome) from the Play Store; reconnect. `adb logcat -s ArgusCar` shows the car page's messages.                                                                                                                                              |
 | No position (NO FIX)                                      | Location permission for Argus, and the phone's location on. In the car the phone's GPS is used.                                                                                                                                                                                     |
+| Gemini says it cannot navigate with Argus                 | Make Argus the **Default navigation app** (phone Settings, Google, Gemini or Google Assistant), then ask again in the car.                                                                                                                                                          |
 | The car arrow stands still while driving                  | **Settings and keys**, **CAR GPS**: which sources sent positions, whether the service started, and FEED (restarts). Set Argus's battery use to **Unrestricted** (Android settings, Apps, Argus, Battery): Samsung's battery saver can hold location back. `adb logcat -s ArgusCar`. |
 | Argus crashes                                             | The next start says **LAST CRASH** on the boot screen; **Settings**, **LAST CRASH**, **COPY** has the trace. Native crashes: `adb logcat -b crash -d`.                                                                                                                              |
 | Globe says NO PROXY REACHABLE                             | A proxy address set in SETUP (for a proxy on another machine) overrides the phone's own: clear it there.                                                                                                                                                                            |

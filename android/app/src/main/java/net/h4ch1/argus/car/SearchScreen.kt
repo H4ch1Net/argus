@@ -60,9 +60,16 @@ private fun problemText(error: String?, avoidHighways: Boolean): Int = when (err
  * through the same search channel), then the recent destinations; typing
  * (or voice, when the car allows no keyboard) searches after a short pause,
  * near the vehicle, through the car page's navigator. Each row: the place,
- * its distance, and where it is. A tap previews routes.
+ * its distance, and where it is. A tap previews routes. Opened by Gemini or
+ * Google Assistant ("find coffee nearby", or a far "navigate to"), it starts
+ * with what was asked and the places found, the list in view.
  */
-class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(carContext) {
+class SearchScreen(
+    carContext: CarContext,
+    private val nav: CarNav,
+    initialQuery: String = "",
+    initialResults: List<CarPlace> = emptyList(),
+) : Screen(carContext) {
     private val main = Handler(Looper.getMainLooper())
     private var query = ""
     private var results: List<CarPlace> = emptyList()
@@ -77,6 +84,16 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
     private var savedAsked = 0
     private var savedRetried = false
     private val askSaved = Runnable { loadSaved() }
+
+    // Asked by voice: the list first, not the keyboard.
+    private val fromVoice = initialQuery.isNotBlank()
+
+    init {
+        if (fromVoice) {
+            query = initialQuery.trim().take(MAX_QUERY)
+            results = initialResults
+        }
+    }
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -167,7 +184,7 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
             .setHeaderAction(Action.BACK)
             .setSearchHint(carContext.getString(R.string.car_search_hint))
             // With recent places to tap, the keyboard waits for a tap on the bar.
-            .setShowKeyboardByDefault(typed || places.isEmpty())
+            .setShowKeyboardByDefault(!fromVoice && (typed || places.isEmpty()))
         if (query.isNotEmpty()) b.setInitialSearchText(query)
         // The first answer pending: the host's spinner (a list may not be set).
         if (typed && searching && results.isEmpty()) return b.setLoading(true).build()
@@ -213,19 +230,23 @@ class SearchScreen(carContext: CarContext, private val nav: CarNav) : Screen(car
  * distance, the roads it takes, its traffic delay and traffic lights, drawn
  * on the map by the car page (the selected one in white). AVOID HWY plans
  * again without highways and freeways (remembered); NAVIGATE starts the
- * route and returns to the map, where the routing card takes over.
+ * route and returns to the map, where the routing card takes over. From a
+ * voice "navigate to" (autoStart) the fastest route starts by itself.
  */
 class RoutePreviewScreen(
     carContext: CarContext,
     private val nav: CarNav,
     private val place: CarPlace,
+    autoStart: Boolean = false,
 ) : Screen(carContext) {
     private val prefs = Prefs(carContext)
     private var routes: List<CarRoute> = emptyList()
     private var error: String? = null
     private var planning = false
     private var selected = 0
-    private var startWhenReady = false
+
+    // A voice "navigate to": the best route starts as soon as it is planned.
+    private var startWhenReady = autoStart
     private var started = false
 
     init {

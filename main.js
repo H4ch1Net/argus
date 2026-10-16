@@ -2642,6 +2642,35 @@ async function setupScene(app, splash) {
     app.mount('navTop', navUi.top);
     app.mount('navBottom', navUi.bottom);
     document.body.appendChild(navUi.ctx);
+    // A place from Gemini or Google Assistant on the phone, or a geo: link
+    // opened with Argus: the Android app holds it until the page takes it
+    // (now, and whenever another arrives). A point gets its route; a place
+    // to look for opens WHERE TO with the matches.
+    const { parseGeoIntent, planGeoIntent } = await import('./core/nav/geoIntent.js');
+    const takeGeo = () => {
+      let raw = null;
+      try {
+        raw = window.ArgusAndroid?.takeGeoIntent?.() ?? null;
+      } catch {
+        raw = null;
+      }
+      if (!raw) return;
+      let msg = null;
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      const req = parseGeoIntent(
+        msg?.uri,
+        msg?.kind === 'search' ? 'search' : 'navigate',
+      );
+      if (!req || req.kind === 'action') return;
+      if (req.dest) navUi.routeHere(planGeoIntent(req).place);
+      else navUi.searchFor(req.query);
+    };
+    (window.argusHost ??= {}).geoIntent = takeGeo;
+    takeGeo();
     navHooks.swallowTap = () => navUi.swallowTap();
     // ROUTE HERE on the card of anything on the ground (not satellites).
     navHooks.cardAction = (target, rec) =>

@@ -90,6 +90,7 @@
     <string name="car_nav_offline">MAP STARTING. TRY AGAIN IN A MOMENT.</string>
     <string name="car_no_route">NO ROUTE FOUND</string>
     <string name="car_no_route_hwy">NO ROUTE WITHOUT HIGHWAYS</string>
+    <string name="car_voice_no_answer">THE MAP DID NOT ANSWER. ASK AGAIN.</string>
     <string name="car_no_position">WAITING FOR YOUR POSITION</string>
     <string name="car_arrived">ARRIVED</string>
     <string name="car_destination">DESTINATION</string>

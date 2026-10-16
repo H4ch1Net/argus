@@ -3,8 +3,10 @@
 // proxy feeds 'openfreemap' (the TileJSON naming the current tile set) and
 // 'openfreemap-tiles' (z14 tiles, the deepest it serves, about 2 km across
 // at Indio's latitude). The `transportation_name` layer holds every named or
-// numbered road as lines with name, name_en, ref and network; that is all
-// that is decoded. Tiles are asked nearest first, kept decoded (a few dozen,
+// numbered road as lines with name, name_en, ref and network; the `poi`
+// layer holds the places (fuel, cafes, parking, hotels...) with their OSM
+// subclass, for "gas station near me" (./nearby.js); that is all that is
+// decoded. Tiles are asked nearest first, kept decoded (a few dozen,
 // least recently used out), and never cancelled half way: the next keystroke
 // of the same search wants the same tiles. The proxy caches them too (a
 // week), and they are often there already from the DARK basemap.
@@ -19,7 +21,10 @@ export const TILESET_FEED = 'openfreemap';
 export const TILES_FEED = 'openfreemap-tiles';
 /** A dated tile set in the TileJSON's tile URL (the proxy pins the same shape). */
 const TILESET = /\/planet\/(\d{8}_\d{6}_pt)\/\{z\}\/\{x\}\/\{y\}\.pbf$/;
-const WANT = { transportation_name: ['name', 'name_en', 'ref', 'network', 'class'] };
+const WANT = {
+  transportation_name: ['name', 'name_en', 'ref', 'network', 'class'],
+  poi: ['name', 'name_en', 'class', 'subclass'],
+};
 
 /** The z14 tile holding a point. */
 export function tileOf(lat, lon, z = ROAD_ZOOM) {
@@ -64,7 +69,45 @@ export function tilesAround(cx, cy, ring, z = ROAD_ZOOM) {
 
 /** One decoded tile -> road lines { names, ref, network, cls, coords: [[lat, lon]...] }. */
 export function roadLines(bytes, x, y, z = ROAD_ZOOM) {
-  const layer = decodeTile(bytes, WANT).transportation_name;
+  return tileContent(bytes, x, y, z).lines;
+}
+
+/**
+ * One decoded tile -> { lines, pois }: the road lines (as roadLines) and
+ * the places { name, cls, sub, lat, lon } (sub: the OSM value, "fuel",
+ * "charging_station", "cafe"...).
+ */
+export function tileContent(bytes, x, y, z = ROAD_ZOOM) {
+  const decoded = decodeTile(bytes, WANT);
+  return {
+    lines: linesOf(decoded.transportation_name, x, y, z),
+    pois: poisOf(decoded.poi, x, y, z),
+  };
+}
+
+function poisOf(layer, x, y, z) {
+  if (!layer) return [];
+  const ext = layer.extent || 4096;
+  const out = [];
+  for (const f of layer.features) {
+    if (f.type !== 1) continue;
+    const p = f.props ?? {};
+    const pt = f.parts?.[0];
+    if (!pt || pt.length < 2) continue;
+    const [lat, lon] = tileToLatLon(x, y, pt[0] / ext, pt[1] / ext, z).map(round6);
+    const name = [p.name, p.name_en].find((v) => typeof v === 'string' && v.trim()) ?? '';
+    out.push({
+      name: name.trim(),
+      cls: typeof p.class === 'string' ? p.class : '',
+      sub: typeof p.subclass === 'string' ? p.subclass : '',
+      lat,
+      lon,
+    });
+  }
+  return out;
+}
+
+function linesOf(layer, x, y, z) {
   if (!layer) return [];
   const ext = layer.extent || 4096;
   const out = [];
@@ -127,14 +170,16 @@ export function createRoadTileLoader(proxyClient, { keep = 64, concurrency = 6 }
       .then((s) =>
         proxyClient.getBytes(TILES_FEED, `/planet/${s}/${ROAD_ZOOM}/${x}/${y}.pbf`),
       )
-      .then((bytes) => roadLines(bytes, x, y));
+      .then((bytes) => tileContent(bytes, x, y));
     p.catch(() => tiles.delete(key));
     tiles.set(key, p);
     while (tiles.size > keep) tiles.delete(tiles.keys().next().value);
     return p;
   }
 
-  return async function loadRoads(near, ring = 1, signal) {
+  // The decoded tiles around `near`, `pick` from each: the road lines (the
+  // loader itself) or the places (loadRoads.pois).
+  async function around(near, ring, signal, pick) {
     const c = tileOf(Number(near.lat), Number(near.lon));
     const want = tilesAround(c.x, c.y, Math.max(0, Math.min(4, ring)));
     const results = new Array(want.length);
@@ -145,7 +190,7 @@ export function createRoadTileLoader(proxyClient, { keep = 64, concurrency = 6 }
         const i = next;
         next += 1;
         results[i] = await tile(want[i].x, want[i].y).then(
-          (lines) => lines,
+          (content) => pick(content),
           () => null,
         );
       }
@@ -155,5 +200,11 @@ export function createRoadTileLoader(proxyClient, { keep = 64, concurrency = 6 }
       throw Object.assign(new Error('aborted'), { name: 'AbortError' });
     if (!results.some(Boolean)) throw new Error('road tiles unavailable');
     return results.filter(Boolean).flat();
-  };
+  }
+
+  const loadRoads = (near, ring = 1, signal) =>
+    around(near, ring, signal, (c) => c.lines);
+  /** The places in the (2 ring + 1)^2 tiles around `near` (the same tiles, kept once). */
+  loadRoads.pois = (near, ring = 1, signal) => around(near, ring, signal, (c) => c.pois);
+  return loadRoads;
 }

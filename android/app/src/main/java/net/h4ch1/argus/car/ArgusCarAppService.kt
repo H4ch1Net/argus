@@ -33,12 +33,24 @@ class ArgusCarAppService : CarAppService() {
 }
 
 class ArgusCarSession : Session() {
+    private var nav: CarNav? = null
+
     override fun onCreateScreen(intent: Intent): Screen {
         val renderer = CarMapRenderer(carContext, lifecycle)
         val nav = CarNav(carContext, renderer, lifecycle)
+        this.nav = nav
         renderer.pageListener = nav
         askPermissions(renderer)
-        return MapScreen(carContext, renderer, nav)
+        val map = MapScreen(carContext, renderer, nav)
+        // Started by Gemini or Google Assistant ("navigate to ..."): the
+        // request waits for the map page, then shows its route.
+        nav.onIntent(intent)
+        return map
+    }
+
+    // A request while Argus already runs in the car.
+    override fun onNewIntent(intent: Intent) {
+        nav?.onIntent(intent)
     }
 
     // One prompt on the phone ("check your phone" in the car) for what is

@@ -21,7 +21,7 @@ Status: Round 7 ran the app on real CesiumJS (headless Chromium with software We
 
 Most of this needs no key. Free keys add OpenSky flights, NASA FIRMS fires, AIS ships and TomTom traffic. A Mapillary token adds street photos. Each key is optional, and the app runs with whichever ones you have.
 
-Argus only reads data that is already public. It does not read licence plates, look up people, or scan or send traffic at a host. Voice control is out of scope.
+Argus only reads data that is already public. It does not read licence plates, look up people, or scan or send traffic at a host. Voice is limited to places spoken to Gemini or Google Assistant, which hand Argus the text ("navigate to ...", in Android Auto and on the phone); Argus never listens itself.
 
 ## How it works
 
@@ -154,4 +154,4 @@ Argus visualizes data that is already public. It never generates new surveillanc
 - Aircraft owners, plates and other person-level fields are not shown.
 - OSINT inputs are assets (IP, domain, ASN), never people. Anything else is refused.
 - Lookups read published indexes such as RIPEstat, Shodan's existing scans, CT logs and RIS. Nothing scans a host or sends it traffic.
-- Voice control is out of scope.
+- Voice control is limited to destinations and navigation actions handed over by Gemini or Google Assistant (Android Auto and the phone); Argus has no microphone use or speech recognition of its own.
