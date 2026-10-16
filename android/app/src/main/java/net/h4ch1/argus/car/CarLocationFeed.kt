@@ -48,10 +48,15 @@ enum class FixSource(val label: String) {
  * the last PREFER_MS, so a dropout falls back at once and a recovery takes
  * over at once.
  *
+ * It runs for the whole car session (CarMapRenderer), not only while the
+ * map is in front: a moment behind another screen must not leave it off.
+ * The renderer's watchdog calls restart() when no fix has been used for a
+ * while, which asks every source again.
+ *
  * What each source did on a drive (how many fixes each sent, which were
- * used, whether the foreground service started) goes to CarGpsLog, which
- * the phone's Settings shows under CAR GPS: after a drive it says what
- * worked.
+ * used, whether the foreground service started, each start, stop and
+ * restart) goes to CarGpsLog, which the phone's Settings shows under CAR
+ * GPS: after a drive it says what worked.
  */
 class CarLocationFeed(
     private val carContext: CarContext,
@@ -60,7 +65,14 @@ class CarLocationFeed(
     private val appContext = carContext.applicationContext
     private val manager = appContext.getSystemService(LocationManager::class.java)
     private val executor = ContextCompat.getMainExecutor(appContext)
-    private var running = false
+    /** Whether the sources are being listened to. */
+    var running = false
+        private set
+
+    // When the last fix was used, and when the sources were last asked
+    // (elapsedRealtime); quietMs() measures from the later.
+    private var usedAt = 0L
+    private var askedAt = 0L
     private val heardAt = LongArray(FixSource.values().size)
     private var sensors: CarSensors? = null
 
@@ -86,11 +98,34 @@ class CarLocationFeed(
         if (value.status == CarValue.STATUS_SUCCESS) value.value?.let { offer(it, FixSource.CAR) }
     }
 
-    @SuppressLint("MissingPermission")
-    fun start() {
-        if (running || !hasLocation(appContext)) return
+    /** Listen to every source; false without the location permission. */
+    fun start(): Boolean {
+        if (running) return true
+        if (!hasLocation(appContext)) return false
         running = true
-        CarGpsLog.begin(appContext)
+        CarGpsLog.count(CarGpsLog.Event.START)
+        listen(replay = true)
+        return true
+    }
+
+    /** How long since a fix was used (or the sources were asked), in ms. */
+    fun quietMs(): Long = SystemClock.elapsedRealtime() - maxOf(usedAt, askedAt)
+
+    /**
+     * Ask every source again: the listeners go and come back (the car's and
+     * the platform's), for when the fixes stopped without a word.
+     */
+    fun restart() {
+        if (!running) return
+        CarGpsLog.count(CarGpsLog.Event.RESTART)
+        unlisten()
+        heardAt.fill(0L)
+        listen(replay = false)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun listen(replay: Boolean) {
+        askedAt = SystemClock.elapsedRealtime()
         startCar()
         val lm = manager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && lm.hasProvider(LocationManager.FUSED_PROVIDER)) {
@@ -116,6 +151,7 @@ class CarLocationFeed(
         }
         // The phone's last fix first, so the map has somewhere to be; it
         // carries its age, and the page shows NO GPS until a live one comes.
+        if (!replay) return
         listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
             .filter { it in lm.allProviders }
             .mapNotNull {
@@ -132,6 +168,12 @@ class CarLocationFeed(
     fun stop() {
         if (!running) return
         running = false
+        CarGpsLog.count(CarGpsLog.Event.STOP)
+        unlisten()
+        CarGpsLog.save(appContext)
+    }
+
+    private fun unlisten() {
         sensors?.let { s ->
             try {
                 s.removeCarHardwareLocationListener(onCar)
@@ -140,8 +182,15 @@ class CarLocationFeed(
             }
         }
         sensors = null
-        manager?.let { lm -> listOf(fused, gps, network).forEach { lm.removeUpdates(it) } }
-        CarGpsLog.save(appContext)
+        manager?.let { lm ->
+            listOf(fused, gps, network).forEach {
+                try {
+                    lm.removeUpdates(it)
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "location remove", e)
+                }
+            }
+        }
     }
 
     /** The car's own GPS (car API level 3 and up, with the location permission). */
@@ -163,6 +212,7 @@ class CarLocationFeed(
     }
 
     private fun offer(fix: Location, source: FixSource) {
+        if (!running) return
         val now = SystemClock.elapsedRealtime()
         heardAt[source.ordinal] = now
         CarGpsLog.heard(source)
@@ -173,6 +223,7 @@ class CarLocationFeed(
                 return
             }
         }
+        usedAt = now
         CarGpsLog.used(source)
         CarGpsLog.tick(appContext)
         onFix(fix, source)
@@ -188,16 +239,28 @@ class CarLocationFeed(
 /**
  * A record of the last car drive's location, kept for the phone's Settings
  * (CAR GPS): when it began, whether the foreground service went to the
- * foreground, how many fixes each source sent and how many were used, the
- * last fix, and the first few refusals. Saved every SAVE_MS while the map
- * runs and when it stops. Main thread only.
+ * foreground, how many fixes each source sent and how many were used, how
+ * often the feed started, stopped and was restarted (and the map was hidden
+ * and shown), the last fix, and the first few refusals. One record per car
+ * session; saved every SAVE_MS while it runs and when it stops. Main thread
+ * only.
  */
 object CarGpsLog {
+    /** What the feed and the map did, counted per drive. */
+    enum class Event(val label: String) {
+        START("START"),
+        STOP("STOP"),
+        RESTART("RESTART"),
+        HIDDEN("HIDDEN"),
+        SHOWN("SHOWN"),
+    }
+
     private const val FILE = "car_gps"
     private const val KEY = "last"
     private const val SAVE_MS = 15_000L
     private val heard = IntArray(FixSource.values().size)
     private val used = IntArray(FixSource.values().size)
+    private val events = IntArray(Event.values().size)
     private var began = 0L
     private var lastFix = 0L
     private var foreground = "--"
@@ -207,6 +270,7 @@ object CarGpsLog {
     fun begin(context: Context) {
         heard.fill(0)
         used.fill(0)
+        events.fill(0)
         notes.clear()
         began = System.currentTimeMillis()
         lastFix = 0L
@@ -220,6 +284,10 @@ object CarGpsLog {
     fun used(source: FixSource) {
         used[source.ordinal]++
         lastFix = System.currentTimeMillis()
+    }
+
+    fun count(event: Event) {
+        events[event.ordinal]++
     }
 
     /** "ON", or why the location service could not go to the foreground. */
@@ -246,6 +314,7 @@ object CarGpsLog {
         for (s in FixSource.values()) {
             o.put("heard_${s.name}", heard[s.ordinal]).put("used_${s.name}", used[s.ordinal])
         }
+        for (e in Event.values()) o.put("event_${e.name}", events[e.ordinal])
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY, o.toString()).apply()
     }
 
@@ -267,6 +336,9 @@ object CarGpsLog {
             append("\nFOREGROUND ").append(o.optString("foreground", "--"))
             append("\nUSED  ").append(count("used"))
             append("\nHEARD ").append(count("heard"))
+            if (o.has("event_START")) {
+                append("\nFEED ").append(Event.values().joinToString(" · ") { "${it.label} ${o.optInt("event_${it.name}")}" })
+            }
             append("\nLAST FIX ").append(if (last > 0) time.format(Date(last)) else "NONE")
             o.optString("notes").takeIf { it.isNotEmpty() }?.let { append("\n").append(it) }
         }

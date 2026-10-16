@@ -152,19 +152,22 @@ export function metresPerPixel(range, fov, width, height) {
 }
 
 /**
- * The car's two camera modes, switched by its AUTO / NORTH button: AUTO is
- * heading up and tilted, with the zoom following speed and the next turn;
- * NORTH is flat and north up, zoomed the same way. The older '3d' and '2d'
- * (saved by earlier builds) mean AUTO.
+ * The car's camera modes, switched in turn by its camera button: AUTO is
+ * tilted and heading up; 2D is flat and heading up; NORTH is flat and north
+ * up. All three zoom by themselves (speed, the next turn). The '3d' saved by
+ * earlier builds means AUTO. 2D looks down a degree short of straight: a
+ * camera aimed at exactly -90 has no heading left (Cesium's lookAt drops it),
+ * and the map would stay north up.
  */
 export const VIEW_MODES = {
   auto: { label: 'AUTO', pitch: FOLLOW_PITCH_DEG, headingUp: true },
+  '2d': { label: '2D', pitch: -89, headingUp: true },
   north: { label: 'NORTH', pitch: -90, headingUp: false },
 };
-export const VIEW_ORDER = ['auto', 'north'];
+export const VIEW_ORDER = ['auto', '2d', 'north'];
 /** A saved or requested mode as one of VIEW_MODES ('auto' for anything else). */
-export const viewModeOf = (mode) => (mode === 'north' ? 'north' : 'auto');
-/** The mode after `mode` on the AUTO / NORTH button. */
+export const viewModeOf = (mode) => (mode === 'north' || mode === '2d' ? mode : 'auto');
+/** The mode after `mode` on the camera button. */
 export const nextViewMode = (mode) =>
   VIEW_ORDER[(VIEW_ORDER.indexOf(viewModeOf(mode)) + 1) % VIEW_ORDER.length];
 
@@ -326,6 +329,10 @@ const CODES = {
   ships: 'SHP',
   satellites: 'SAT',
   transit: 'TRN',
+  fires: 'FIR',
+  lightning: 'LTG',
+  myplaces: 'PLC',
+  landmarks: 'LMK',
 };
 /** A three-letter tag for a layer key. */
 export const layerCode = (key) =>
@@ -372,8 +379,9 @@ export function nearestContacts(contacts, here, max = 3, { heading = null } = {}
 
 // ----------------------------------------------------------------- layers
 /**
- * The car-safe layers: what the car's LAYERS list offers, in its order
- * (android/.../car/MapScreen.kt CarLayers.ALL, kept equal by model.test.js).
+ * The car-safe layers: what the car's LAYERS groups offer (traffic, cameras,
+ * aircraft, weather, places), in their order (android/.../car/MapScreen.kt
+ * CarLayers.ALL, kept equal by model.test.js).
  * The car shows the phone's layers within this set, and its toggles change
  * only these in the shared record (core/share/session.js).
  */
@@ -381,14 +389,20 @@ export const CAR_LAYER_KEYS = Object.freeze([
   'incidents',
   'chp',
   'waze',
+  'trafficflow',
   'simtraffic',
-  'trafficcams',
-  'surveillance',
   'signals',
+  'trafficcams',
+  'webcams',
+  'surveillance',
   'flights',
   'military',
   'radar',
+  'lightning',
+  'fires',
   'quakes',
+  'myplaces',
+  'landmarks',
 ]);
 
 /**

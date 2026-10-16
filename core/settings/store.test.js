@@ -54,6 +54,34 @@ test('the store persists, notifies and survives broken storage', () => {
   assert.equal(b.set('clock', 'local'), 'local');
 });
 
+test('reload picks up what another page on the same storage saved', () => {
+  const st = memory();
+  const phone = createSettingsStore(st);
+  const car = createSettingsStore(st);
+  const seen = [];
+  car.subscribe((k, v) => seen.push([k, v]));
+  phone.set('iconSize', 150);
+  phone.set('units', 'imperial');
+  assert.equal(car.get('iconSize'), 100);
+  assert.deepEqual(car.reload().sort(), ['iconSize', 'units']);
+  assert.equal(car.get('iconSize'), 150);
+  assert.deepEqual(seen.sort(), [
+    ['iconSize', 150],
+    ['units', 'imperial'],
+  ]);
+  // Nothing new: no notifications. A change made after a reload keeps the
+  // other page's values (no stale state written over them).
+  assert.deepEqual(car.reload(), []);
+  car.set('clock', 'local');
+  const saved = JSON.parse(st.raw.get(SETTINGS_KEY));
+  assert.equal(saved.iconSize, 150);
+  assert.equal(saved.clock, 'local');
+  // Broken record: nothing changes.
+  st.raw.set(SETTINGS_KEY, '{not json');
+  assert.deepEqual(car.reload(), []);
+  assert.equal(car.get('iconSize'), 150);
+});
+
 test('export and import round-trip; foreign files are refused', () => {
   const a = createSettingsStore(memory());
   a.set('coords', 'mgrs');

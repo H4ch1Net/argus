@@ -74,7 +74,7 @@ async function main() {
 
     // Settings (core/settings/store.js) shape the boot: tier, frame rate,
     // resolution and globe detail. Everything else applies once it is up.
-    const { createSettingsStore, profileOverrides } =
+    const { createSettingsStore, profileOverrides, SETTINGS_KEY } =
       await import('./core/settings/store.js');
     let storage = null;
     try {
@@ -88,6 +88,11 @@ async function main() {
       profile: profileOverrides(settings.all(), window.devicePixelRatio || 1),
     });
     app.settings = settings;
+    // The phone and the car map are two pages on one storage: what one saves
+    // (SETTINGS, the car's ICON SIZE) applies in the other at once.
+    window.addEventListener('storage', (e) => {
+      if (e.key === SETTINGS_KEY) settings.reload();
+    });
     // The user's own position (core/geo/selfPosition.js): one model for every
     // shell. Shells and the Android app feed it, GEO and navigation read it;
     // it draws the marker except in the car, which draws its own (same icon).
@@ -2351,6 +2356,8 @@ async function setupScene(app, splash) {
   const hudRoot = document.querySelector('.argus-hud');
   const applySetting = (key, value) => {
     const v = app.viewer;
+    // The car keeps its own light render profile whatever the phone picks.
+    if (car && ['fps', 'resolution', 'detail', 'tier', 'uiScale'].includes(key)) return;
     if (key === 'fps') {
       v.targetFrameRate = value === 'auto' ? tierProfile.targetFrameRate : value;
     } else if (key === 'resolution') {
