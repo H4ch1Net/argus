@@ -51,6 +51,8 @@ import { createRouteView } from './routeView.js';
 import { createNavBanner, createVehicleWidget } from './panels.js';
 import { createSharedLayers } from '../core/share/session.js';
 import { decodeShareHash } from '../core/share/state.js';
+import { ICON_SIZES } from '../core/ui/iconPrefs.js';
+import { SETTINGS_KEY } from '../core/settings/store.js';
 
 /** The layer keys in a share hash ('#v=1&layers=...'), [] without any. */
 const hashLayers = (hash) => decodeShareHash(hash)?.layers ?? [];
@@ -160,6 +162,7 @@ export async function mountShell(root, bootOpts = {}) {
     },
     setVehicleInfo: (on) => (ctl ? ctl.setVehicleInfo(on) : (early.vehicleInfo = on)),
     setSpeedo: (on) => (ctl ? ctl.setSpeedo(on) : (early.speedo = on)),
+    setIconSize: (pct) => (ctl ? ctl.setIconSize(pct) : (early.iconSize = pct)),
     setInsets: (...a) => (ctl ? ctl.setInsets(...a) : (early.insets = a)),
     setView: (mode) => (ctl ? ctl.setView(mode) : (early.view = mode)),
     search: (query, reqId) =>
@@ -736,6 +739,8 @@ export async function mountShell(root, bootOpts = {}) {
     const json = JSON.stringify({
       available: keysOf(states),
       on: keysOf(states.filter((s) => s.on || s.loading)),
+      // The map icons' size (%), for the car's ICON SIZE row.
+      iconSize: shellApp?.settings?.get?.('iconSize') ?? 100,
     });
     if (json === reportedLayers) return;
     reportedLayers = json;
@@ -806,6 +811,38 @@ export async function mountShell(root, bootOpts = {}) {
     if (following) startFollow();
     else ctl.recenter();
   }
+
+  // ICON SIZE in the car's DISPLAY list: every map icon's size (%), the same
+  // setting as the phone's SETTINGS > ICONS (shared storage), so the phone
+  // opens with it too. The shared record is read first, so what the phone
+  // changed meanwhile is kept, not written over.
+  function setIconSize(pct) {
+    const v = Number(pct);
+    if (!ICON_SIZES.includes(v)) return;
+    try {
+      shellApp?.settings?.reload?.();
+      shellApp?.settings?.set('iconSize', v);
+    } catch {
+      // storage blocked: it still applies this drive
+    }
+    reportSoon();
+  }
+
+  // The phone's settings (icon sizes among them), changed while the car
+  // runs, apply here at once: main.js reloads the shared record when the
+  // phone page writes it, and this page reads it again whenever the map
+  // comes back, in case that event was missed.
+  window.addEventListener('storage', (e) => {
+    if (e.key === SETTINGS_KEY) reportSoon();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    try {
+      if (shellApp?.settings?.reload?.().length) reportSoon();
+    } catch {
+      // storage blocked
+    }
+  });
 
   // SPEED in the car's LAYERS list: the speed readout at all.
   function setSpeedo(on) {
@@ -1270,6 +1307,7 @@ export async function mountShell(root, bootOpts = {}) {
     adoptLayers,
     setVehicleInfo,
     setSpeedo,
+    setIconSize,
     setInsets,
     setView,
     search,
@@ -1352,6 +1390,7 @@ export async function mountShell(root, bootOpts = {}) {
   for (const [key, on] of early.toggles ?? []) toggleLayer(key, on);
   if (early.vehicleInfo !== undefined) setVehicleInfo(early.vehicleInfo);
   if (early.speedo !== undefined) setSpeedo(early.speedo);
+  if (early.iconSize !== undefined) setIconSize(early.iconSize);
   if (early.carInfo) setCarInfo(early.carInfo);
   if (bootOpts.navigator) setNavigator(bootOpts.navigator);
   // Tell the app the page is listening, so it sends the current state.

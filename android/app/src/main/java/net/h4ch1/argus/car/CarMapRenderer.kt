@@ -56,8 +56,10 @@ import kotlin.math.roundToInt
  * The page runs on the phone's GPU beside whatever the phone draws, so it is
  * kept quiet: a drag or pinch reaches it once per display frame (the host can
  * send many events per frame, each a round trip into the WebView), and it is
- * paused (no rendering, no polling, no location) whenever the car is not
- * showing it.
+ * paused (no rendering, no polling) whenever the car is not showing it.
+ * Location is the exception: it runs for the whole car session (a moment
+ * behind another screen must never leave the arrow standing still), and a
+ * watchdog asks every source again when no fix has come for QUIET_MS.
  *
  * The same bridge carries navigation (CarNav: search, route preview, the
  * route's progress back), the layers (the page shows the phone's and reports
@@ -73,7 +75,7 @@ class CarMapRenderer(
     lifecycle: Lifecycle,
 ) : SurfaceCallback, DefaultLifecycleObserver {
     private val main = Handler(Looper.getMainLooper())
-    private val location = CarLocationFeed(carContext) { fix, _ -> onFix(fix) }
+    private val location = CarLocationFeed(carContext) { fix, source -> onFix(fix, source) }
     private val stats = CarStatsFeed(carContext) { pushCarInfo(it) }
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
@@ -93,6 +95,13 @@ class CarMapRenderer(
     private var started = true
     private var lastCarInfo: String? = null
     private var locationHold: CarLocationService.Handle? = null
+    private var restartAfter = QUIET_MS
+    private val watchdog = object : Runnable {
+        override fun run() {
+            checkLocation()
+            main.postDelayed(this, WATCH_MS)
+        }
+    }
 
     /** Where the page's answers go (search results, routes, nav state). */
     var pageListener: CarPageListener? = null
@@ -115,15 +124,20 @@ class CarMapRenderer(
 
     override fun onCreate(owner: LifecycleOwner) {
         NodeRuntime.start(carContext)
+        // One CAR GPS record per car session (Settings on the phone).
+        CarGpsLog.begin(carContext)
         try {
             carContext.getCarService(AppManager::class.java).setSurfaceCallback(this)
         } catch (e: RuntimeException) {
             // A host that cannot hand out a surface: the templates still work.
             Log.e(TAG, "no car surface", e)
         }
+        location.start()
+        main.postDelayed(watchdog, WATCH_MS)
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
+        main.removeCallbacks(watchdog)
         location.stop()
         stats.stop()
         unobserve?.invoke()
@@ -141,21 +155,43 @@ class CarMapRenderer(
         locationHold = CarLocationService.hold(carContext)
     }
 
-    // Another app in front on the car screen: nothing to draw, no fix needed.
+    // Another app in front on the car screen: nothing to draw. Location keeps
+    // running (the route still follows the car, and the arrow is right the
+    // moment the map shows again); the surface may come back after onStart,
+    // and onSurfaceAvailable resumes the page then.
     override fun onStart(owner: LifecycleOwner) {
         started = true
+        CarGpsLog.count(CarGpsLog.Event.SHOWN)
+        location.start()
+        if (virtualDisplay != null) holdLocation()
         if (virtualDisplay?.surface != null) {
             resumePage()
-            location.start()
             stats.start()
         }
     }
 
     override fun onStop(owner: LifecycleOwner) {
         started = false
+        CarGpsLog.count(CarGpsLog.Event.HIDDEN)
+        CarGpsLog.save(carContext)
         pausePage()
-        location.stop()
         stats.stop()
+    }
+
+    /**
+     * Every WATCH_MS: location on whenever it is allowed, and asked again
+     * when it went quiet (no fix used for restartAfter, which doubles up to
+     * QUIET_MAX_MS while nothing comes, as in a garage, and resets on a fix).
+     */
+    private fun checkLocation() {
+        if (!location.running) {
+            location.start()
+            return
+        }
+        if (location.quietMs() < restartAfter) return
+        Log.w(TAG, "no fix for ${location.quietMs()} ms: asking every source again")
+        location.restart()
+        restartAfter = (restartAfter * 2).coerceAtMost(QUIET_MAX_MS)
     }
 
     // ------------------------------------------------------------ controls
@@ -189,9 +225,12 @@ class CarMapRenderer(
 
     fun pushSpeedo() = js("setSpeedo(${Prefs(carContext).carSpeedo})")
 
+    /** ICON SIZE in the car: every map icon's size (%), shared with the phone. */
+    fun setIconSize(pct: Int): Boolean = js("setIconSize($pct)")
+
     fun onLocationPermission() {
-        if (virtualDisplay == null) return
         location.start()
+        if (virtualDisplay == null) return
         if (locationHold == null) holdLocation() else locationHold?.promote()
     }
 
@@ -241,7 +280,11 @@ class CarMapRenderer(
                 Log.e(TAG, "car display could not take the new surface", e)
                 return
             }
-            if (started) resumePage()
+            if (started) {
+                resumePage()
+                stats.start()
+            }
+            location.start()
             pushInsets()
             return
         }
@@ -515,9 +558,11 @@ class CarMapRenderer(
         js("setInsets(${num(top)},${num(right)},${num(bottom)},${num(left)})")
     }
 
-    private fun onFix(fix: Location) {
+    private fun onFix(fix: Location, source: FixSource) {
+        restartAfter = QUIET_MS
         lastFix = fix
-        lastFixAge = ageMs(fix)
+        // The car's own fixes arrive live; their clock may not be the phone's.
+        lastFixAge = if (source == FixSource.CAR) 0L else ageMs(fix)
         lastFixAt = SystemClock.elapsedRealtime()
         lastLocation = fix
         js(fixCall(fix, lastFixAge))
@@ -616,20 +661,25 @@ class CarMapRenderer(
         }
 
         /**
-         * The layers this build can show and those that are on (the phone's
-         * shared set, as the car shows it): {"available":[...],"on":[...]}.
+         * The layers this build can show, those that are on (the phone's
+         * shared set, as the car shows it) and the map icons' size (%):
+         * {"available":[...],"on":[...],"iconSize":100}.
          */
         @JavascriptInterface
         fun layerState(json: String?) {
             val body = json?.takeIf { it.length <= MAX_JSON } ?: return
-            val (available, on) = try {
+            val (available, on, iconSize) = try {
                 val o = JSONObject(body)
-                keys(o.optJSONArray("available")) to keys(o.optJSONArray("on"))
+                Triple(
+                    keys(o.optJSONArray("available")),
+                    keys(o.optJSONArray("on")),
+                    o.optInt("iconSize", 0).takeIf { it > 0 },
+                )
             } catch (_: JSONException) {
                 return
             }
             main.post {
-                CarLayers.setState(available, on)
+                CarLayers.setState(available, on, iconSize)
                 // The car's last choice, for a first run without a phone
                 // session; a layer this build cannot show keeps its old state.
                 val prefs = Prefs(carContext)
@@ -653,6 +703,12 @@ class CarMapRenderer(
         const val FLING_SECONDS = 0.25f
         const val FLING_MS = 450
         const val MAX_JSON = 64 * 1024
+
+        // The location watchdog: how often it looks, and how long without a
+        // fix before it asks every source again (doubling to the cap).
+        const val WATCH_MS = 5_000L
+        const val QUIET_MS = 15_000L
+        const val QUIET_MAX_MS = 120_000L
         val KEY = Regex("^[a-z0-9]{1,32}$")
 
         fun num(v: Float): String = if (v.isFinite()) String.format(Locale.ROOT, "%.2f", v) else "0"

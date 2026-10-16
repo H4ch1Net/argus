@@ -37,11 +37,22 @@
     <!-- Android Auto: short caps titles (Android Auto draws them in its own font). -->
     <string name="car_layers">LAYERS</string>
     <string name="car_view_auto">AUTO</string>
+    <string name="car_view_2d">2D</string>
     <string name="car_view_north">NORTH</string>
     <string name="car_speedo">SPEED</string>
     <string name="car_preset_drive">DRIVE</string>
     <string name="car_preset_sky">SKY</string>
     <string name="car_vehicle_info">VEHICLE INFO</string>
+    <string name="car_icon_size">ICON SIZE</string>
+    <string name="car_icon_size_text">%1$d%% · NEXT %2$d%%</string>
+    <string name="car_group_traffic">TRAFFIC</string>
+    <string name="car_group_cameras">CAMERAS</string>
+    <string name="car_group_aircraft">AIRCRAFT</string>
+    <string name="car_group_weather">WEATHER</string>
+    <string name="car_group_places">PLACES</string>
+    <string name="car_group_display">DISPLAY</string>
+    <string name="car_group_off">OFF</string>
+    <string name="car_group_none">NOTHING AVAILABLE YET</string>
     <string name="layer_incidents">INCIDENTS</string>
     <string name="layer_chp">CHP (CA)</string>
     <string name="layer_waze">WAZE</string>
@@ -53,6 +64,12 @@
     <string name="layer_trafficcams">TRAFFIC CAMS</string>
     <string name="layer_radar">RADAR</string>
     <string name="layer_quakes">QUAKES</string>
+    <string name="layer_trafficflow">TRAFFIC FLOW</string>
+    <string name="layer_webcams">PUBLIC WEBCAMS</string>
+    <string name="layer_lightning">LIGHTNING</string>
+    <string name="layer_fires">FIRES</string>
+    <string name="layer_myplaces">MY PLACES</string>
+    <string name="layer_landmarks">LANDMARKS</string>
 
     <!-- The car map's location notification (car/CarLocationService.kt) -->
     <string name="car_location_channel">Car map</string>

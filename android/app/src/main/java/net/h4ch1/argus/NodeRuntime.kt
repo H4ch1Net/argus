@@ -69,8 +69,8 @@ class Prefs(context: Context) {
 
     /**
      * The car map's camera: "auto" (tilted, heading up, zoom by speed and the
-     * next turn) or "north" (flat, north up). Earlier builds saved "3d" and
-     * "2d", which read as "auto".
+     * next turn), "2d" (flat, heading up) or "north" (flat, north up). An
+     * earlier build's "3d" reads as "auto".
      */
     var carView: String
         get() = sp.getString("carView", null)?.takeIf { it in CAR_VIEWS } ?: CAR_VIEWS.first()
@@ -127,8 +127,8 @@ class Prefs(context: Context) {
         /** The DRIVE preset: what matters on the road (shell-car, CarLayers). */
         val CAR_DEFAULT_LAYERS = setOf("incidents", "chp", "trafficcams", "surveillance")
 
-        /** The car's camera modes, in the AUTO / NORTH button's order (shell-car/model.js VIEW_ORDER). */
-        val CAR_VIEWS = listOf("auto", "north")
+        /** The car's camera modes, in the camera button's order (shell-car/model.js VIEW_ORDER). */
+        val CAR_VIEWS = listOf("auto", "2d", "north")
     }
 }
 

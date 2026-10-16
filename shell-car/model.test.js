@@ -85,22 +85,28 @@ test('followPose follows the vehicle itself; the driver scales the zoom', () => 
   );
 });
 
-test('AUTO is heading up and tilted, NORTH flat and north up; old saved views mean AUTO', () => {
+test('AUTO is tilted and heading up, 2D flat and heading up, NORTH flat and north up', () => {
   const fix = { lat: 51.5, lon: -0.12, heading: 90, speed: 0 };
   const north = followPose(fix, { mode: 'north' });
   assert.equal(north.pitch, -90);
   assert.equal(north.heading, 0);
   near(north.range, 1800, 1e-6);
-  for (const mode of ['auto', '3d', '2d', 'nope', undefined]) {
+  // A degree short of straight down, so the camera keeps its heading.
+  const flat = followPose(fix, { mode: '2d' });
+  assert.equal(flat.pitch, -89);
+  assert.equal(flat.heading, 90);
+  for (const mode of ['auto', '3d', 'nope', undefined]) {
     const p = followPose(fix, { mode });
     assert.equal(p.pitch, -45);
     assert.equal(p.heading, 90);
   }
-  assert.equal(nextViewMode('auto'), 'north');
+  assert.equal(nextViewMode('auto'), '2d');
+  assert.equal(nextViewMode('2d'), 'north');
   assert.equal(nextViewMode('north'), 'auto');
-  assert.equal(nextViewMode('3d'), 'north');
-  assert.equal(viewModeOf('2d'), 'auto');
-  assert.equal(VIEW_MODES[nextViewMode('nope')].label, 'NORTH');
+  assert.equal(nextViewMode('3d'), '2d');
+  assert.equal(viewModeOf('3d'), 'auto');
+  assert.equal(viewModeOf('2d'), '2d');
+  assert.equal(VIEW_MODES[nextViewMode('nope')].label, '2D');
 });
 
 // The camera model Cesium's lookAt uses (heading, pitch, range from the aim

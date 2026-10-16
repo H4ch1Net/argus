@@ -182,6 +182,26 @@ export function createSettingsStore(storage) {
         listeners.forEach((fn) => fn(k, state[k], state));
       return true;
     },
+    /**
+     * Re-read the stored record (another page on this origin changed it: the
+     * phone and the car map share one storage) and notify for each key that
+     * changed. Persists nothing, so a stale page never writes over a newer
+     * record. Returns the keys that changed.
+     */
+    reload() {
+      let next;
+      try {
+        const text = storage?.getItem(SETTINGS_KEY);
+        next = text ? validateSettings(JSON.parse(text)) : defaultSettings();
+      } catch {
+        return [];
+      }
+      const changed = Object.keys(next).filter((k) => next[k] !== state[k]);
+      if (!changed.length) return changed;
+      state = next;
+      for (const k of changed) listeners.forEach((fn) => fn(k, state[k], state));
+      return changed;
+    },
     /** fn(key, value, all) after any change. */
     subscribe(fn) {
       listeners.add(fn);

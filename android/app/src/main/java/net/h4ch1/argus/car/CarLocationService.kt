@@ -67,7 +67,10 @@ class CarLocationService : Service() {
     // Each outcome goes to CarGpsLog (Settings, CAR GPS), so a drive leaves a
     // record of whether Android let the service hold location.
     private fun promote(): Boolean {
-        if (foreground) return true
+        if (foreground) {
+            CarGpsLog.foreground("ON")
+            return true
+        }
         if (!hasLocation(this)) {
             CarGpsLog.foreground("NO LOCATION PERMISSION")
             return false

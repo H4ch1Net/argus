@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2D: the flat map with the vehicle's chevron, heading up. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,3.5H20.5V20.5H3.5Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="square" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,6.5L16,17L12,14.6L8,17Z" />
+</vector>
